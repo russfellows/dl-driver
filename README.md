@@ -104,13 +104,14 @@ Multi‑threaded transfers via tokio::task::spawn and a bounded channel; object 
 
 ## 6  Performance & scalability strategy
 
-Memory – single reusable Vec<u8> per generator thread; mutate 64 B per 4 KiB to avoid page‑fault storm.
-CPU – rayon for on‑node parallelism; optional --mpi feature uses rsmpi to coordinate ranks but keeps the rest of the code identical.
-I/O – leverage O_DIRECT/posix_fadvise on Linux; for S3 use multipart_upload with 8‑32 MiB parts, adaptive to object size.
-Metrics – record nanosecond timestamps around every backend call, accumulate in a Histogram<u64, 1_000_000µs>; expose CSV/JSON.
-7  Suggested milestone plan
+* Memory – single reusable Vec<u8> per generator thread; mutate 64 B per 4 KiB to avoid page‑fault storm.
+* CPU – rayon for on‑node parallelism; optional --mpi feature uses rsmpi to coordinate ranks but keeps the rest of the code identical.
+* I/O – leverage O_DIRECT/posix_fadvise on Linux; for S3 use multipart_upload with 8‑32 MiB parts, adaptive to object size.
+* Metrics – record nanosecond timestamps around every backend call, accumulate in a Histogram<u64, 1_000_000µs>; expose CSV/JSON.
 
-## Milestone	Scope	Target Δ
+## 7  Suggested milestone plan
+
+### Milestone	Scope	Target Δ
 | Milestone | Description | Time |
 | :-------- | :---------- | :--- |
 | M0 | Skeleton workspace compiles; CLI echoes parsed YAML. | 1 week |
