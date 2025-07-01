@@ -1,9 +1,12 @@
 use anyhow::Result;
 use clap::Parser;
+use real_dlio_core::{Config, Runner};
+use real_dlio_storage::PosixBackend;
+use real_dlio_formats::NpzFormat;
 
-/// real_dlio CLI – Milestone M0.
+/// real_dlio CLI – Milestone M1.
 ///
-/// Currently: parse a workload YAML, then confirm success or pretty-print it.
+/// Parse a workload YAML, then confirm success or pretty-print it.
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -28,6 +31,12 @@ fn main() -> Result<()> {
         println!("✅ Parsed YAML successfully: {:?}", args.config);
     }
 
+    // for now we’ll ignore cfg contents and just exercise POSIX+NPZ:
+    let mut runner = Runner::new(
+        PosixBackend::new("./data"),
+        NpzFormat::new(vec![1024, 1024]),  // 1 MiB array as demo
+    );
+    runner.run_once("bench.npy", "./bench.npy")?;
     Ok(())
 }
 
