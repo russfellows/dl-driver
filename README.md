@@ -112,13 +112,13 @@ Multi‑threaded transfers via tokio::task::spawn and a bounded channel; object 
 ## 7  Suggested milestone plan
 
 ### Milestone	Scope	Target Δ
-| Milestone | Description | Time |
-| :-------- | :---------- | :--- |
-| M0 | Skeleton workspace compiles; CLI echoes parsed YAML. | 1 week |
-| M1 | POSIX backend + NPZ generator/reader + metrics; passes unit tests for ≥10 GB dataset. | 2 weeks |
-| M2 | S3 backend via s3dlio (sync) + multipart upload. | 1 week |
-| M3 | Async S3 path + HDF5 format + basic histogram report. | 2 weeks |
-| M4 | PyO3 bindings (pip install io-bench-lite) + docs + container image. | 1 week |
+| Milestone | Description | Time | Status
+| :-------- | :---------- | :---- | :------ |
+| M0 | Skeleton workspace compiles; CLI echoes parsed YAML. | 1 week | Complete |
+| M1 | POSIX backend + NPZ generator/reader + metrics; passes unit tests for ≥10 GB dataset. | 2 weeks | Complete |
+| M2 | S3 backend via s3dlio (sync) + multipart upload. | 1 week | TBD |
+| M3 | Async S3 path + HDF5 format + basic histogram report. | 2 weeks | TBD |
+| M4 | PyO3 bindings (pip install io-bench-lite) + docs + container image. | 1 week | TBD |
 
 ## Why this is much simpler
 <2000 LoC in Rust vs ~12 k LoC Python + templates in DLIO.
