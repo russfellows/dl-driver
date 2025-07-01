@@ -1,0 +1,5 @@
+[package]
+name    = "real_dlio_py_api"
+version = "0.1.0"
+edition = "2021"
+

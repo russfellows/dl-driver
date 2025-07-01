@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/storage",
+    "crates/formats",
+    "crates/py_api",
+    "crates/cli",
+]
+resolver = "2"
+
