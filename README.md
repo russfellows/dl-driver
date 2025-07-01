@@ -115,7 +115,7 @@ Multi‑threaded transfers via tokio::task::spawn and a bounded channel; object 
 | Milestone | Description | Time | Status
 | :-------- | :---------- | :---- | :------ |
 | M0 | Skeleton workspace compiles; CLI echoes parsed YAML. | 1 week | Complete |
-| M1 | POSIX backend + NPZ generator/reader + metrics; passes unit tests for ≥10 GB dataset. | 2 weeks | Complete |
+| M1 | POSIX backend + NPZ generator/reader + metrics; passes unit tests for ≥10 GB dataset. | 2 weeks | Partial |
 | M2 | S3 backend via s3dlio (sync) + multipart upload. | 1 week | TBD |
 | M3 | Async S3 path + HDF5 format + basic histogram report. | 2 weeks | TBD |
 | M4 | PyO3 bindings (pip install io-bench-lite) + docs + container image. | 1 week | TBD |
