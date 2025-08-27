@@ -3441,12 +3441,20 @@ name = "real_dlio"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
+ "futures 0.3.31",
+ "futures-util",
+ "rand",
  "real_dlio_core",
+ "s3dlio",
  "serde_yaml",
+ "tempfile",
  "tokio",
+ "tokio-test",
  "tracing",
  "tracing-subscriber",
+ "tracing-test",
 ]
 
 [[package]]
@@ -3454,14 +3462,27 @@ name = "real_dlio_core"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-stream",
+ "async-trait",
  "bytes",
  "chrono",
  "dotenvy",
+ "futures 0.3.31",
+ "futures-core",
+ "futures-util",
+ "ndarray 0.15.6",
+ "ndarray-npy 0.8.1",
+ "num_cpus",
  "object_store",
+ "rand",
+ "rand_chacha 0.3.1",
+ "rayon",
  "s3dlio",
  "serde",
  "serde_yaml",
+ "tempfile",
  "tokio",
+ "tokio-stream",
  "tracing",
  "uuid",
 ]
@@ -4430,6 +4451,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-test"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures-core",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4563,6 +4597,27 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tracing-test"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "557b891436fe0d5e0e363427fc7f217abf9ccd510d5136549847bdcbcd011d68"
+dependencies = [
+ "tracing-core",
+ "tracing-subscriber",
+ "tracing-test-macro",
+]
+
+[[package]]
+name = "tracing-test-macro"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04659ddb06c87d233c566112c1c9c5b9e98256d9af50ec3bc9c8327f873a7568"
+dependencies = [
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]

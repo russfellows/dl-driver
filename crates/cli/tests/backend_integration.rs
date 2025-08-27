@@ -10,13 +10,13 @@ async fn test_file_backend() -> Result<()> {
     runner.run().await?;
     
     let metrics = runner.get_metrics();
-    assert!(metrics.files_processed > 0, "Should process files");
-    assert!(metrics.bytes_read > 0, "Should read bytes");
-    assert!(metrics.bytes_written > 0, "Should write bytes");
-    assert!(metrics.total_time.is_some(), "Should record total time");
+    assert!(metrics.files_processed() > 0, "Should process files");
+    assert!(metrics.bytes_read() > 0, "Should read bytes");
+    assert!(metrics.bytes_written() > 0, "Should write bytes");
+    assert!(metrics.total_time().is_some(), "Should record total time");
     
     println!("✅ File backend test passed - {} files, {} bytes", 
-             metrics.files_processed, metrics.bytes_read);
+             metrics.files_processed(), metrics.bytes_read());
     Ok(())
 }
 
@@ -28,12 +28,12 @@ async fn test_directio_backend() -> Result<()> {
     runner.run().await?;
     
     let metrics = runner.get_metrics();
-    assert!(metrics.files_processed > 0, "Should process files");
-    assert!(metrics.bytes_read > 0, "Should read bytes");
-    assert!(metrics.bytes_written > 0, "Should write bytes");
+    assert!(metrics.files_processed() > 0, "Should process files");
+    assert!(metrics.bytes_read() > 0, "Should read bytes");
+    assert!(metrics.bytes_written() > 0, "Should write bytes");
     
     println!("✅ DirectIO backend test passed - {} files, {} bytes", 
-             metrics.files_processed, metrics.bytes_read);
+             metrics.files_processed(), metrics.bytes_read());
     Ok(())
 }
 
@@ -52,8 +52,8 @@ async fn test_s3_backend_conditional() -> Result<()> {
     match runner.run().await {
         Ok(_) => {
             let metrics = runner.get_metrics();
-            assert!(metrics.files_processed > 0, "Should process files");
-            println!("✅ S3 backend test passed - {} files", metrics.files_processed);
+            assert!(metrics.files_processed() > 0, "Should process files");
+            println!("✅ S3 backend test passed - {} files", metrics.files_processed());
         }
         Err(e) => {
             println!("⚠️  S3 test failed (expected without proper credentials): {}", e);
@@ -79,8 +79,8 @@ async fn test_azure_backend_conditional() -> Result<()> {
     match runner.run().await {
         Ok(_) => {
             let metrics = runner.get_metrics();
-            assert!(metrics.files_processed > 0, "Should process files");
-            println!("✅ Azure backend test passed - {} files", metrics.files_processed);
+            assert!(metrics.files_processed() > 0, "Should process files");
+            println!("✅ Azure backend test passed - {} files", metrics.files_processed());
         }
         Err(e) => {
             println!("⚠️  Azure test failed (expected without proper credentials): {}", e);

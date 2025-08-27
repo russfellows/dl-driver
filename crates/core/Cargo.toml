@@ -1,6 +1,6 @@
 [package]
 name    = "real_dlio_core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -14,7 +14,25 @@ tracing     = "0.1"
 dotenvy     = "0.15"
 bytes       = "1.0"
 object_store = "0.10"
+async-trait = "0.1"
+futures-util = "0.3"
+
+# Additional dependencies from s3dlio for advanced features
+futures = "0.3"
+futures-core = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+async-stream = "0.3"
+rand = { version = "0.9", features = ["std", "alloc"] }
+rand_chacha = "0.3"
+rayon = "1.10"
+num_cpus = "1.16"
+ndarray = "0.15"
+ndarray-npy = "0.8"
+tempfile = "3.0"
 
 # s3dlio integration with updated Rust
 s3dlio = { path = "../../../s3dlio" }
+
+[dev-dependencies]
+tempfile = "3.0"
 
