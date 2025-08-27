@@ -1,1 +1,32 @@
+# Environment files with credentials
+.env
+local-env
+aws-env
+
+# Test data
+data/
+*.npz
+
+# Rust build artifacts
 /target
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
