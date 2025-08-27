@@ -1,0 +1,31 @@
+# Azure Blob Storage backend workload configuration for real_dlio
+model:
+  name: test_azure_unet3d
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: az://egiazurestore1/s3dlio/real-dlio-azure-test/
+  format: npz
+  num_files_train: 3
+  num_samples_per_file: 1
+  record_length_bytes: 262144   # 256KB files
+  record_length_bytes_stdev: 0
+  record_length_bytes_resize: 262144
+
+reader:
+  data_loader: pytorch
+  batch_size: 2
+  read_threads: 1
+  file_shuffle: seed
+  sample_shuffle: seed
+
+train:
+  epochs: 1
+  computation_time: 0.02

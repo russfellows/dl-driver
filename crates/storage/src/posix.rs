@@ -2,7 +2,7 @@
 //
 use std::{
     fs,
-    io::{self, Read},
+    io,
     path::{Path, PathBuf},
 };
 use crate::StorageBackend;

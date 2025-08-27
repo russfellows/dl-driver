@@ -1,0 +1,36 @@
+model:
+  name: "large_s3_unet3d"
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: s3://my-bucket2/real-dlio-large-test/
+  format: npz
+  num_files_train: 10    # 10 files for testing
+  num_samples_per_file: 1
+  record_length_bytes: 1048576   # 1MB files for larger test
+  record_length_bytes_stdev: 0
+  record_length_bytes_resize: 1048576
+
+reader:
+  data_loader: pytorch
+  batch_size: 3
+  read_threads: 1
+  file_shuffle: seed
+  sample_shuffle: seed
+
+data_loader:
+  batch_size: 3
+  read_threads: 1
+  preprocess_time: 0.0
+  computation_time: 0.1   # 100ms computation per batch
+
+train:
+  epochs: 1
+  computation_time: 0.05  # 50ms per file

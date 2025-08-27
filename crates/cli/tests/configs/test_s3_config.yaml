@@ -1,0 +1,31 @@
+# S3 workload configuration for real_dlio
+model:
+  name: test_s3_unet3d
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true   # Enable S3 data generation
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: s3://my-bucket2/real-dlio-test/
+  format: npz
+  num_files_train: 3    # Small test with 3 files
+  num_samples_per_file: 1
+  record_length_bytes: 102400   # 100KB files for quick testing
+  record_length_bytes_stdev: 0
+  record_length_bytes_resize: 1048576
+
+reader:
+  data_loader: pytorch
+  batch_size: 2
+  read_threads: 2
+  file_shuffle: seed
+  sample_shuffle: seed
+
+train:
+  epochs: 1
+  computation_time: 0.02  # Quick computation for testing
