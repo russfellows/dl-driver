@@ -1,0 +1,31 @@
+# File backend workload configuration for real_dlio
+model:
+  name: test_file_unet3d
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///tmp/real-dlio-file-test/
+  format: npz
+  num_files_train: 5
+  num_samples_per_file: 1
+  record_length_bytes: 524288   # 512KB files
+  record_length_bytes_stdev: 0
+  record_length_bytes_resize: 524288
+
+reader:
+  data_loader: pytorch
+  batch_size: 2
+  read_threads: 2
+  file_shuffle: seed
+  sample_shuffle: seed
+
+train:
+  epochs: 1
+  computation_time: 0.02

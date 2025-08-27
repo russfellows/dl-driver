@@ -1,101 +1,4 @@
-use anyhow::Result;
-use serde::Deserialize;
-use std::{fs, path::Path};
-
-/// Complete DLIO configuration structure
-#[derive(Debug, Deserialize, Clone)]
-pub struct Config {
-    pub model: Option<ModelConfig>,
-    pub framework: Option<String>,
-    pub workflow: WorkflowConfig,
-    pub dataset: DatasetConfig,
-    pub reader: ReaderConfig,
-    pub train: Option<TrainConfig>,
-    pub checkpoint: Option<CheckpointConfig>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct ModelConfig {
-    pub name: String,
-    pub model_size: Option<u64>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct WorkflowConfig {
-    pub generate_data: Option<bool>,
-    pub train: Option<bool>,
-    pub checkpoint: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct DatasetConfig {
-    pub data_folder: String,
-    pub format: String,
-    pub num_files_train: u32,
-    pub num_samples_per_file: Option<u32>,
-    pub record_length_bytes: Option<u64>,
-    pub record_length_bytes_stdev: Option<u64>,
-    pub record_length_bytes_resize: Option<u64>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct ReaderConfig {
-    pub data_loader: String,
-    pub batch_size: u32,
-    pub read_threads: Option<u32>,
-    pub file_shuffle: Option<String>,
-    pub sample_shuffle: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct TrainConfig {
-    pub epochs: u32,
-    pub computation_time: Option<f64>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct CheckpointConfig {
-    pub checkpoint_folder: String,
-    pub checkpoint_after_epoch: Option<u32>,
-    pub epochs_between_checkpoints: Option<u32>,
-}
-
-impl Config {
-    pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let text = fs::read_to_string(&path)?;
-        let config: Config = serde_yaml::from_str(&text)?;
-        Ok(config)
-    }
-
-    /// Get storage URI based on data_folder - detect if it's S3, file, etc.
-    pub fn storage_uri(&self) -> &str {
-        &self.dataset.data_folder
-    }
-
-    /// Determine storage backend type from URI
-    pub fn storage_backend(&self) -> StorageBackend {
-        let uri = self.storage_uri();
-        if uri.starts_with("s3://") {
-            StorageBackend::S3
-        } else if uri.starts_with("az://") {
-            StorageBackend::Azure
-        } else if uri.starts_with("direct://") {
-            StorageBackend::DirectIO
-        } else {
-            StorageBackend::File
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum StorageBackend {
-    S3,
-    Azure,
-    File,
-    DirectIO,
-}
-
-// Include unit tests for config functionality
+// Unit tests for core functionality
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,9 +47,8 @@ mod tests {
                 checkpoint: None,
             };
 
-            let detected = config.storage_backend();
-            assert_eq!(std::mem::discriminant(&detected), std::mem::discriminant(&expected_backend), 
-                      "URI '{}' should detect as {:?}, got {:?}", uri, expected_backend, detected);
+            assert!(matches!(config.storage_backend(), expected_backend), 
+                    "URI '{}' should detect as {:?}", uri, expected_backend);
         }
     }
 

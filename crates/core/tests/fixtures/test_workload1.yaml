@@ -1,9 +1,0 @@
-dataset:
-  name: test
-  size: 1024
-reader:
-  format: npz
-workflow:
-  generate: true
-  run: false
-

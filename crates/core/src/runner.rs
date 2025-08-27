@@ -1,58 +1,34 @@
-//
-//
 use anyhow::Result;
-use std::{
-    fs,
-    path::Path,
-    time::Instant,
-};
-use real_dlio_storage::StorageBackend;
-use real_dlio_formats::Format;
+use std::time::Instant;
 
+use crate::config::Config;
 use crate::metrics::Metrics;
 
-/// For M1: generate one NPZ, put/get via backend, collect timings.
-pub struct Runner<B, F> {
-    backend: B,
-    format: F,
+/// Placeholder runner for milestone M1
+pub struct Runner {
+    config: Config,
     metrics: Metrics,
 }
 
-impl<B, F> Runner<B, F>
-where
-    B: StorageBackend,
-    F: Format,
-{
-    pub fn new(backend: B, format: F) -> Self {
-        Runner { backend, format, metrics: Metrics::new() }
+impl Runner {
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            metrics: Metrics::new(),
+        }
     }
 
-    pub fn run_once<P: AsRef<Path>>(&mut self, key: &str, local_path: P) -> Result<()> {
-        let local = local_path.as_ref();
-
-        // 1) generate
-        let t0 = Instant::now();
-        self.format.generate(local)?;
-        self.metrics.record("generate", t0);
-
-        // 2) read raw bytes from FS
-        let data = fs::read(local)?;
-        self.metrics.record("read_fs", Instant::now());
-
-        // 3) write via backend
-        let t1 = Instant::now();
-        self.backend.put(key, &data)?;
-        self.metrics.record("backend_put", t1);
-
-        // 4) read back via backend
-        let t2 = Instant::now();
-        let _ = self.backend.get(key)?;
-        self.metrics.record("backend_get", t2);
-
-        // 5) cleanup
-        fs::remove_file(local)?;
-
-        self.metrics.report();
+    pub fn run_once(&mut self, _input: &str, _output: &str) -> Result<()> {
+        let start = Instant::now();
+        
+        // Placeholder for actual execution
+        println!("Running workload for config: {:?}", self.config.model);
+        
+        self.metrics.record_read_time(start.elapsed());
         Ok(())
+    }
+
+    pub fn get_metrics(&self) -> &Metrics {
+        &self.metrics
     }
 }
