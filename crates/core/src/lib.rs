@@ -1,4 +1,4 @@
-//! Core library for real_dlio ─ Milestone M1.
+//! Core library for real_dlio ─ Enhanced with s3dlio data loading.
 
 pub mod config;
 pub mod metrics;

@@ -1,6 +1,6 @@
 [package]
 name    = "real_dlio"          # ← the binary you will run
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -11,4 +11,14 @@ tokio       = { version = "1.0", features = ["full"] }
 tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 real_dlio_core = { path = "../core" }   # ← library dependency
+s3dlio = { path = "../../../s3dlio" }   # ← for testing s3dlio integration
+
+[dev-dependencies]
+tempfile = "3.0"
+tokio-test = "0.4"
+futures = "0.3"
+rand = { version = "0.9", features = ["std", "alloc"] }
+futures-util = "0.3"
+async-trait = "0.1"
+tracing-test = "0.2"
 
