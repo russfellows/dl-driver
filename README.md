@@ -9,7 +9,7 @@
 
 ## 🚀 Overview
 
-real_dlio is an **enterprise-grade data loading framework** designed for AI/ML storage workload testing and production use. Built in Rust with full DLIO configuration compatibility, it provides **unified, high-performance access** to multiple storage backends through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
+This project is designed to generate workloads similar to **enterprise-grade AI/ML data loading and checkpointing framework** designed for AI/ML storage workload testing and production use. Built in Rust and designed to be comparible at the configuration and workload level with the [dlio](https://github.com/argonne-lcf/dlio_benchmark) project, it provides **unified, high-performance access** to multiple storage backends through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
 
 ### ✨ Key Features
 
@@ -47,7 +47,7 @@ real_dlio is an **enterprise-grade data loading framework** designed for AI/ML s
 
 ## 🏗️ Architecture
 
-real_dlio follows a clean workspace architecture with 5 focused crates:
+dl-driver follows a clean workspace architecture with 5 focused crates:
 
 ```
 real_dlio/
@@ -66,8 +66,8 @@ real_dlio/
 ### Installation
 
 ```bash
-git clone https://github.com/russfellows/real_dlio.git
-cd real_dlio
+git clone https://github.com/russfellows/dl-driver.git
+cd dl-driver
 cargo build --release
 ```
 
@@ -75,21 +75,21 @@ cargo build --release
 
 ```bash
 # Test file system backend
-./target/release/real_dlio --config tests/configs/test_file_config.yaml
+./target/release/dl-driver --config tests/configs/test_file_config.yaml
 
 # Test S3/MinIO backend  
-./target/release/real_dlio --config tests/configs/test_s3_large_config.yaml
+./target/release/dl-driver --config tests/configs/test_s3_large_config.yaml
 
 # Test Azure backend (requires Azure credentials)
-AZURE_BLOB_ACCOUNT=your_account ./target/release/real_dlio --config tests/configs/test_azure_config.yaml
+AZURE_BLOB_ACCOUNT=your_account ./target/release/dl-driver --config tests/configs/test_azure_config.yaml
 
 # Test DirectIO backend
-./target/release/real_dlio --config tests/configs/test_directio_config.yaml
+./target/release/dl-driver --config tests/configs/test_directio_config.yaml
 ```
 
 ## 🏪 Storage Backends
 
-real_dlio provides unified access to multiple storage systems through URI schemes:
+This project provides unified access to multiple storage systems through URI schemes:
 
 ### File System (`file://`)
 ```yaml
