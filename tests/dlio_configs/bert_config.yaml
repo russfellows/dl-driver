@@ -1,0 +1,45 @@
+# DLIO BERT Workload Configuration  
+# Based on MLCommons DLIO BERT benchmark specification
+
+model:
+  name: bert_workload
+  model_size: 110176256
+  framework: tensorflow
+
+framework: tensorflow
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  data_folder: s3://dlio-benchmark/bert/data
+  format: tfrecord
+  num_files_train: 1500
+  num_files_eval: 100
+  record_length_bytes: 512
+  num_samples_per_file: 1000
+  compression: gzip
+
+reader:
+  data_loader: tensorflow
+  batch_size: 32
+  prefetch: 16
+  shuffle: true
+  read_threads: 8
+  compute_threads: 4
+  transfer_size: 4194304
+  file_access_type: multi_threaded
+
+checkpointing:
+  checkpoint_folder: s3://dlio-benchmark/bert/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 5
+  steps_between_checkpoints: 100
+
+profiling:
+  profiler: tensorflow_profiler
+  profile_folder: /mnt/vast1/bert_profiles
+  iostat: true

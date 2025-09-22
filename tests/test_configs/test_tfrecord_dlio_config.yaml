@@ -1,0 +1,26 @@
+# DLIO TFRecord Test Configuration
+# Test our improved TFRecord format with s3dlio integration
+
+model:
+  name: tfrecord_test
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: false
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/vast1/test_output_tfrecord/
+  format: tfrecord
+  num_files_train: 3
+  record_length_bytes: 1048576  # 1MB files
+
+reader:
+  data_loader: pytorch
+  batch_size: 1
+  read_threads: 1
+  compute_threads: 1
+  prefetch: 2
+  shuffle: false

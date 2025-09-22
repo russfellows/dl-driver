@@ -5,7 +5,7 @@ fn test_s3dlio_integration_compiles() {
     // and the integration is working at the compilation level
     
     // We should be able to import s3dlio types without errors
-    use s3dlio::data_loader::async_pool_dataloader::AsyncPoolDataLoader;
+    use s3dlio::api::advanced::AsyncPoolDataLoader;
     use s3dlio::LoaderOptions;
     
     // Just verify the types exist and can be referenced

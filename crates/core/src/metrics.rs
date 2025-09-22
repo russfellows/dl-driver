@@ -90,6 +90,14 @@ impl Metrics {
         data.bytes_written += bytes;
     }
 
+    /// Record a file generation operation
+    pub fn record_file_generated(&self, _filename: String, size_bytes: u64, duration: Duration) {
+        let mut data = self.data.lock().unwrap();
+        data.write_times.push(duration);
+        data.bytes_written += size_bytes;
+        data.files_processed += 1;
+    }
+
     /// Print performance summary
     pub fn print_summary(&self) {
         let data = self.data.lock().unwrap();

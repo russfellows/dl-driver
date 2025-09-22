@@ -1,5 +1,5 @@
 use anyhow::Result;
-use real_dlio_core::config::{Config, StorageBackend};
+use dl_driver_core::config::{Config, StorageBackend};
 
 /// Test configuration parsing and backend detection
 #[test]

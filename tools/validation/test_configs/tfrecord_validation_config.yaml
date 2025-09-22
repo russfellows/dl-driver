@@ -1,0 +1,18 @@
+model:
+  name: "format_validation_test"
+  
+workflow:
+  generate_data: true
+  train: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///mnt/vast1/dl_driver_format_validation"
+  format: "tfrecord"
+  num_files_train: 3
+  record_length_bytes: 1048576  # 1MB per record  
+  num_samples_per_file: 1
+
+reader:
+  data_loader: "tensorflow"
+  batch_size: 16
