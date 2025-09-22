@@ -1,5 +1,5 @@
 use anyhow::Result;
-use real_dlio_core::{config::Config, workload::WorkloadRunner};
+use dl_driver_core::{config::Config, workload::WorkloadRunner};
 use std::env;
 
 /// Integration test for file backend (always available)

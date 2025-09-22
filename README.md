@@ -3,7 +3,7 @@
 **A high-performance, enterprise-grade data loading framework for AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](./docs/Changelog.md)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Performance](https://img.shields.io/badge/performance-62K%20files%2Fsec-red.svg)](#performance-benchmarks)
 
@@ -13,13 +13,14 @@ This project is designed to generate workloads similar to **enterprise-grade AI/
 
 ### ✨ Key Features
 
+- **🎯 Complete AI/ML Format Compatibility**: Full validation with numpy, h5py, TensorFlow libraries
 - **🔗 DLIO Configuration Compatibility**: Drop-in replacement for existing DLIO YAML configs
+- **📋 3 Production Formats**: NPZ, HDF5, TFRecord with 100% standard library compatibility
 - **🏪 4 Universal Storage Backends**: File, S3/MinIO, Azure Blob, DirectIO with unified interface  
 - **⚡ Enterprise Performance**: **62K+ files/second** with advanced AsyncPoolDataLoader
-- **� Advanced Data Loading**: Dynamic batching, zero head latency, auto-tuning
 - **🔄 Multi-Threading**: Concurrent processing with backend-optimized configurations
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
-- **🧪 Comprehensively Tested**: 300+ files validated across all storage backends
+- **🧪 Comprehensively Validated**: 36 format validation tests + 300+ backend tests
 
 ## 📊 Performance Benchmarks
 
@@ -35,15 +36,24 @@ This project is designed to generate workloads similar to **enterprise-grade AI/
 
 *Test conditions: 75 files per backend, 5 content types, microsecond batch latency*
 
-### v0.2.0 - Storage Backend Throughput
-**Traditional Sequential Processing** 📈
+## 🎯 Format Compatibility
 
-| Backend | URI Scheme | Throughput | Use Case |
-|---------|------------|------------|----------|
-| **DirectIO** | `direct://` | **85.45 MB/s** | High-performance local I/O |
-| **File** | `file://` | 46.46 MB/s | Standard filesystem operations |
-| **S3/MinIO** | `s3://` | 20.02 MB/s | Cloud object storage |
-| **Azure** | `az://` | 0.42 MB/s | Azure Blob Storage |
+### v0.4.0 - AI/ML Format Validation ✅
+**100% Compatibility with Standard Python Libraries**
+
+| Format | Library | Validation | Features |
+|--------|---------|------------|----------|
+| **NPZ** | `numpy.load()` | ✅ 12/12 tests | ZIP archives with `.npy` files |
+| **HDF5** | `h5py.File()` | ✅ 12/12 tests | Hierarchical datasets, metadata |
+| **TFRecord** | `tf.data.TFRecordDataset` | ✅ 12/12 tests | CRC-32C, protobuf varints |
+
+**Total**: 36/36 format validations passed with standard Python AI/ML libraries!
+
+### Format Implementation Details
+- **NPZ**: s3dlio + zip library for proper numpy array archives
+- **HDF5**: s3dlio + hdf5-metno for cross-platform compatibility  
+- **TFRecord**: CRC-32C checksums + proper `tf.train.Example` encoding
+- **Validation**: Comprehensive Python test suite in `tools/validation/`
 
 ## 🏗️ Architecture
 

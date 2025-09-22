@@ -1,12 +1,21 @@
 [package]
 name    = "real_dlio_formats"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.98"
 ndarray = "0.16.1"
 ndarray-npy = "0.9.1"
+hdf5-metno = "0.10"
+futures = "0.3"
+futures-core = "0.3"
+bytes = "1.0"
+tempfile = "3.0"
+crc32fast = "1.3"
+crc32c = "0.6"
+zip = "2.4"
+s3dlio = { path = "../../../s3dlio" }
 
 [dev-dependencies]
 tempfile = "3.20.0"

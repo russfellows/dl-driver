@@ -4,8 +4,10 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use futures_util::StreamExt;
 
-use s3dlio::data_loader::async_pool_dataloader::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
-use s3dlio::data_loader::options::{LoaderOptions, LoadingMode, ReaderMode};
+use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
+use s3dlio::ReaderMode;
+use s3dlio::LoaderOptions;
+use s3dlio::data_loader::options::LoadingMode;
 use s3dlio::object_store::store_for_uri;
 
 /// Test comprehensive s3dlio DataLoader on File backend
@@ -245,7 +247,8 @@ async fn run_dataloader_test(store_uri: &str, backend_type: &str, num_files: usi
         
         match batch_result {
             Ok(batch) => {
-                metrics.record_batch(batch.len(), batch_start.elapsed());
+                let batch_bytes: u64 = batch.iter().map(|f| f.len() as u64).sum();
+                metrics.record_batch(batch.len(), batch_bytes, batch_start.elapsed());
                 
                 // Verify batch integrity
                 verify_batch_integrity(&batch, backend_type)?;
@@ -399,9 +402,10 @@ impl DataLoaderMetrics {
         }
     }
     
-    fn record_batch(&mut self, files_in_batch: usize, batch_time: Duration) {
+    fn record_batch(&mut self, files_in_batch: usize, batch_bytes: u64, batch_time: Duration) {
         self.total_batches += 1;
         self.total_files += files_in_batch;
+        self.total_bytes += batch_bytes;
         self.batch_times.push(batch_time);
     }
 }

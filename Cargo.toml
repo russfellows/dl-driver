@@ -8,3 +8,7 @@ members = [
 ]
 resolver = "2"
 
+[patch.crates-io]
+# Use s3dlio's patched version to expose hyper_builder methods for HTTP connection pool configuration
+aws-smithy-http-client = { path = "../s3dlio/fork-patches/aws-smithy-http-client" }
+

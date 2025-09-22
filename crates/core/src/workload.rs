@@ -7,11 +7,10 @@ use futures_util::StreamExt;
 use crate::config::Config;
 use crate::metrics::Metrics;
 
-// Import s3dlio functionality
+// Import s3dlio 0.8.0 functionality - using new advanced API
 use s3dlio::object_store::{store_for_uri, ObjectStore};
-use s3dlio::LoaderOptions;
-use s3dlio::data_loader::async_pool_dataloader::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
-use s3dlio::data_loader::options::ReaderMode;
+use s3dlio::{LoaderOptions, ReaderMode};
+use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
 
 /// Main workload execution engine using s3dlio capabilities
 pub struct WorkloadRunner {

@@ -1,0 +1,43 @@
+# DLIO CosmoFlow Workload Configuration
+# Based on MLCommons DLIO CosmoFlow benchmark specification for HPC environments
+
+model:
+  name: cosmoflow_workload
+  model_size: 402568796
+
+framework: tensorflow
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: true
+
+dataset:
+  data_folder: direct:///lustre/cosmoflow/data
+  format: hdf5
+  num_files_train: 2048
+  num_files_eval: 256
+  record_length_bytes: 67108864
+  num_samples_per_file: 1
+
+reader:
+  data_loader: tensorflow
+  batch_size: 8
+  prefetch: 2
+  shuffle: false
+  read_threads: 32
+  compute_threads: 16
+  transfer_size: 67108864
+  file_access_type: direct_io
+
+checkpointing:
+  checkpoint_folder: direct:///lustre/cosmoflow/checkpoints
+  checkpoint_after_epoch: 5
+  epochs_between_checkpoints: 5
+  steps_between_checkpoints: 500
+
+profiling:
+  profiler: hdf5_profiler
+  profile_folder: /lustre/cosmoflow/profiles
+  iostat: true

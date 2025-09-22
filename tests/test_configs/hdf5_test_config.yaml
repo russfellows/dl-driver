@@ -1,0 +1,18 @@
+model:
+  name: "hdf5_test"
+  
+workflow:
+  generate_data: true
+  train: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///mnt/vast1/dlio_hdf5_test"
+  format: "hdf5"
+  num_files_train: 50
+  record_length_bytes: 4194304  # 4MB per record  
+  num_samples_per_file: 1
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 16

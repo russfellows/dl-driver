@@ -4,8 +4,10 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use futures_util::StreamExt;
 
-use s3dlio::data_loader::async_pool_dataloader::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
-use s3dlio::data_loader::options::{LoaderOptions, LoadingMode, ReaderMode};
+use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
+use s3dlio::ReaderMode;
+use s3dlio::LoaderOptions;
+use s3dlio::data_loader::options::LoadingMode;
 use s3dlio::object_store::store_for_uri;
 
 /// Test comprehensive async pool data loading with 50+ files

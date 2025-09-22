@@ -1,0 +1,18 @@
+model:
+  name: "tfrecord_test"
+  
+workflow:
+  generate_data: true
+  train: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///mnt/vast1/dlio_tfrecord_test"
+  format: "tfrecord"
+  num_files_train: 30
+  record_length_bytes: 2097152  # 2MB per record  
+  num_samples_per_file: 1
+
+reader:
+  data_loader: "tensorflow"
+  batch_size: 32
