@@ -1,0 +1,44 @@
+# DLIO Configuration with JAX Framework Profile
+# Demonstrates M4 framework integration capabilities
+
+model:
+  name: "jax_resnet"
+  framework: "jax"
+  
+framework: "jax"
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "az://mldata/resnet_training"
+  format: "hdf5"
+  num_files_train: 512
+  num_samples_per_file: 256
+  record_length_bytes: 3145728  # 3MB samples
+  compression: "lz4"
+
+reader:
+  data_loader: "jax"
+  batch_size: 128
+  prefetch: 12
+  shuffle: false  # JAX handles shuffling differently
+  read_threads: 6
+  seed: 456
+
+# JAX-specific configuration (M4 framework profile)
+jax_config:
+  seed: 456
+  writable: true  # Enable writable NumPy arrays
+  batch_size: 128
+  prefetch_buffer_size: 8
+
+# Alternative nested framework configuration  
+framework_profiles:
+  jax:
+    seed: 456
+    writable: true
+    batch_size: 128

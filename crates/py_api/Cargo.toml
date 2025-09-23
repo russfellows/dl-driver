@@ -1,5 +1,13 @@
 [package]
 name    = "real_dlio_py_api"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
+
+[dependencies]
+dl_driver_core = { path = "../core" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+tokio = { version = "1.0", features = ["full"] }
 

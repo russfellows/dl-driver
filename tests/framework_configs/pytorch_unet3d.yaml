@@ -1,0 +1,51 @@
+# DLIO Configuration with PyTorch Framework Profile
+# Demonstrates M4 framework integration capabilities
+
+model:
+  name: "pytorch_unet3d"
+  framework: "pytorch"
+  
+framework: "pytorch"
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///mnt/vast1/pytorch_unet3d_data"
+  format: "npz"
+  num_files_train: 1024
+  num_samples_per_file: 64
+  record_length_bytes: 2097152  # 2MB samples
+  compression: "none"
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 32
+  prefetch: 8
+  shuffle: true
+  read_threads: 4
+  seed: 42
+
+# PyTorch-specific configuration (M4 framework profile)
+pytorch_config:
+  batch_size: 32
+  num_workers: 0  # Let s3dlio handle concurrency
+  shuffle: true
+  seed: 42
+  pin_memory: false
+  drop_last: true
+  prefetch_factor: 2
+  persistent_workers: false
+  return_type: "tensor"  # tensor, bytes, or reader
+  distributed: false
+
+# Alternative nested framework configuration
+framework_profiles:
+  pytorch:
+    batch_size: 32
+    shuffle: true
+    seed: 42
+    return_type: "tensor"

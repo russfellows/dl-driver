@@ -1,0 +1,50 @@
+# Multi-Framework DLIO Configuration
+# Demonstrates supporting multiple frameworks in one config
+
+model:
+  name: "multi_framework_cosmoflow"
+  
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///mnt/vast1/cosmoflow_data"
+  format: "npz"
+  num_files_train: 1024
+  num_samples_per_file: 128
+  record_length_bytes: 4194304  # 4MB samples
+  compression: "none"
+
+reader:
+  batch_size: 32
+  prefetch: 8
+  shuffle: true
+  read_threads: 4
+  seed: 789
+
+# Framework profiles supporting multiple frameworks
+framework_profiles:
+  pytorch:
+    batch_size: 32
+    shuffle: true
+    seed: 789
+    return_type: "tensor"
+    pin_memory: true
+    drop_last: true
+    
+  tensorflow:
+    batch_size: 32
+    shuffle_buffer_size: 1000
+    seed: 789
+    deterministic: true
+    num_parallel_calls: -1
+    prefetch_buffer_size: -1
+    
+  jax:
+    batch_size: 32
+    seed: 789
+    writable: false
+    prefetch_buffer_size: 8

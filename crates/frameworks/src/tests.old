@@ -1,0 +1,118 @@
+use crate::{PyTorchDataLoader, FrameworkConfig, framework_config::PyTorchConfig};
+use dl_driver_core::dlio_compat::DlioConfig;
+use anyhow::Result;
+
+#[test]
+fn test_pytorch_config_validation() -> Result<()> {
+    // Test valid PyTorch configuration
+    let mut pytorch_config = PyTorchConfig::default();
+    
+    // Test validation of valid config
+    let framework_config = FrameworkConfig {
+        pytorch: Some(pytorch_config.clone()),
+        tensorflow: None,
+        dlio: DlioConfig::default(),
+    };
+    
+    assert!(framework_config.validate().is_ok());
+    
+    // Test invalid batch size
+    pytorch_config.batch_size = 0;
+    let invalid_framework_config = FrameworkConfig {
+        pytorch: Some(pytorch_config.clone()),
+        tensorflow: None,
+        dlio: DlioConfig::default(),
+    };
+    assert!(invalid_framework_config.validate().is_err());
+    
+    // Test invalid prefetch factor
+    pytorch_config.batch_size = 32; // Reset to valid
+    pytorch_config.prefetch_factor = Some(0);
+    let invalid_framework_config2 = FrameworkConfig {
+        pytorch: Some(pytorch_config),
+        tensorflow: None,
+        dlio: DlioConfig::default(),
+    };
+    assert!(invalid_framework_config2.validate().is_err());
+    
+    Ok(())
+}
+
+#[test]
+fn test_pytorch_config_serialization() -> Result<()> {
+    let pytorch_config = PyTorchConfig::default();
+    
+    // Test JSON serialization
+    let json = serde_json::to_string(&pytorch_config)?;
+    println!("PyTorch config JSON: {}", json);
+    
+    // Test deserialization
+    let deserialized: PyTorchConfig = serde_json::from_str(&json)?;
+    assert_eq!(pytorch_config.batch_size, deserialized.batch_size);
+    assert_eq!(pytorch_config.num_workers, deserialized.num_workers);
+    assert_eq!(pytorch_config.shuffle, deserialized.shuffle);
+    
+    Ok(())
+}
+
+#[test]
+fn test_pytorch_dataloader_config_conversion() -> Result<()> {
+    // Create a minimal DLIO config for testing
+    let dlio_config = DlioConfig::default();
+    let pytorch_config = PyTorchConfig {
+        batch_size: 64,
+        shuffle: true,
+        seed: Some(42),
+        ..PyTorchConfig::default()
+    };
+    
+    // Create PyTorchDataLoader (this tests the config validation path)
+    let dataloader = PyTorchDataLoader::from_dlio_config(
+        &dlio_config,
+        pytorch_config.clone(),
+        "file:///tmp/test_data".to_string()
+    )?;
+    
+    // Test loader options conversion
+    let loader_options = dataloader.to_loader_options(&dlio_config);
+    assert_eq!(loader_options.batch_size, 64);
+    assert_eq!(loader_options.shuffle, true);
+    assert_eq!(loader_options.seed, 42);
+    
+    Ok(())
+}
+
+#[test]
+fn test_pytorch_format_detection() -> Result<()> {
+    // Test format detection logic
+    let mut dlio_config = DlioConfig::default();
+    
+    // Test NPZ format detection
+    dlio_config.dataset.format = Some("npz".to_string());
+    let dataloader = PyTorchDataLoader::from_dlio_config(
+        &dlio_config,
+        PyTorchConfig::default(),
+        "file:///tmp/test.npz".to_string()
+    )?;
+    
+    // Verify format was detected correctly (this tests internal logic)
+    assert!(matches!(dataloader.format_type(), crate::pytorch_adapter::FormatType::Npz));
+    
+    Ok(())
+}
+
+#[test]
+fn test_framework_config_from_dlio() -> Result<()> {
+    // Test creating FrameworkConfig from DLIO config
+    let dlio_config = DlioConfig::default();
+    
+    let pytorch_framework_config = FrameworkConfig::from_dlio_with_pytorch(dlio_config.clone());
+    assert!(pytorch_framework_config.pytorch.is_some());
+    assert!(pytorch_framework_config.tensorflow.is_none());
+    
+    let tensorflow_framework_config = FrameworkConfig::from_dlio_with_tensorflow(dlio_config);
+    assert!(tensorflow_framework_config.pytorch.is_none());
+    assert!(tensorflow_framework_config.tensorflow.is_some());
+    
+    Ok(())
+}

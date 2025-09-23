@@ -37,4 +37,3 @@ mod tests {
         assert!(backend.get(key).is_err());
     }
 }
-

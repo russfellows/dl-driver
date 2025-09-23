@@ -7,6 +7,11 @@ aws-env
 data/
 *.npz
 
+# Python wheel contents and build artifacts
+s3dlio_wheel_contents/
+__pycache__/
+.venv/
+
 # Rust build artifacts
 /target
 

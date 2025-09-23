@@ -1,11 +1,10 @@
 //
 //
+use crate::StorageBackend;
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
-use crate::StorageBackend;
 
 pub struct PosixBackend {
     root: PathBuf,
@@ -14,7 +13,9 @@ pub struct PosixBackend {
 impl PosixBackend {
     /// Store everything under `root` on the local filesystem.
     pub fn new<P: AsRef<Path>>(root: P) -> Self {
-        Self { root: root.as_ref().to_path_buf() }
+        Self {
+            root: root.as_ref().to_path_buf(),
+        }
     }
 }
 
@@ -53,4 +54,3 @@ impl StorageBackend for PosixBackend {
         Ok(names)
     }
 }
-
