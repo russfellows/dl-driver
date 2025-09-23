@@ -1,0 +1,397 @@
+use anyhow::Result;
+use dl_driver_core::dlio_compat::DlioConfig;
+use s3dlio::LoaderOptions;
+use crate::framework_config::PyTorchConfig;
+
+/// Format types supported by the PyTorch adapter
+#[derive(Debug, Clone, PartialEq)]
+pub enum FormatType {
+    Npz,
+    Hdf5,
+    TfRecord,
+}
+
+/// PyTorch DataLoader configuration manager for dl-driver
+/// 
+/// Note: For M4, the main PyTorch integration is implemented in Python
+/// (py_api/src/frameworks/pytorch.py) which wraps s3dlio's mature PyTorch classes.
+/// This Rust struct provides configuration management and validation.
+pub struct PyTorchDataLoader {
+    /// PyTorch-specific configuration
+    pytorch_config: PyTorchConfig,
+    
+    /// Format type for data parsing
+    format_type: FormatType,
+    
+    /// Current epoch for tracking
+    current_epoch: usize,
+    
+    /// Random seed state for reproducibility
+    seed_state: Option<u64>,
+    
+    /// Data folder URI
+    data_folder: String,
+}
+
+impl PyTorchDataLoader {
+    /// Create a new PyTorch data loader configuration from DLIO config
+    pub fn from_dlio_config(
+        dlio_config: &DlioConfig,
+        pytorch_config: PyTorchConfig,
+        data_folder: String,
+    ) -> Result<Self> {
+        // Detect format from config
+        let format_type = Self::detect_format(dlio_config)?;
+        
+        // Validate data folder URI
+        Self::validate_data_folder(&data_folder)?;
+        
+        Ok(PyTorchDataLoader {
+            pytorch_config,
+            format_type,
+            current_epoch: 0,
+            seed_state: pytorch_config.seed,
+            data_folder,
+        })
+    }
+
+    /// Convert DLIO config to s3dlio LoaderOptions for Python integration
+    pub fn to_loader_options(&self, dlio_config: &DlioConfig) -> LoaderOptions {
+        // Use the existing DlioConfig method and enhance with PyTorch config
+        let mut opts = dlio_config.to_loader_options();
+        
+        // Override with PyTorch-specific settings
+        opts.batch_size = self.pytorch_config.batch_size;
+        if let Some(seed) = self.pytorch_config.seed {
+            opts.seed = seed;
+        }
+        opts.shuffle = self.pytorch_config.shuffle;
+        
+        opts
+    }
+
+    /// Get PyTorch configuration
+    pub fn pytorch_config(&self) -> &PyTorchConfig {
+        &self.pytorch_config
+    }
+
+    /// Get format type
+    pub fn format_type(&self) -> &FormatType {
+        &self.format_type
+    }
+
+    /// Get data folder URI
+    pub fn data_folder(&self) -> &str {
+        &self.data_folder
+    }
+
+    /// Detect format type from DLIO configuration
+    fn detect_format(dlio_config: &DlioConfig) -> Result<FormatType> {
+        match dlio_config.dataset.format.as_deref() {
+            Some("npz") => Ok(FormatType::Npz),
+            Some("hdf5") => Ok(FormatType::Hdf5),
+            Some("tfrecord") => Ok(FormatType::TfRecord),
+            Some(other) => Err(anyhow::anyhow!("Unsupported format: {}", other)),
+            None => Ok(FormatType::Npz), // Default to NPZ
+        }
+    }
+
+    /// Validate data folder URI
+    fn validate_data_folder(data_folder: &str) -> Result<()> {
+        // Basic URI validation - ensure it has a supported scheme
+        if data_folder.starts_with("file://") 
+            || data_folder.starts_with("s3://")
+            || data_folder.starts_with("az://")
+            || data_folder.starts_with("direct://") {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Unsupported data folder URI: {}. Must use file://, s3://, az://, or direct:// scheme", 
+                data_folder
+            ))
+        }
+    }
+}
+
+/// Batch data structure compatible with PyTorch tensors
+#[derive(Debug, Clone)]
+pub struct BatchData {
+    /// Sample data as raw bytes
+    pub data: Vec<u8>,
+    
+    /// Sample metadata
+    pub metadata: HashMap<String, Value>,
+    
+    /// Batch index
+    pub batch_index: usize,
+    
+    /// Sample indices in this batch
+    pub sample_indices: Vec<usize>,
+}
+
+/// PyTorch-compatible dataset statistics
+#[derive(Debug, Clone)]
+pub struct DatasetStats {
+    /// Total number of samples
+    pub total_samples: usize,
+    
+    /// Number of batches per epoch
+    pub batches_per_epoch: usize,
+    
+    /// Sample size statistics
+    pub avg_sample_size: f64,
+    
+    /// Format information
+    pub format_info: FormatInfo,
+}
+
+#[derive(Debug, Clone)]
+pub struct FormatInfo {
+    pub format_type: FormatType,
+    pub compression: Option<String>,
+    pub shape_info: Option<Vec<usize>>,
+}
+
+impl PyTorchDataLoader {
+    /// Create a new PyTorchDataLoader from framework configuration
+    pub async fn new(framework_config: FrameworkConfig) -> Result<Self> {
+        let pytorch_config = framework_config.pytorch
+            .ok_or_else(|| anyhow::anyhow!("PyTorch configuration not found"))?;
+        
+        let dlio_config = framework_config.dlio;
+        
+        // Convert DLIO config to s3dlio LoaderOptions
+        let loader_options = Self::dlio_to_loader_options(&dlio_config)?;
+        let pool_config = Self::dlio_to_pool_config(&dlio_config, &pytorch_config)?;
+        
+        // Create the dataset with data folder URI
+        let data_uri = dlio_config.dataset.data_folder.clone();
+        let dataset = MultiBackendDataset::new(
+            data_uri,
+            loader_options.clone()
+        ).await.context("Failed to create MultiBackendDataset")?;
+        
+        // Create the async loader
+        let loader = AsyncPoolDataLoader::new(dataset, pool_config)
+            .await
+            .context("Failed to create AsyncPoolDataLoader")?;
+        
+        // Determine format type from file extension or configuration
+        let format_type = Self::detect_format_type(&dlio_config)?;
+        
+        Ok(Self {
+            dataset,
+            pytorch_config,
+            format_type,
+            current_epoch: 0,
+            seed_state: pytorch_config.seed,
+            data_folder: dlio_config.dataset.data_folder.clone(),
+        })
+    }
+    
+    /// Start the data loading pipeline
+    pub async fn start_epoch(&mut self, epoch: usize) -> Result<()> {
+        self.current_epoch = epoch;
+        
+        // Update seed state for this epoch if configured
+        if let Some(base_seed) = self.seed_state {
+            let epoch_seed = base_seed.wrapping_add(epoch as u64);
+            // Set the seed in the loader if it supports it
+            // This would require extending s3dlio's API
+        }
+        
+        // Start the batch generation pipeline
+        let (tx, rx) = mpsc::channel(self.pytorch_config.prefetch_factor.unwrap_or(2));
+        self.batch_receiver = Some(rx);
+        
+        // Spawn background task to generate batches
+        let loader_clone = self.loader.clone();
+        let batch_size = self.pytorch_config.batch_size;
+        let shuffle = self.pytorch_config.shuffle;
+        let format_type = self.format_type.clone();
+        
+        tokio::spawn(async move {
+            if let Err(e) = Self::generate_batches(loader_clone, tx, batch_size, shuffle, format_type).await {
+                eprintln!("Error in batch generation: {}", e);
+            }
+        });
+        
+        Ok(())
+    }
+    
+    /// Get the next batch of data
+    pub async fn next_batch(&mut self) -> Result<Option<BatchData>> {
+        if let Some(ref mut receiver) = self.batch_receiver {
+            match receiver.recv().await {
+                Some(batch) => Ok(Some(batch)),
+                None => Ok(None), // End of epoch
+            }
+        } else {
+            anyhow::bail!("DataLoader not started. Call start_epoch() first.");
+        }
+    }
+    
+    /// Get dataset statistics
+    pub async fn get_dataset_stats(&self) -> Result<DatasetStats> {
+        // This would require extending s3dlio to provide dataset statistics
+        // For now, we'll implement a basic version
+        
+        let total_samples = self.estimate_total_samples().await?;
+        let batches_per_epoch = (total_samples + self.pytorch_config.batch_size - 1) / self.pytorch_config.batch_size;
+        
+        Ok(DatasetStats {
+            total_samples,
+            batches_per_epoch,
+            avg_sample_size: 0.0, // TODO: Implement sample size calculation
+            format_info: FormatInfo {
+                format_type: self.format_type.clone(),
+                compression: None, // TODO: Detect compression
+                shape_info: None, // TODO: Extract shape information
+            },
+        })
+    }
+    
+    /// Convert DLIO config to s3dlio LoaderOptions
+    fn dlio_to_loader_options(dlio_config: &DlioConfig) -> Result<LoaderOptions> {
+        let mut options = LoaderOptions::default();
+        
+        // Set batch size from PyTorch config (will be overridden by PoolConfig)
+        options.batch_size = 1; // Individual samples, batching handled by PyTorch layer
+        
+        // Set other loader options based on DLIO config
+        options.drop_last = false; // Handle partial batches in PyTorch layer
+        options.shuffle = false; // Shuffling handled by PyTorch DataLoader
+        options.num_workers = 1; // Async handling, workers managed by pool
+        
+        Ok(options)
+    }
+    
+    /// Convert DLIO and PyTorch configs to s3dlio PoolConfig
+    fn dlio_to_pool_config(dlio_config: &DlioConfig, pytorch_config: &PyTorchConfig) -> Result<PoolConfig> {
+        let mut pool_config = PoolConfig::default();
+        
+        // Use PyTorch num_workers for pool size
+        pool_config.max_concurrent_files = pytorch_config.num_workers;
+        
+        // Set buffer size based on prefetch configuration
+        if let Some(prefetch) = pytorch_config.prefetch_factor {
+            pool_config.buffer_size = prefetch * pytorch_config.batch_size;
+        }
+        
+        // Set other pool options from DLIO config
+        if let Some(io_size) = dlio_config.dataset.record_length_bytes {
+            pool_config.read_size = io_size as usize;
+        }
+        
+        Ok(pool_config)
+    }
+    
+    /// Detect format type from DLIO configuration
+    fn detect_format_type(dlio_config: &DlioConfig) -> Result<FormatType> {
+        match dlio_config.dataset.format.as_deref() {
+            Some("npz") => Ok(FormatType::Npz),
+            Some("hdf5") | Some("h5") => Ok(FormatType::Hdf5),
+            Some("tfrecord") => Ok(FormatType::TfRecord),
+            Some(other) => anyhow::bail!("Unsupported format: {}", other),
+            None => anyhow::bail!("No format specified in DLIO config"),
+        }
+    }
+    
+    /// Background task to generate batches
+    async fn generate_batches(
+        loader: AsyncPoolDataLoader<MultiBackendDataset>,
+        tx: mpsc::Sender<BatchData>,
+        batch_size: usize,
+        _shuffle: bool, // TODO: Implement shuffling
+        _format_type: FormatType,
+    ) -> Result<()> {
+        let mut batch_index = 0;
+        let mut current_batch_data = Vec::new();
+        let mut current_batch_indices = Vec::new();
+        
+        // Start the loader
+        let mut data_stream = loader.start().await.context("Failed to start data loader")?;
+        
+        while let Some(sample_result) = data_stream.recv().await {
+            match sample_result {
+                Ok((sample_data, sample_index)) => {
+                    current_batch_data.extend_from_slice(&sample_data);
+                    current_batch_indices.push(sample_index);
+                    
+                    // Check if batch is complete
+                    if current_batch_indices.len() >= batch_size {
+                        let batch = BatchData {
+                            data: current_batch_data.clone(),
+                            metadata: HashMap::new(), // TODO: Extract metadata from format
+                            batch_index,
+                            sample_indices: current_batch_indices.clone(),
+                        };
+                        
+                        if tx.send(batch).await.is_err() {
+                            break; // Receiver dropped
+                        }
+                        
+                        batch_index += 1;
+                        current_batch_data.clear();
+                        current_batch_indices.clear();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error reading sample: {}", e);
+                    continue;
+                }
+            }
+        }
+        
+        // Send final partial batch if any
+        if !current_batch_indices.is_empty() {
+            let batch = BatchData {
+                data: current_batch_data,
+                metadata: HashMap::new(),
+                batch_index,
+                sample_indices: current_batch_indices,
+            };
+            let _ = tx.send(batch).await;
+        }
+        
+        Ok(())
+    }
+    
+    /// Estimate total number of samples in the dataset
+    async fn estimate_total_samples(&self) -> Result<usize> {
+        // This is a placeholder - would need s3dlio API extension to get accurate count
+        // For now, use the configured number from DLIO
+        Ok(1000) // TODO: Implement proper sample counting
+    }
+}
+
+/// Python-compatible interface for PyTorch integration
+impl PyTorchDataLoader {
+    /// Get configuration as JSON for Python interop
+    pub fn get_config_json(&self) -> Result<String> {
+        serde_json::to_string(&self.pytorch_config)
+            .context("Failed to serialize PyTorch config")
+    }
+    
+    /// Set configuration from JSON for Python interop  
+    pub fn set_config_json(&mut self, json: &str) -> Result<()> {
+        self.pytorch_config = serde_json::from_str(json)
+            .context("Failed to deserialize PyTorch config")?;
+        Ok(())
+    }
+    
+    /// Get current epoch
+    pub fn current_epoch(&self) -> usize {
+        self.current_epoch
+    }
+    
+    /// Get batch size
+    pub fn batch_size(&self) -> usize {
+        self.pytorch_config.batch_size
+    }
+    
+    /// Check if shuffling is enabled
+    pub fn is_shuffle_enabled(&self) -> bool {
+        self.pytorch_config.shuffle
+    }
+}

@@ -3,9 +3,9 @@
 **A high-performance, enterprise-grade data loading framework for AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](./docs/Changelog.md)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-81%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-56%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Performance](https://img.shields.io/badge/performance-62K%20files%2Fsec-red.svg)](#performance-benchmarks)
 
@@ -21,10 +21,60 @@
 - **🔗 DLIO Configuration Compatibility**: Drop-in replacement for existing DLIO YAML configs
 - **📋 3 Production Formats**: NPZ, HDF5, TFRecord with 100% standard library compatibility
 - **🏪 4 Universal Storage Backends**: File, S3/MinIO, Azure Blob, DirectIO with unified interface  
+- **🔧 Framework Integration**: PyTorch, TensorFlow, and JAX adapters with M4 Framework Profiles
 - **⚡ Enterprise Performance**: **62K+ files/second** with advanced AsyncPoolDataLoader
 - **🔄 Multi-Threading**: Concurrent processing with backend-optimized configurations
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
-- **🧪 Comprehensively Validated**: 36 format validation tests + 300+ backend tests
+- **🧪 Comprehensively Validated**: 56 comprehensive tests covering all functionality
+
+## 🔧 M4 Framework Profiles (NEW in v0.5.0)
+
+### Framework Integration Architecture
+dl-driver now provides **comprehensive framework integration** with enterprise-grade ML/AI framework support:
+
+**Supported Frameworks**:
+- **PyTorch**: Full DataLoader adapter with configuration management
+- **TensorFlow**: tf.data.Dataset configuration and pipeline support
+- **JAX**: Framework configuration for JAX-based data pipelines
+
+### Framework Configuration Examples
+
+#### PyTorch Integration
+```yaml
+# DLIO config with embedded PyTorch framework profile
+framework: pytorch
+pytorch_config:
+  batch_size: 64
+  num_workers: 8
+  shuffle: true
+  pin_memory: true
+  seed: 42
+
+# Alternative: Framework Profiles structure
+framework_profiles:
+  pytorch:
+    batch_size: 32
+    num_workers: 4
+    persistent_workers: true
+```
+
+#### TensorFlow Integration  
+```yaml
+framework: tensorflow
+tensorflow_config:
+  batch_size: 128
+  shuffle_buffer_size: 10000
+  prefetch_buffer_size: -1  # AUTOTUNE
+  num_parallel_calls: -1    # AUTOTUNE
+  deterministic: true
+```
+
+### Framework Features
+- **Configuration Validation**: Comprehensive validation for all framework parameters
+- **s3dlio Integration**: All frameworks leverage unified storage backends
+- **Epoch Management**: Built-in epoch tracking (`current_epoch()`, `next_epoch()`, `reset_epoch()`)
+- **Seed Management**: Reproducible training with seed state management
+- **Format Detection**: Automatic format detection for framework compatibility
 
 ## 📊 Performance Benchmarks
 
@@ -71,22 +121,23 @@ dl-driver v0.4.0 represents a **major milestone** - complete transformation from
 
 ### 📊 Validation Confidence
 ```
-✅ NPZ Format:    12/12 tests passing with numpy.load()
-✅ HDF5 Format:   12/12 tests passing with h5py.File()  
-✅ TFRecord Format: 12/12 tests passing with tf.data.TFRecordDataset
-✅ Integration:   45/45 Rust tests passing
-✅ Total Coverage: 81 comprehensive tests validating all functionality
+✅ Framework Tests: 7/7 tests passing (PyTorch integration, validation, serialization)
+✅ Core Tests:     15/15 tests passing (DLIO parsing, workload management) 
+✅ Format Tests:    5/5 tests passing (NPZ, HDF5, TFRecord)
+✅ CLI Tests:      29/29 tests passing (configuration, backend integration)
+✅ Total Coverage: 56/56 comprehensive tests validating all functionality
 ```
 
 ## 🏗️ Architecture
 
-dl-driver follows a clean workspace architecture with 5 focused crates:
+dl-driver follows a clean workspace architecture with 6 focused crates:
 
 ```
 real_dlio/
 ├── crates/
 │   ├── cli/          # Command-line interface
 │   ├── core/         # Workload orchestration and config parsing  
+│   ├── frameworks/   # Framework integrations (PyTorch, TensorFlow, JAX)
 │   ├── storage/      # Storage backend abstractions
 │   ├── formats/      # Data format handlers (HDF5, NPZ, etc.)
 │   └── py_api/       # Python bindings (PyO3)

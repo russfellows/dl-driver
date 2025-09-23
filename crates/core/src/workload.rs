@@ -1,16 +1,16 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{info, warn, debug};
-use futures_util::StreamExt;
+use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::metrics::Metrics;
 
 // Import s3dlio 0.8.0 functionality - using new advanced API
+use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
 use s3dlio::object_store::{store_for_uri, ObjectStore};
 use s3dlio::{LoaderOptions, ReaderMode};
-use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
 
 /// Main workload execution engine using s3dlio capabilities
 pub struct WorkloadRunner {
@@ -33,8 +33,11 @@ impl WorkloadRunner {
 
     /// Execute the complete DLIO workflow using s3dlio capabilities
     pub async fn run(&mut self) -> Result<()> {
-        info!("Starting real_dlio workload with s3dlio integration: {:?}", self.config.model);
-        
+        info!(
+            "Starting real_dlio workload with s3dlio integration: {:?}",
+            self.config.model
+        );
+
         let start_time = Instant::now();
 
         // Phase 1: Data Generation (if enabled)
@@ -57,7 +60,7 @@ impl WorkloadRunner {
 
         let total_time = start_time.elapsed();
         info!("Workload completed in {:?}", total_time);
-        
+
         // Record total time for tests
         self.metrics.set_total_time(total_time);
         self.metrics.print_summary();
@@ -71,13 +74,15 @@ impl WorkloadRunner {
 
         // Create object store for the configured storage backend
         let store = self.create_object_store()?;
-        
+
         let num_files = self.config.dataset.num_files_train;
         let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1) as usize;
         let record_size = self.config.dataset.record_length_bytes.unwrap_or(1024) as usize;
 
-        info!("Generating {} files with {} samples each ({}B per record)", 
-              num_files, samples_per_file, record_size);
+        info!(
+            "Generating {} files with {} samples each ({}B per record)",
+            num_files, samples_per_file, record_size
+        );
 
         // Generate data files using s3dlio's object store
         for file_idx in 0..num_files {
@@ -89,19 +94,25 @@ impl WorkloadRunner {
             } else {
                 format!("{}/{}", data_folder, file_name)
             };
-            
+
             let data = self.generate_file_data(samples_per_file, record_size)?;
-            
+
             let write_start = Instant::now();
-            store.put(&full_path, &data).await
+            store
+                .put(&full_path, &data)
+                .await
                 .with_context(|| format!("Failed to write file {}", full_path))?;
             let write_time = write_start.elapsed();
-            
+
             // Record metrics
             let bytes_written = (samples_per_file * record_size) as u64;
-            self.metrics.record_write_operation(bytes_written, write_time);
-            info!("Wrote {} bytes to {} in {:?}", bytes_written, full_path, write_time);
-            
+            self.metrics
+                .record_write_operation(bytes_written, write_time);
+            info!(
+                "Wrote {} bytes to {} in {:?}",
+                bytes_written, full_path, write_time
+            );
+
             if file_idx % 100 == 0 {
                 info!("Generated {}/{} files", file_idx + 1, num_files);
             }
@@ -117,21 +128,21 @@ impl WorkloadRunner {
         let start_time = Instant::now();
         info!("Starting training phase with s3dlio DataLoader");
 
-        let epochs = self.config.train.as_ref()
-            .map(|t| t.epochs)
-            .unwrap_or(1);
+        let epochs = self.config.train.as_ref().map(|t| t.epochs).unwrap_or(1);
 
         let batch_size = self.config.reader.batch_size as usize;
         let num_workers = self.config.reader.read_threads.unwrap_or(4) as usize;
         let prefetch_size = 16; // Default prefetch size
 
-        info!("Training for {} epochs with batch_size={}, num_workers={}, prefetch={}", 
-              epochs, batch_size, num_workers, prefetch_size);
+        info!(
+            "Training for {} epochs with batch_size={}, num_workers={}, prefetch={}",
+            epochs, batch_size, num_workers, prefetch_size
+        );
 
         // Create dataset using s3dlio's MultiBackendDataset for unified backend support
         let data_folder = &self.config.dataset.data_folder;
         let dataset = self.create_multi_backend_dataset(data_folder).await?;
-        
+
         info!("Created dataset with {} files", dataset.len());
 
         for epoch in 0..epochs {
@@ -176,21 +187,23 @@ impl WorkloadRunner {
                         let batch_start = Instant::now();
                         let batch_size_actual = batch.len();
                         let batch_bytes: usize = batch.iter().map(|item| item.len()).sum();
-                        
+
                         // Simulate processing the batch
                         self.process_batch(&batch).await?;
-                        
+
                         let batch_time = batch_start.elapsed();
                         self.metrics.record_bytes_read(batch_bytes as u64);
                         self.metrics.record_read_time(batch_time);
-                        
+
                         batch_count += 1;
                         total_samples += batch_size_actual;
                         total_bytes += batch_bytes;
-                        
+
                         if batch_count % 10 == 0 {
-                            debug!("Processed batch {}: {} samples, {} bytes in {:?}", 
-                                   batch_count, batch_size_actual, batch_bytes, batch_time);
+                            debug!(
+                                "Processed batch {}: {} samples, {} bytes in {:?}",
+                                batch_count, batch_size_actual, batch_bytes, batch_time
+                            );
                         }
                     }
                     Err(e) => {
@@ -201,8 +214,15 @@ impl WorkloadRunner {
             }
 
             let epoch_time = epoch_start.elapsed();
-            info!("Completed epoch {}/{}: {} batches, {} samples, {} total bytes in {:?}", 
-                  epoch + 1, epochs, batch_count, total_samples, total_bytes, epoch_time);
+            info!(
+                "Completed epoch {}/{}: {} batches, {} samples, {} total bytes in {:?}",
+                epoch + 1,
+                epochs,
+                batch_count,
+                total_samples,
+                total_bytes,
+                epoch_time
+            );
         }
 
         let training_time = start_time.elapsed();
@@ -221,7 +241,7 @@ impl WorkloadRunner {
     fn create_object_store(&self) -> Result<Box<dyn ObjectStore>> {
         let data_folder = &self.config.dataset.data_folder;
         info!("Creating object store for: {}", data_folder);
-        
+
         store_for_uri(data_folder)
             .with_context(|| format!("Failed to create object store for {}", data_folder))
     }
@@ -236,7 +256,7 @@ impl WorkloadRunner {
                 let total_size = samples * record_size;
                 let data = s3dlio::generate_controlled_data(total_size, 0, 0);
                 Ok(data)
-            },
+            }
             _ => {
                 // Generate random data for other formats
                 let total_size = samples * record_size;
@@ -253,11 +273,12 @@ impl WorkloadRunner {
     /// Create MultiBackendDataset for unified access across all storage backends
     async fn create_multi_backend_dataset(&self, data_folder: &str) -> Result<MultiBackendDataset> {
         info!("Creating MultiBackendDataset for folder: {}", data_folder);
-        
+
         // Use s3dlio's prefix-based dataset creation for automatic backend detection
-        let dataset = MultiBackendDataset::from_prefix(data_folder).await
+        let dataset = MultiBackendDataset::from_prefix(data_folder)
+            .await
             .with_context(|| format!("Failed to create dataset from prefix: {}", data_folder))?;
-        
+
         info!("Successfully created dataset with {} files", dataset.len());
         Ok(dataset)
     }
@@ -266,9 +287,9 @@ impl WorkloadRunner {
     async fn process_batch(&self, batch: &[Vec<u8>]) -> Result<()> {
         // Simulate processing time proportional to batch size
         let processing_delay = std::time::Duration::from_millis(
-            (batch.len() as u64 * 10).min(100) // 10ms per sample, max 100ms per batch
+            (batch.len() as u64 * 10).min(100), // 10ms per sample, max 100ms per batch
         );
-        
+
         tokio::time::sleep(processing_delay).await;
         Ok(())
     }

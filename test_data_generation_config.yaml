@@ -1,0 +1,22 @@
+dataset:
+  data_folder: "file:///mnt/vast1/dlio_data_generated"
+  format: "npz"
+  num_files_train: 10
+  record_length_bytes: 1048576  # 1 MB per file
+  num_samples_per_file: 1
+  compression: "none"
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 4
+  read_threads: 2
+  
+train:
+  epochs: 1
+  computation_time: 0.01
+  seed: 42
+  
+workflow:
+  generate_data: true
+  train: false
+  checkpoint: false

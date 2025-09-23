@@ -1,0 +1,59 @@
+# DLIO Configuration for Framework Integration Testing - HDF5 Format  
+# Generates small HDF5 dataset for testing cross-format compatibility
+# Uses /mnt/vast1 for high-capacity storage as per project guidelines
+
+model:
+  name: "FrameworkTestHDF5"
+  framework: "tensorflow"
+
+dataset:
+  data_folder: "file:///mnt/vast1/dl_driver_framework_test/hdf5_small"
+  format: "hdf5"
+  num_files_train: 15
+  num_samples_per_file: 6
+  record_length: 49152  # 128x128x3 float32 = 49,152 bytes
+  file_shuffle: "seed"
+  sample_shuffle: "seed"
+
+reader:
+  data_loader: "tensorflow"
+  batch_size: 3
+  read_threads: 2
+  computation_threads: 1
+  sample_shuffle: true
+  file_shuffle: "seed"
+  transfer_size: 1048576  # 1MB
+  prefetch_size: 3
+
+checkpoint:
+  checkpoint_folder: "file:///mnt/vast1/dl_driver_framework_test/hdf5_small/checkpoints"
+  epochs_between_checkpoints: 1
+
+workload:
+  workflow:
+    generate_data: true
+    train: true
+    checkpoint: false
+  train:
+    epochs: 2
+    computation_time: 0.015  # 15ms per batch
+
+# Framework-specific configurations
+framework_profiles:
+  pytorch:
+    num_workers: 1
+    pin_memory: false
+    persistent_workers: false
+    prefetch_factor: 2
+    drop_last: false
+    
+  tensorflow:
+    buffer_size: 512
+    num_parallel_calls: 2
+    deterministic: true
+    experimental_optimization: true
+    
+  jax:
+    batch_size: 3
+    shuffle_buffer_size: 50
+    prefetch: 2

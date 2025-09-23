@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Deserialize;
-use std::{fs, path::Path, collections::HashMap};
+use std::{collections::HashMap, fs, path::Path};
 
 /// Complete DLIO configuration structure - fully compatible with original DLIO
 #[derive(Debug, Deserialize, Clone)]
@@ -36,7 +36,7 @@ pub struct ModelConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ParallelismConfig {
     pub tensor: Option<i32>,
-    pub pipeline: Option<i32>, 
+    pub pipeline: Option<i32>,
     pub data: Option<i32>,
     pub zero_stage: Option<i32>,
 }
@@ -66,7 +66,7 @@ pub struct DatasetConfig {
     pub num_files_train: u32,
     pub num_files_eval: Option<u32>,
     pub num_samples_per_file: Option<u32>,
-    #[serde(alias = "record_length")] // Support legacy field name  
+    #[serde(alias = "record_length")] // Support legacy field name
     pub record_length_bytes: Option<u64>,
     #[serde(alias = "record_length_stdev")]
     pub record_length_bytes_stdev: Option<u64>,
@@ -93,10 +93,10 @@ pub struct ReaderConfig {
     pub pin_memory: Option<bool>,
     pub computation_threads: Option<u32>,
     pub prefetch_size: Option<u32>,
-    pub file_shuffle: Option<String>, // off, seed, random
+    pub file_shuffle: Option<String>,   // off, seed, random
     pub sample_shuffle: Option<String>, // off, seed, random
-    pub transfer_size: Option<u64>, // for tensorflow data loader
-    pub preprocess_time: Option<f64>, // emulated preprocess time
+    pub transfer_size: Option<u64>,     // for tensorflow data loader
+    pub preprocess_time: Option<f64>,   // emulated preprocess time
     pub preprocess_time_stdev: Option<f64>,
     // For data transformations
     pub transformed_record_dims: Option<Vec<i32>>,
@@ -196,7 +196,7 @@ mod tests {
         // Test each URI scheme detection
         let test_cases = vec![
             ("file:///tmp/test", StorageBackend::File),
-            ("s3://bucket/path", StorageBackend::S3), 
+            ("s3://bucket/path", StorageBackend::S3),
             ("az://account/container/path", StorageBackend::Azure),
             ("direct:///tmp/test", StorageBackend::DirectIO),
             ("/local/path", StorageBackend::File), // default to file
@@ -266,8 +266,14 @@ mod tests {
             };
 
             let detected = config.storage_backend();
-            assert_eq!(std::mem::discriminant(&detected), std::mem::discriminant(&expected_backend), 
-                      "URI '{}' should detect as {:?}, got {:?}", uri, expected_backend, detected);
+            assert_eq!(
+                std::mem::discriminant(&detected),
+                std::mem::discriminant(&expected_backend),
+                "URI '{}' should detect as {:?}, got {:?}",
+                uri,
+                expected_backend,
+                detected
+            );
         }
     }
 
@@ -337,35 +343,38 @@ output:
 profiling:
   iostat_devices: [sda, sdb]
 "#;
-        
+
         let config: Config = serde_yaml::from_str(yaml_content).unwrap();
-        
+
         // Test model section
         let model = config.model.unwrap();
         assert_eq!(model.name, "test_unet3d");
         assert_eq!(model.model_size_bytes, Some(499153191));
         assert_eq!(model.model_type, Some("transformer".to_string()));
-        
+
         // Test new workflow fields
         assert_eq!(config.workflow.evaluation, Some(false));
         assert_eq!(config.workflow.profiling, Some(false));
-        
+
         // Test new dataset fields
         assert_eq!(config.dataset.num_files_eval, Some(5));
         assert_eq!(config.dataset.file_prefix, Some("img".to_string()));
-        assert_eq!(config.dataset.record_element_type, Some("uint8".to_string()));
-        
+        assert_eq!(
+            config.dataset.record_element_type,
+            Some("uint8".to_string())
+        );
+
         // Test new reader fields
         assert_eq!(config.reader.batch_size_eval, Some(2));
         assert_eq!(config.reader.pin_memory, Some(true));
         assert_eq!(config.reader.prefetch_size, Some(2));
-        
+
         // Test new config sections
         assert!(config.evaluation.is_some());
         assert!(config.checkpoint.is_some());
         assert!(config.output.is_some());
         assert!(config.profiling.is_some());
-        
+
         let eval = config.evaluation.unwrap();
         assert_eq!(eval.eval_time, Some(0.5));
         assert_eq!(eval.epochs_between_evals, Some(2));

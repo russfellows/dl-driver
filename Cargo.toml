@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/storage",
     "crates/formats",
+    "crates/frameworks",
     "crates/py_api",
     "crates/cli",
 ]

@@ -2,13 +2,13 @@
 //
 // Dataset generation functionality for DLIO benchmark compatibility
 
+use crate::dlio_compat::{DatasetSplit, RunPlan};
+use crate::metrics::Metrics;
 use anyhow::{Context, Result};
+use real_dlio_formats::{Format, FormatFactory};
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use tracing::{info, debug};
-use real_dlio_formats::{FormatFactory, Format};
-use crate::dlio_compat::{RunPlan, DatasetSplit};
-use crate::metrics::Metrics;
+use tracing::{debug, info};
 
 /// Dataset generator that creates synthetic datasets based on DLIO configurations
 pub struct DatasetGenerator {
@@ -24,24 +24,26 @@ impl DatasetGenerator {
     /// Generate the complete dataset according to the RunPlan configuration
     pub async fn generate_dataset(&self, metrics: &mut Metrics) -> Result<()> {
         info!("Starting dataset generation for DLIO benchmark");
-        
+
         // Create the data directory structure
         let data_dir = self.create_data_directory().await?;
-        
+
         // Generate training files
         if self.run_plan.dataset.train.num_files > 0 {
-            self.generate_train_files(&data_dir, metrics).await
+            self.generate_train_files(&data_dir, metrics)
+                .await
                 .context("Failed to generate training files")?;
         }
-        
+
         // Generate validation files if configured
         if let Some(eval_plan) = &self.run_plan.dataset.eval {
             if eval_plan.num_files > 0 {
-                self.generate_eval_files(&data_dir, metrics).await
+                self.generate_eval_files(&data_dir, metrics)
+                    .await
                     .context("Failed to generate evaluation files")?;
             }
         }
-        
+
         info!("Dataset generation completed successfully");
         Ok(())
     }
@@ -54,82 +56,102 @@ impl DatasetGenerator {
         } else {
             Path::new(&self.run_plan.dataset.data_folder_uri)
         };
-        
+
         // Create directory if it doesn't exist
         if !data_path.exists() {
-            fs::create_dir_all(data_path).await
+            fs::create_dir_all(data_path)
+                .await
                 .with_context(|| format!("Failed to create data directory: {:?}", data_path))?;
             info!("Created data directory: {:?}", data_path);
         }
-        
+
         Ok(data_path.to_path_buf())
     }
 
     /// Generate training files
     async fn generate_train_files(&self, data_dir: &Path, metrics: &mut Metrics) -> Result<()> {
-        info!("Generating {} training files", self.run_plan.dataset.train.num_files);
-        
+        info!(
+            "Generating {} training files",
+            self.run_plan.dataset.train.num_files
+        );
+
         let format_impl = self.create_format_instance(&self.run_plan.dataset.train)?;
         let format_extension = self.get_format_extension();
-        
+
         for i in 0..self.run_plan.dataset.train.num_files {
             let filename = format!("train_file_{:06}.{}", i, format_extension);
             let file_path = data_dir.join(&filename);
-            
+
             // Generate the file
             let start_time = std::time::Instant::now();
-            format_impl.generate(&file_path)
+            format_impl
+                .generate(&file_path)
                 .with_context(|| format!("Failed to generate training file: {}", filename))?;
             let generation_time = start_time.elapsed();
-            
+
             // Update metrics
-            let file_size = fs::metadata(&file_path).await
+            let file_size = fs::metadata(&file_path)
+                .await
                 .with_context(|| format!("Failed to get metadata for {}", filename))?
                 .len();
-            
+
             metrics.record_file_generated(filename, file_size, generation_time);
-            
+
             if i % 100 == 0 {
-                debug!("Generated training file {}/{}", i + 1, self.run_plan.dataset.train.num_files);
+                debug!(
+                    "Generated training file {}/{}",
+                    i + 1,
+                    self.run_plan.dataset.train.num_files
+                );
             }
         }
-        
+
         info!("Training file generation completed");
         Ok(())
     }
 
     /// Generate evaluation files
     async fn generate_eval_files(&self, data_dir: &Path, metrics: &mut Metrics) -> Result<()> {
-        let eval_plan = self.run_plan.dataset.eval.as_ref()
+        let eval_plan = self
+            .run_plan
+            .dataset
+            .eval
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Eval plan not configured"))?;
-        
+
         info!("Generating {} evaluation files", eval_plan.num_files);
-        
+
         let format_impl = self.create_format_instance(eval_plan)?;
         let format_extension = self.get_format_extension();
-        
+
         for i in 0..eval_plan.num_files {
             let filename = format!("eval_file_{:06}.{}", i, format_extension);
             let file_path = data_dir.join(&filename);
-            
+
             // Generate the file
             let start_time = std::time::Instant::now();
-            format_impl.generate(&file_path)
+            format_impl
+                .generate(&file_path)
                 .with_context(|| format!("Failed to generate evaluation file: {}", filename))?;
             let generation_time = start_time.elapsed();
-            
+
             // Update metrics
-            let file_size = fs::metadata(&file_path).await
+            let file_size = fs::metadata(&file_path)
+                .await
                 .with_context(|| format!("Failed to get metadata for {}", filename))?
                 .len();
-            
+
             metrics.record_file_generated(filename, file_size, generation_time);
-            
+
             if i % 100 == 0 {
-                debug!("Generated evaluation file {}/{}", i + 1, eval_plan.num_files);
+                debug!(
+                    "Generated evaluation file {}/{}",
+                    i + 1,
+                    eval_plan.num_files
+                );
             }
         }
-        
+
         info!("Evaluation file generation completed");
         Ok(())
     }
@@ -140,7 +162,7 @@ impl DatasetGenerator {
         let shape = self.extract_shape_from_plan(plan);
         let record_length = plan.record_length_bytes;
         let num_records = Some(plan.num_samples_per_file);
-        
+
         FormatFactory::create_format(
             &self.run_plan.dataset.format,
             shape,
@@ -168,7 +190,7 @@ impl DatasetGenerator {
                 } else {
                     Some(vec![224, 224, 3]) // Default image shape
                 }
-            },
+            }
             "tfrecord" => None, // TFRecord uses record_length directly
             _ => None,
         }
@@ -198,7 +220,7 @@ mod tests {
     async fn test_dataset_generation_npz() {
         let temp_dir = TempDir::new().unwrap();
         let data_path = temp_dir.path().join("data");
-        
+
         // Create a minimal DLIO config for testing
         let config = DlioConfig {
             model: None,
@@ -226,14 +248,18 @@ mod tests {
             },
             checkpointing: None,
             profiling: None,
+            framework_profiles: None,
+            pytorch_config: None,
+            tensorflow_config: None,
+            jax_config: None,
         };
-        
+
         let run_plan = config.to_run_plan().unwrap();
         let generator = DatasetGenerator::new(run_plan);
         let mut metrics = Metrics::new();
-        
+
         generator.generate_dataset(&mut metrics).await.unwrap();
-        
+
         // Verify files were created
         assert!(data_path.exists());
         let entries: Vec<_> = std::fs::read_dir(&data_path).unwrap().collect();
@@ -247,16 +273,16 @@ mod tests {
         assert!(formats.contains(&"npz"));
         assert!(formats.contains(&"hdf5"));
         assert!(formats.contains(&"tfrecord"));
-        
+
         // Test format creation
         for format_name in formats {
-            let format_impl = FormatFactory::create_format(
-                format_name,
-                Some(vec![10, 10]),
-                Some(100),
-                Some(5),
+            let format_impl =
+                FormatFactory::create_format(format_name, Some(vec![10, 10]), Some(100), Some(5));
+            assert!(
+                format_impl.is_ok(),
+                "Failed to create format: {}",
+                format_name
             );
-            assert!(format_impl.is_ok(), "Failed to create format: {}", format_name);
         }
     }
 }
