@@ -1,6 +1,6 @@
 [package]
 name = "dl_driver_core"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 
 [dependencies]
@@ -36,6 +36,9 @@ s3dlio = { path = "../../../s3dlio" }
 
 # Local formats crate
 real_dlio_formats = { path = "../formats" }
+
+# Optional compression support for checkpoints
+zstd = "0.13"
 
 [dev-dependencies]
 tempfile = "3.0"

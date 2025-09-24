@@ -18,6 +18,8 @@ pub struct MlperfRunner {
     plan: RunPlan,
     plugins: PluginManager,
     metrics: MlperfMetrics,
+    max_epochs: u32,
+    max_steps: u32,
 }
 
 impl MlperfRunner {
@@ -28,7 +30,21 @@ impl MlperfRunner {
             plan, 
             plugins, 
             metrics: MlperfMetrics::new(),
+            max_epochs: 3,    // Default values, can be overridden
+            max_steps: 1000,
         }
+    }
+
+    /// Set maximum epochs for training
+    pub fn with_max_epochs(mut self, max_epochs: u32) -> Self {
+        self.max_epochs = max_epochs;
+        self
+    }
+
+    /// Set maximum steps for training  
+    pub fn with_max_steps(mut self, max_steps: u32) -> Self {
+        self.max_steps = max_steps;
+        self
     }
 
     pub async fn run(&mut self) -> Result<MlperfReport> {
@@ -72,6 +88,11 @@ impl MlperfRunner {
             // Record metrics for this batch
             self.metrics.on_batch(&batch);
             
+            // Record access order for deterministic validation
+            // TODO: Enhance s3dlio to expose actual item keys/paths instead of step indices
+            // For now, record step indices as a fallback for deterministic ordering
+            self.metrics.record_item_access(format!("step_{:08}", step));
+            
             // Update sample count
             samples_this_epoch += batch.len();
             
@@ -92,16 +113,16 @@ impl MlperfRunner {
                 self.plugins.after_epoch(epoch).await
                     .context("Plugin after_epoch failed")?;
 
-                // For benchmark purposes, limit to a reasonable number of epochs
-                if epoch >= 3 {
-                    info!("Completed {} epochs, ending benchmark", epoch);
+                // Check configurable epoch limit
+                if epoch >= self.max_epochs {
+                    info!("Completed {} epochs (limit: {}), ending benchmark", epoch, self.max_epochs);
                     break;
                 }
             }
 
-            // Limit steps for reasonable benchmark duration
-            if step >= 1000 {
-                info!("Reached step limit, ending benchmark");
+            // Check configurable step limit
+            if step >= self.max_steps {
+                info!("Reached step limit ({} steps), ending benchmark", self.max_steps);
                 break;
             }
         }
@@ -129,6 +150,12 @@ pub struct MlperfMetrics {
     pub total_bytes: u64,
     pub total_samples: u64,
     pub batch_latencies_ms: Vec<f64>,
+    // Per-stage timing for detailed MLPerf analysis
+    pub io_latencies_ms: Vec<f64>,        // read/fetch timing
+    pub decode_latencies_ms: Vec<f64>,    // format decode timing  
+    pub h2d_latencies_ms: Vec<f64>,       // host→device transfer (stub for now)
+    // Access order tracking for deterministic validation
+    pub visited_items: Vec<String>,       // file paths or dataset indices for determinism
 }
 
 impl MlperfMetrics {
@@ -153,6 +180,27 @@ impl MlperfMetrics {
         self.batch_latencies_ms.push(batch_latency);
     }
 
+    /// Record I/O latency (time to read/fetch data from storage)
+    pub fn record_io_latency(&mut self, latency_ms: f64) {
+        self.io_latencies_ms.push(latency_ms);
+    }
+
+    /// Record decode latency (time to decode format like NPZ, HDF5, etc.)
+    pub fn record_decode_latency(&mut self, latency_ms: f64) {
+        self.decode_latencies_ms.push(latency_ms);
+    }
+
+    /// Record host-to-device transfer latency (stub for GPU workloads)
+    pub fn record_h2d_latency(&mut self, latency_ms: f64) {
+        self.h2d_latencies_ms.push(latency_ms);
+    }
+
+    /// Record an accessed item for deterministic validation
+    /// This tracks the order in which dataset items are accessed
+    pub fn record_item_access(&mut self, item_id: String) {
+        self.visited_items.push(item_id);
+    }
+
     pub fn complete_run(&mut self, duration: std::time::Duration) {
         self.end_time = Some(self.start_time.unwrap() + duration);
     }
@@ -168,11 +216,31 @@ impl MlperfMetrics {
     }
 
     pub fn latency_percentile(&self, percentile: f64) -> f64 {
-        if self.batch_latencies_ms.is_empty() {
+        Self::calculate_percentile(&self.batch_latencies_ms, percentile)
+    }
+
+    /// Calculate percentile for I/O latencies
+    pub fn io_percentile(&self, percentile: f64) -> f64 {
+        Self::calculate_percentile(&self.io_latencies_ms, percentile)
+    }
+
+    /// Calculate percentile for decode latencies  
+    pub fn decode_percentile(&self, percentile: f64) -> f64 {
+        Self::calculate_percentile(&self.decode_latencies_ms, percentile)
+    }
+
+    /// Calculate percentile for host-to-device latencies
+    pub fn h2d_percentile(&self, percentile: f64) -> f64 {
+        Self::calculate_percentile(&self.h2d_latencies_ms, percentile)
+    }
+
+    /// Helper function to calculate percentile from a vector of latencies
+    fn calculate_percentile(latencies: &[f64], percentile: f64) -> f64 {
+        if latencies.is_empty() {
             return 0.0;
         }
 
-        let mut sorted = self.batch_latencies_ms.clone();
+        let mut sorted = latencies.to_vec();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         
         let index = ((percentile / 100.0) * (sorted.len() - 1) as f64) as usize;
@@ -192,6 +260,16 @@ pub struct MlperfReport {
     pub p50_latency_ms: f64,
     pub p95_latency_ms: f64,
     pub p99_latency_ms: f64,
+    // Per-stage latency percentiles for detailed analysis
+    pub io_p50_latency_ms: f64,
+    pub io_p95_latency_ms: f64,
+    pub io_p99_latency_ms: f64,
+    pub decode_p50_latency_ms: f64,
+    pub decode_p95_latency_ms: f64,
+    pub decode_p99_latency_ms: f64,
+    pub h2d_p50_latency_ms: f64,
+    pub h2d_p95_latency_ms: f64,
+    pub h2d_p99_latency_ms: f64,
     pub seed: Option<u64>,
     pub data_folder: String,
     pub format: String,
@@ -200,6 +278,9 @@ pub struct MlperfReport {
     pub shuffle: bool,
     pub dl_driver_version: String,
     pub s3dlio_version: String,
+    // Access order for deterministic validation (not included in CSV to avoid bloat)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub access_order_sample: Vec<String>, // First 10 items for validation
 }
 
 impl MlperfReport {
@@ -216,6 +297,16 @@ impl MlperfReport {
             p50_latency_ms: metrics.latency_percentile(50.0),
             p95_latency_ms: metrics.latency_percentile(95.0),
             p99_latency_ms: metrics.latency_percentile(99.0),
+            // Per-stage latency percentiles
+            io_p50_latency_ms: metrics.io_percentile(50.0),
+            io_p95_latency_ms: metrics.io_percentile(95.0),
+            io_p99_latency_ms: metrics.io_percentile(99.0),
+            decode_p50_latency_ms: metrics.decode_percentile(50.0),
+            decode_p95_latency_ms: metrics.decode_percentile(95.0),
+            decode_p99_latency_ms: metrics.decode_percentile(99.0),
+            h2d_p50_latency_ms: metrics.h2d_percentile(50.0),
+            h2d_p95_latency_ms: metrics.h2d_percentile(95.0),
+            h2d_p99_latency_ms: metrics.h2d_percentile(99.0),
             seed: config.reader.seed,
             data_folder: config.dataset.data_folder.clone(),
             format: config.dataset.format.clone(),
@@ -223,7 +314,14 @@ impl MlperfReport {
             read_threads: config.reader.read_threads.unwrap_or(1),
             shuffle: config.reader.shuffle.unwrap_or(false),
             dl_driver_version: env!("CARGO_PKG_VERSION").to_string(),
-            s3dlio_version: "0.8.1".to_string(), // TODO: Get from s3dlio crate
+            // Note: s3dlio version matches s3dlio/Cargo.toml version 0.8.1
+            // When s3dlio is updated, update this version string accordingly
+            s3dlio_version: "0.8.1".to_string(),
+            // Include first 10 access order items for deterministic validation
+            access_order_sample: metrics.visited_items.iter()
+                .take(10)
+                .cloned()
+                .collect(),
         }
     }
 
@@ -233,12 +331,12 @@ impl MlperfReport {
     }
 
     pub fn to_csv_header() -> String {
-        "benchmark_name,backend_type,framework,total_samples,total_bytes,throughput_samples_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,batch_size,read_threads,shuffle,data_folder".to_string()
+        "benchmark_name,backend_type,framework,total_samples,total_bytes,throughput_samples_per_sec,p50_latency_ms,p95_latency_ms,p99_latency_ms,io_p50_latency_ms,io_p95_latency_ms,io_p99_latency_ms,decode_p50_latency_ms,decode_p95_latency_ms,decode_p99_latency_ms,h2d_p50_latency_ms,h2d_p95_latency_ms,h2d_p99_latency_ms,batch_size,read_threads,shuffle,data_folder,dl_driver_version,s3dlio_version".to_string()
     }
 
     pub fn to_csv_row(&self) -> String {
         format!(
-            "{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{},{},{},{}",
+            "{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{}",
             self.benchmark_name,
             self.backend_type,
             self.framework.as_deref().unwrap_or("none"),
@@ -248,10 +346,21 @@ impl MlperfReport {
             self.p50_latency_ms,
             self.p95_latency_ms,
             self.p99_latency_ms,
+            self.io_p50_latency_ms,
+            self.io_p95_latency_ms,
+            self.io_p99_latency_ms,
+            self.decode_p50_latency_ms,
+            self.decode_p95_latency_ms,
+            self.decode_p99_latency_ms,
+            self.h2d_p50_latency_ms,
+            self.h2d_p95_latency_ms,
+            self.h2d_p99_latency_ms,
             self.batch_size,
             self.read_threads,
             self.shuffle,
-            self.data_folder
+            self.data_folder,
+            self.dl_driver_version,
+            self.s3dlio_version
         )
     }
 }

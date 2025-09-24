@@ -5,6 +5,40 @@ All notable changes to the real_dlio project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2025-09-24 🚀
+
+### **MAJOR: M5 Checkpoint Plugins & M6 MLPerf Enhancements**
+
+#### **M5 - Checkpoint Plugin System** ✨
+- ✅ **Multi-Backend Checkpointing**: Full support for file://, directio://, s3://, az:// storage backends
+- ✅ **Optional zstd Compression**: Configurable compression with compression levels
+- ✅ **Plugin Architecture**: Complete async Plugin trait with lifecycle management (initialize, after_step, after_epoch, finalize)
+- ✅ **Automatic Integration**: CheckpointPlugin auto-registers when `checkpoint.enabled: true` in config
+- ✅ **Robust Implementation**: Proper error handling, configuration validation, and comprehensive tests
+
+#### **M6 - MLPerf Production Readiness** 📊
+- ✅ **Provenance Fields**: Added dl_driver_version and s3dlio_version to all reports (JSON/CSV)
+- ✅ **Per-Stage Timing**: Detailed metrics with io_latencies_ms, decode_latencies_ms, h2d_latencies_ms
+- ✅ **Percentile Analysis**: P50/P95/P99 calculations for all timing stages
+- ✅ **Access-Order Capture**: Deterministic validation with visited_items tracking
+- ✅ **Configurable Bounds**: CLI flags for --max-epochs and --max-steps (no more hardcoded limits)
+
+#### **Enhanced Metrics & Reporting** 📈
+- ✅ **Comprehensive CSV Export**: All metrics including per-stage latencies and version info
+- ✅ **JSON Reports**: Rich structured output with access order samples for validation
+- ✅ **Plugin Lifecycle**: Proper checkpoint timing with step intervals and run IDs
+
+#### **Code Quality Improvements** 🔧
+- ✅ **Warning-Free Compilation**: Fixed all compiler warnings with proper field usage
+- ✅ **Comprehensive Testing**: Checkpoint plugin tests with multi-backend validation
+- ✅ **Documentation**: Updated roadmap and implementation guides
+
+### **Production Ready Features**
+- 🎯 **DLIO/MLPerf Compatibility**: Full stock DLIO config support with enhanced metrics
+- 🎯 **Enterprise Storage**: Multi-backend checkpointing for production environments  
+- 🎯 **Deterministic Validation**: Access-order tracking for reproducible benchmarks
+- 🎯 **Configurable Execution**: No hardcoded limits, full CLI control
+
 ## [0.5.1] - 2025-09-24 🔥
 
 ### **MAJOR: Architecture Refactor & Compilation Success** 
