@@ -1,0 +1,29 @@
+model:
+  name: "checkpoint_test"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+
+dataset:
+  data_folder: "file:///mnt/vast1/dl_driver_checkpoint_test"
+  format: "npz"
+  num_files_train: 5
+  num_samples_per_file: 10
+  record_length_bytes: 1024
+
+reader:
+  batch_size: 4
+  prefetch: 2
+  shuffle: true
+  read_threads: 2
+  seed: 42
+
+checkpoint:
+  enabled: true
+  steps_between_checkpoints: 3
+  compression: "zstd"
+  compression_level: 3

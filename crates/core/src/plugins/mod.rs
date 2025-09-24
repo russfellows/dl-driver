@@ -67,22 +67,6 @@ impl PluginManager {
     }
 }
 
-// Placeholder for checkpoint plugin - to be implemented when we add M5 checkpointing
-pub mod checkpoint {
-    use super::*;
-    
-    pub struct CheckpointPlugin {
-        // Will be implemented in M5
-    }
-    
-    impl CheckpointPlugin {
-        pub fn from_config(_cfg: &DlioConfig) -> Result<Option<Self>> {
-            // Check if checkpointing is enabled in config
-            if _cfg.checkpoint.as_ref().map_or(false, |c| c.enabled.unwrap_or(false)) {
-                // TODO: Implement checkpoint plugin using s3dlio::CheckpointStore
-                tracing::info!("Checkpoint plugin requested but not yet implemented");
-            }
-            Ok(None)
-        }
-    }
-}
+// CheckpointPlugin implementation for M5
+pub mod checkpoint;
+pub use checkpoint::CheckpointPlugin;

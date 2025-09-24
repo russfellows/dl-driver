@@ -94,6 +94,14 @@ enum Commands {
         /// Save report to file instead of stdout
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
+
+        /// Maximum number of epochs to run (overrides config)
+        #[arg(long, default_value_t = 3)]
+        max_epochs: u32,
+
+        /// Maximum number of steps to run (overrides config)  
+        #[arg(long, default_value_t = 1000)]
+        max_steps: u32,
     },
 }
 
@@ -131,7 +139,9 @@ async fn main() -> Result<()> {
             eprintln!("Generate command temporarily disabled during refactor");
             Ok(())
         },
-        Commands::Mlperf { config, format, output } => run_mlperf_benchmark(&config, &format, output.as_deref()).await,
+        Commands::Mlperf { config, format, output, max_epochs, max_steps } => {
+            run_mlperf_benchmark(&config, &format, output.as_deref(), max_epochs, max_steps).await
+        },
     }
 }
 
@@ -374,6 +384,8 @@ async fn run_mlperf_benchmark(
     config_path: &std::path::Path,
     format: &str,
     output_path: Option<&std::path::Path>,
+    max_epochs: u32,
+    max_steps: u32,
 ) -> Result<()> {
     info!("Loading DLIO config for MLPerf benchmark from: {:?}", config_path);
 
@@ -386,11 +398,19 @@ async fn run_mlperf_benchmark(
               .and_then(|m| m.name.as_ref())
               .unwrap_or(&"unknown".to_string()));
 
-    // Create plugin manager (empty for now, will add checkpointing in M5)
-    let plugins = PluginManager::new();
+    // Create plugin manager with CheckpointPlugin if enabled
+    let mut plugins = PluginManager::new();
+    
+    // Add CheckpointPlugin if checkpointing is enabled in config
+    if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&config).await? {
+        plugins.push(Box::new(checkpoint_plugin));
+        info!("CheckpointPlugin registered");
+    }
 
-    // Create and run MLPerf runner
-    let mut runner = MlperfRunner::new(config, plugins);
+    // Create and run MLPerf runner with configurable bounds
+    let mut runner = MlperfRunner::new(config, plugins)
+        .with_max_epochs(max_epochs)
+        .with_max_steps(max_steps);
     let report = runner.run().await
         .context("MLPerf benchmark execution failed")?;
 
