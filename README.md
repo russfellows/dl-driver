@@ -3,7 +3,7 @@
 **A high-performance, enterprise-grade data loading framework for AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.5.1-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.5.2-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-6%20passing-success.svg)](#testing--validation)
@@ -16,9 +16,9 @@
 
 **Key Achievement**: Complete validation with numpy, h5py, and TensorFlow ensures seamless integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.5.1)
+## 🎯 Current Status (v0.5.2)
 
-**✅ PRODUCTION READY**: Architecture refactor complete with unified configuration system
+**✅ PRODUCTION READY**: M5 Checkpoint Plugins & M6 MLPerf Enhancements Complete
 
 ### Compilation Status
 - **Full Workspace Compilation**: `cargo check --workspace` ✅ SUCCESS  
@@ -26,13 +26,14 @@
 - **All Tests Passing**: 6/6 core library tests ✅ SUCCESS
 - **CLI Fully Functional**: All commands operational ✅ SUCCESS
 
-### Architecture Achievements
-- **🔧 Unified Configuration**: Single `DlioConfig` type eliminates legacy confusion
-- **🔌 Plugin System Ready**: Async-capable plugin architecture for M5 checkpointing
-- **🎯 MLPerf Integration**: Standalone MLPerf runner ready for benchmark compliance
-- **📦 s3dlio v0.8.1 Integration**: Multi-backend support with corrected field mappings
+### Major Milestones Achieved
+- **✅ M5 - Checkpoint Plugin System**: Multi-backend checkpointing with optional zstd compression
+- **✅ M6 - MLPerf Production Readiness**: Provenance tracking, per-stage metrics, deterministic validation
+- **🔧 Unified Configuration**: Single `DlioConfig` type with comprehensive validation
+- **🔌 Enterprise Plugin Architecture**: Async-capable plugin system with lifecycle management
+- **📦 s3dlio v0.8.1 Integration**: Complete multi-backend support across all storage types
 
-### Working Features
+### Enhanced Working Features
 ```bash
 # Validate DLIO configurations
 ./target/release/dl-driver validate --config tests/dlio_configs/minimal_config.yaml
@@ -40,8 +41,11 @@
 # Process DLIO configurations  
 ./target/release/dl-driver dlio --config <config> --pretty
 
-# Run MLPerf benchmarks
-./target/release/dl-driver mlperf --config <config> --format json
+# Run MLPerf benchmarks with enhanced metrics and checkpointing
+./target/release/dl-driver mlperf --config <config> --format json --max-epochs 5 --max-steps 2000
+
+# Generate comprehensive reports with provenance and per-stage timing
+./target/release/dl-driver mlperf --config <config> --format csv --output mlperf_report.csv
 ```
 
 ### ✨ Key Features
@@ -50,13 +54,30 @@
 - **🔗 DLIO Configuration Compatibility**: Drop-in replacement for existing DLIO YAML configs
 - **📋 3 Production Formats**: NPZ, HDF5, TFRecord with 100% standard library compatibility
 - **🏪 4 Universal Storage Backends**: File, S3/MinIO, Azure Blob, DirectIO with unified interface  
-- **🔧 Framework Integration**: PyTorch, TensorFlow, and JAX adapters with M4 Framework Profiles
+- **� M5 Checkpoint Plugin System**: Multi-backend checkpointing with optional zstd compression
+- **📊 M6 MLPerf Production Readiness**: Provenance tracking, per-stage metrics, deterministic validation
+- **�🔧 Framework Integration**: PyTorch, TensorFlow, and JAX adapters with M4 Framework Profiles
 - **⚡ Enterprise Performance**: **62K+ files/second** with advanced AsyncPoolDataLoader
 - **🔄 Multi-Threading**: Concurrent processing with backend-optimized configurations
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
-- **🧪 Comprehensively Validated**: 56 comprehensive tests covering all functionality
+- **🧪 Comprehensively Validated**: 56+ comprehensive tests covering all functionality
 
-## 🔧 M4 Framework Profiles (NEW in v0.5.0)
+## � M5 & M6 Enterprise Features (NEW in v0.5.2) 
+
+### M5: Checkpoint Plugin System
+- **Multi-Backend Persistence**: Checkpoints work seamlessly across file://, directio://, s3://, and az:// storage
+- **Configurable Compression**: Optional zstd compression reduces checkpoint artifact sizes
+- **Async Plugin Architecture**: Complete lifecycle management with proper error handling
+- **Automatic Integration**: Enable via `checkpoint.enabled: true` in DLIO config
+
+### M6: MLPerf Production Readiness
+- **Comprehensive Provenance**: Every report includes dl-driver and s3dlio version tracking
+- **Per-Stage Timing Metrics**: Detailed I/O, decode, and host-to-device latency analysis  
+- **Percentile Analysis**: P50, P95, P99 latencies for all performance stages
+- **Deterministic Validation**: Access-order capture ensures reproducible benchmarks
+- **Configurable Bounds**: `--max-epochs` and `--max-steps` CLI flags remove hardcoded limits
+
+## 🔧 M4 Framework Profiles
 
 ### Framework Integration Architecture
 dl-driver now provides **comprehensive framework integration** with enterprise-grade ML/AI framework support:
@@ -354,12 +375,12 @@ cargo build --release
 **v0.3.0**: Enterprise-grade performance (62K+ files/second), dynamic batching, auto-tuning
 **v0.2.0**: Multi-backend storage (File, S3, Azure, DirectIO), DLIO configuration compatibility
 
-### � Future Enhancements (v0.5.0+)
+### � Future Enhancements (v0.5.3+)
 - **Additional formats**: Parquet, Arrow for modern data science workflows
 - **Enhanced Python bindings**: Complete PyO3 API for Python integration
-- **Compression support**: LZ4, GZIP, Zstd for optimized storage
-- **Distributed coordination**: Multi-node workload orchestration
-- **Advanced profiling**: Detailed I/O and compute metrics
+- **Golden reference validation**: Automated tolerance-based benchmark validation
+- **Distributed coordination**: Multi-node workload orchestration  
+- **Advanced profiling**: Extended I/O and compute metrics beyond current per-stage timing
 - **Cloud-native features**: Kubernetes integration, auto-scaling
 
 ## 📚 Documentation
