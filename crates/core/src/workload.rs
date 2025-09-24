@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
-use crate::config::Config;
+use crate::config::DlioConfig;
 use crate::metrics::Metrics;
 
 // Import s3dlio 0.8.0 functionality - using new advanced API
@@ -14,12 +14,12 @@ use s3dlio::{LoaderOptions, ReaderMode};
 
 /// Main workload execution engine using s3dlio capabilities
 pub struct WorkloadRunner {
-    config: Arc<Config>,
+    config: Arc<DlioConfig>,
     metrics: Arc<Metrics>,
 }
 
 impl WorkloadRunner {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: DlioConfig) -> Self {
         // Load environment variables for S3 credentials
         if let Err(e) = dotenvy::dotenv() {
             warn!("Could not load .env file: {}", e);
@@ -41,19 +41,19 @@ impl WorkloadRunner {
         let start_time = Instant::now();
 
         // Phase 1: Data Generation (if enabled)
-        if self.config.workflow.generate_data.unwrap_or(false) {
+        if self.config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
             info!("Phase 1: Generating data");
             self.run_data_generation().await?;
         }
 
         // Phase 2: Training (if enabled)
-        if self.config.workflow.train.unwrap_or(false) {
+        if self.config.workflow.as_ref().map_or(false, |w| w.train.unwrap_or(false)) {
             info!("Phase 2: Running training with s3dlio integration");
             self.run_training().await?;
         }
 
         // Phase 3: Checkpointing (if enabled)
-        if self.config.workflow.checkpoint.unwrap_or(false) {
+        if self.config.workflow.as_ref().map_or(false, |w| w.checkpoint.unwrap_or(false)) {
             info!("Phase 3: Running checkpointing");
             self.run_checkpointing().await?;
         }
@@ -75,9 +75,9 @@ impl WorkloadRunner {
         // Create object store for the configured storage backend
         let store = self.create_object_store()?;
 
-        let num_files = self.config.dataset.num_files_train;
-        let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1) as usize;
-        let record_size = self.config.dataset.record_length_bytes.unwrap_or(1024) as usize;
+        let num_files = self.config.dataset.num_files_train.unwrap_or(100);
+        let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1);
+        let record_size = self.config.dataset.record_length_bytes.unwrap_or(1024);
 
         info!(
             "Generating {} files with {} samples each ({}B per record)",
@@ -105,7 +105,7 @@ impl WorkloadRunner {
             let write_time = write_start.elapsed();
 
             // Record metrics
-            let bytes_written = (samples_per_file * record_size) as u64;
+            let bytes_written = (samples_per_file as u64) * (record_size as u64);
             self.metrics
                 .record_write_operation(bytes_written, write_time);
             info!(
@@ -128,9 +128,9 @@ impl WorkloadRunner {
         let start_time = Instant::now();
         info!("Starting training phase with s3dlio DataLoader");
 
-        let epochs = self.config.train.as_ref().map(|t| t.epochs).unwrap_or(1);
+        let epochs = 1; // Default epochs for training phase
 
-        let batch_size = self.config.reader.batch_size as usize;
+        let batch_size = self.config.reader.batch_size.unwrap_or(1);
         let num_workers = self.config.reader.read_threads.unwrap_or(4) as usize;
         let prefetch_size = 16; // Default prefetch size
 

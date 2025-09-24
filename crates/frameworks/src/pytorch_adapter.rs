@@ -115,12 +115,11 @@ impl PyTorchDataLoader {
 
     /// Detect format type from DLIO configuration
     fn detect_format(dlio_config: &DlioConfig) -> Result<FormatType> {
-        match dlio_config.dataset.format.as_deref() {
-            Some("npz") => Ok(FormatType::Npz),
-            Some("hdf5") => Ok(FormatType::Hdf5),
-            Some("tfrecord") => Ok(FormatType::TfRecord),
-            Some(other) => Err(anyhow::anyhow!("Unsupported format: {}", other)),
-            None => Ok(FormatType::Npz), // Default to NPZ
+        match dlio_config.dataset.format.as_str() {
+            "npz" => Ok(FormatType::Npz),
+            "hdf5" => Ok(FormatType::Hdf5),
+            "tfrecord" => Ok(FormatType::TfRecord),
+            other => Err(anyhow::anyhow!("Unsupported format: {}", other)),
         }
     }
 

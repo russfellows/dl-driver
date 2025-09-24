@@ -2,7 +2,7 @@
 //
 // Dataset generation functionality for DLIO benchmark compatibility
 
-use crate::dlio_compat::{DatasetSplit, RunPlan};
+use crate::plan::RunPlan;
 use crate::metrics::Metrics;
 use anyhow::{Context, Result};
 use real_dlio_formats::{Format, FormatFactory};

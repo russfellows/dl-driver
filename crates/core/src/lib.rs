@@ -1,17 +1,34 @@
 //! Core library for dl-driver ─ Enhanced with s3dlio data loading and DLIO compatibility.
 
 pub mod config;
-pub mod dataset;
-pub mod dlio_compat;
-pub mod generation;
+// Temporarily disabled - needs update for new config system
+// pub mod dataset;
+pub mod plan;
+// Temporarily disabled - needs update for new config system  
+// pub mod generation;
 pub mod metrics;
+pub mod mlperf;
+pub mod plugins;
 pub mod runner;
 pub mod workload;
 
-pub use config::Config;
-pub use dataset::{DatasetMetadata, DatasetReader, S3dlioDatasetReader};
-pub use dlio_compat::{DlioConfig, RunPlan};
-pub use generation::DatasetGenerator;
+// Compatibility alias for existing imports
+pub mod dlio_compat {
+    pub use crate::config::{DlioConfig, yaml_to_json};
+}
+
+// Re-export unified config system
+pub use config::DlioConfig;
+pub use plan::RunPlan;
+
+// Legacy exports removed - use DlioConfig directly
+
+// Keep existing exports for compatibility (disabled while fixing)
+// pub use dataset::{DatasetMetadata, DatasetReader, S3dlioDatasetReader};
+// pub use generation::DatasetGenerator;
 pub use metrics::Metrics;
 pub use runner::Runner;
 pub use workload::WorkloadRunner;
+
+// New MLPerf runner
+pub use mlperf::{MlperfRunner, MlperfReport};

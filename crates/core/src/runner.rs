@@ -1,17 +1,17 @@
 use anyhow::Result;
 use std::time::Instant;
 
-use crate::config::Config;
+use crate::config::DlioConfig;
 use crate::metrics::Metrics;
 
 /// Placeholder runner for milestone M1
 pub struct Runner {
-    config: Config,
+    config: DlioConfig,
     metrics: Metrics,
 }
 
 impl Runner {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: DlioConfig) -> Self {
         Self {
             config,
             metrics: Metrics::new(),
