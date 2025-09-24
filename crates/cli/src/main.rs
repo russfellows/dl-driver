@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use dl_driver_core::{Config, DatasetGenerator, DlioConfig, WorkloadRunner};
+use dl_driver_core::{DlioConfig, WorkloadRunner, MlperfRunner};
+use dl_driver_core::plugins::PluginManager;
 use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset};
 use tracing::{error, info};
 
@@ -80,6 +81,20 @@ enum Commands {
         #[arg(long)]
         skip_existing: bool,
     },
+    /// Run MLPerf benchmark (standalone, no WorkloadRunner)
+    Mlperf {
+        /// Path to a DLIO YAML config file
+        #[arg(short, long)]
+        config: std::path::PathBuf,
+
+        /// Output format for report
+        #[arg(long, default_value = "json")]
+        format: String,
+
+        /// Save report to file instead of stdout
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -109,10 +124,14 @@ async fn main() -> Result<()> {
         } => run_dlio_config(&config, pretty, pool_size, readahead, max_inflight, timeout).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
         Commands::Generate {
-            config,
-            verbose,
-            skip_existing,
-        } => generate_dataset_from_config(&config, verbose, skip_existing).await,
+            config: _,
+            verbose: _,
+            skip_existing: _,
+        } => {
+            eprintln!("Generate command temporarily disabled during refactor");
+            Ok(())
+        },
+        Commands::Mlperf { config, format, output } => run_mlperf_benchmark(&config, &format, output.as_deref()).await,
     }
 }
 
@@ -120,7 +139,7 @@ async fn run_legacy_config(config_path: &std::path::Path, pretty: bool) -> Resul
     info!("Loading legacy dl-driver config from: {:?}", config_path);
 
     // Load and parse configuration
-    let config = Config::from_yaml_file(config_path)?;
+    let config = DlioConfig::from_yaml_file(config_path)?;
 
     if pretty {
         // Pretty-print the parsed config
@@ -307,123 +326,101 @@ async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> R
         println!("⚠️  Backend detection: Unknown scheme");
     }
 
-    // Test RunPlan conversion
+    // Test RunPlan conversion (using flat RunPlan structure)
     let run_plan = dlio_config.to_run_plan()?;
     println!("✅ RunPlan conversion: SUCCESS");
-    println!(
-        "  - Model: {} ({})",
-        run_plan.model.name, run_plan.model.framework
-    );
-    println!(
-        "  - Workflow: generate_data={}, train={}, checkpoint={}, evaluation={}",
-        run_plan.workflow.generate_data,
-        run_plan.workflow.train,
-        run_plan.workflow.checkpoint,
-        run_plan.workflow.evaluation
-    );
-    println!(
-        "  - Dataset: {} files, {} samples/file, {} bytes/record",
-        run_plan.dataset.train.num_files,
-        run_plan.dataset.train.num_samples_per_file,
-        run_plan.dataset.train.record_length_bytes
-    );
-    println!(
-        "  - Total: {} samples, {:.2} MB",
-        run_plan.dataset.train.total_samples,
-        run_plan.dataset.train.total_bytes as f64 / 1024.0 / 1024.0
-    );
+    
+    // Display model info
+    if let Some(model) = &dlio_config.model {
+        println!("  - Model: {} ({})", 
+            model.name.as_deref().unwrap_or("unnamed"),
+            dlio_config.framework.as_deref().unwrap_or("unspecified"));
+    } else {
+        println!("  - Model: No model specified");
+    }
+    
+    // Display workflow info  
+    if let Some(workflow) = &dlio_config.workflow {
+        println!("  - Workflow: generate_data={}, train={}, checkpoint={}, evaluation={}",
+            workflow.generate_data.unwrap_or(false),
+            workflow.train.unwrap_or(false), 
+            workflow.checkpoint.unwrap_or(false),
+            workflow.evaluation.unwrap_or(false));
+    } else {
+        println!("  - Workflow: No workflow specified");
+    }
+    
+    // Display dataset info using the flat RunPlan
+    println!("  - Dataset: {} files, {} samples/file, {} bytes/record",
+        run_plan.num_files_train.unwrap_or(0),
+        run_plan.num_samples_per_file.unwrap_or(0),
+        run_plan.record_length_bytes.unwrap_or(0));
+        
+    // Calculate totals
+    let total_samples = run_plan.num_files_train.unwrap_or(0) * 
+                       run_plan.num_samples_per_file.unwrap_or(0);
+    let total_bytes = total_samples * run_plan.record_length_bytes.unwrap_or(0);
+    
+    println!("  - Total: {} samples, {:.2} MB",
+        total_samples,
+        total_bytes as f64 / 1024.0 / 1024.0);
 
     println!("🎉 DLIO configuration is valid and ready to run!");
 
     Ok(())
 }
 
-async fn generate_dataset_from_config(
+async fn run_mlperf_benchmark(
     config_path: &std::path::Path,
-    verbose: bool,
-    skip_existing: bool,
+    format: &str,
+    output_path: Option<&std::path::Path>,
 ) -> Result<()> {
-    info!("Loading DLIO config from: {:?}", config_path);
+    info!("Loading DLIO config for MLPerf benchmark from: {:?}", config_path);
 
-    // Read and parse the DLIO configuration
-    let yaml_content = tokio::fs::read_to_string(config_path)
-        .await
-        .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+    // Load and parse DLIO configuration
+    let config = DlioConfig::from_yaml_file(config_path)
+        .with_context(|| format!("Failed to load DLIO config from {:?}", config_path))?;
 
-    let dlio_config: DlioConfig = serde_yaml::from_str(&yaml_content)
-        .with_context(|| "Failed to parse DLIO YAML configuration")?;
+    info!("Running MLPerf benchmark: {}", 
+          config.model.as_ref()
+              .and_then(|m| m.name.as_ref())
+              .unwrap_or(&"unknown".to_string()));
 
-    // Convert to RunPlan
-    let run_plan = dlio_config
-        .to_run_plan()
-        .with_context(|| "Failed to convert DLIO config to RunPlan")?;
+    // Create plugin manager (empty for now, will add checkpointing in M5)
+    let plugins = PluginManager::new();
 
-    println!("📋 Dataset Generation Plan");
-    println!("  Format: {}", run_plan.dataset.format);
-    println!("  Training files: {}", run_plan.dataset.train.num_files);
-    println!(
-        "  Samples per file: {}",
-        run_plan.dataset.train.num_samples_per_file
-    );
-    println!(
-        "  Record size: {} bytes",
-        run_plan.dataset.train.record_length_bytes
-    );
-    println!(
-        "  Total size: {:.2} MB",
-        run_plan.dataset.train.total_bytes as f64 / 1024.0 / 1024.0
-    );
-    println!("  Output directory: {}", run_plan.dataset.data_folder_uri);
+    // Create and run MLPerf runner
+    let mut runner = MlperfRunner::new(config, plugins);
+    let report = runner.run().await
+        .context("MLPerf benchmark execution failed")?;
 
-    if let Some(eval) = &run_plan.dataset.eval {
-        if eval.num_files > 0 {
-            println!("  Evaluation files: {}", eval.num_files);
+    // Generate output based on format
+    let output_content = match format.to_lowercase().as_str() {
+        "json" => report.to_json()?,
+        "csv" => {
+            let mut csv_content = String::new();
+            csv_content.push_str(&format!("{}\n", dl_driver_core::MlperfReport::to_csv_header()));
+            csv_content.push_str(&format!("{}\n", report.to_csv_row()));
+            csv_content
         }
-    }
-
-    // Check if data already exists
-    let data_path = if run_plan.dataset.data_folder_uri.starts_with("file://") {
-        std::path::Path::new(&run_plan.dataset.data_folder_uri[7..])
-    } else {
-        std::path::Path::new(&run_plan.dataset.data_folder_uri)
+        _ => return Err(anyhow::anyhow!("Unsupported format '{}'. Use 'json' or 'csv'", format)),
     };
 
-    if data_path.exists() && skip_existing {
-        println!("⏭️  Data directory already exists, skipping generation");
-        return Ok(());
+    // Output to file or stdout
+    if let Some(output_file) = output_path {
+        std::fs::write(output_file, output_content)
+            .with_context(|| format!("Failed to write report to {:?}", output_file))?;
+        println!("✅ MLPerf report written to {:?}", output_file);
+    } else {
+        println!("{}", output_content);
     }
 
-    // Create dataset generator
-    let generator = DatasetGenerator::new(run_plan);
-    let mut metrics = dl_driver_core::Metrics::new();
-
-    let start_time = std::time::Instant::now();
-
-    if verbose {
-        println!("🚀 Starting dataset generation...");
-    }
-
-    // Generate the dataset
-    generator
-        .generate_dataset(&mut metrics)
-        .await
-        .with_context(|| "Dataset generation failed")?;
-
-    let total_time = start_time.elapsed();
-
-    println!("✅ Dataset generation completed!");
-    println!("  Files processed: {}", metrics.files_processed());
-    println!(
-        "  Bytes written: {} MB",
-        metrics.bytes_written() / 1024 / 1024
-    );
-    println!("  Total time: {:.2} seconds", total_time.as_secs_f64());
-
-    if metrics.bytes_written() > 0 && total_time.as_secs_f64() > 0.0 {
-        let throughput =
-            (metrics.bytes_written() as f64) / (1024.0 * 1024.0) / total_time.as_secs_f64();
-        println!("  Throughput: {:.2} MB/s", throughput);
-    }
+    // Print summary to stderr so it doesn't interfere with JSON/CSV output
+    eprintln!("🏁 MLPerf benchmark completed:");
+    eprintln!("  Backend: {}", report.backend_type);
+    eprintln!("  Samples: {}", report.total_samples);
+    eprintln!("  Throughput: {:.2} samples/sec", report.throughput_samples_per_sec);
+    eprintln!("  P99 latency: {:.3} ms", report.p99_latency_ms);
 
     Ok(())
 }

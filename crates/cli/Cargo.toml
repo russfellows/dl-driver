@@ -1,6 +1,6 @@
 [package]
 name    = "dl-driver"          # ← the binary you will run
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 
 [dependencies]

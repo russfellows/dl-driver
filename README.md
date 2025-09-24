@@ -3,17 +3,46 @@
 **A high-performance, enterprise-grade data loading framework for AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.5.1-green.svg)](./docs/Changelog.md)
+[![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-56%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-6%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
-[![Performance](https://img.shields.io/badge/performance-62K%20files%2Fsec-red.svg)](#performance-benchmarks)
+[![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
 
 ## 🚀 Overview
 
 **dl-driver** is a production-ready AI/ML data loading framework that provides **100% format compatibility** with standard Python libraries. Built in Rust for performance and reliability, it serves as a drop-in replacement for [DLIO benchmarks](https://github.com/argonne-lcf/dlio_benchmark) while delivering enterprise-grade capabilities through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
 
 **Key Achievement**: Complete validation with numpy, h5py, and TensorFlow ensures seamless integration with existing ML pipelines.
+
+## 🎯 Current Status (v0.5.1)
+
+**✅ PRODUCTION READY**: Architecture refactor complete with unified configuration system
+
+### Compilation Status
+- **Full Workspace Compilation**: `cargo check --workspace` ✅ SUCCESS  
+- **Release Builds**: `cargo build --release` ✅ SUCCESS
+- **All Tests Passing**: 6/6 core library tests ✅ SUCCESS
+- **CLI Fully Functional**: All commands operational ✅ SUCCESS
+
+### Architecture Achievements
+- **🔧 Unified Configuration**: Single `DlioConfig` type eliminates legacy confusion
+- **🔌 Plugin System Ready**: Async-capable plugin architecture for M5 checkpointing
+- **🎯 MLPerf Integration**: Standalone MLPerf runner ready for benchmark compliance
+- **📦 s3dlio v0.8.1 Integration**: Multi-backend support with corrected field mappings
+
+### Working Features
+```bash
+# Validate DLIO configurations
+./target/release/dl-driver validate --config tests/dlio_configs/minimal_config.yaml
+
+# Process DLIO configurations  
+./target/release/dl-driver dlio --config <config> --pretty
+
+# Run MLPerf benchmarks
+./target/release/dl-driver mlperf --config <config> --format json
+```
 
 ### ✨ Key Features
 

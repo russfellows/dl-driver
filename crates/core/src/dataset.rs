@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures_core::Stream;
 
-use crate::dlio_compat::{ReaderPlan, RunPlan};
+use crate::plan::RunPlan;
 use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset};
 
 /// Generic dataset reader trait for unified data access
