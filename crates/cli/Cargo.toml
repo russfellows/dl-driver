@@ -1,6 +1,6 @@
 [package]
 name    = "dl-driver"          # ← the binary you will run
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 
 [dependencies]
@@ -23,6 +23,7 @@ tokio-test = "0.4"
 futures = "0.3"
 rand = { version = "0.9", features = ["std", "alloc"] }
 futures-util = "0.3"
+serde_json = "1.0"
 async-trait = "0.1"
 tracing-test = "0.2"
 

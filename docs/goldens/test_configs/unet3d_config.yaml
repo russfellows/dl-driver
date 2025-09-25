@@ -1,0 +1,27 @@
+# DLIO UNet3D Workload Configuration
+# Based on MLCommons DLIO UNet3D benchmark specification
+
+model:
+  name: unet3d_workload
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/vast1/dlio_unet3d_data
+  format: npz
+  num_files_train: 100
+  record_length_bytes: 1048576
+
+reader:
+  data_loader: pytorch
+  batch_size: 4
+  prefetch: 4
+  shuffle: false
+  read_threads: 2
+  compute_threads: 2

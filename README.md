@@ -1,12 +1,37 @@
 # dl-driver
 
+**A high-performance, enterprise-grade data loading## � M5 & M6 Enterprise Features (v0.5.2) 
+
+### M5: Checkpoint Plugin System
+- **Multi-Backend Persistence**: Checkpoints work seamlessly across file://, directio://, s3://, and az:// storage
+- **Configurable Compression**: Optional zstd compression reduces checkpoint artifact sizes
+- **Async Plugin Architecture**: Complete lifecycle management with proper error handling
+- **Automatic Integration**: Enable via `checkpoint.enabled: true` in DLIO config
+
+### M6: MLPerf Production Readiness
+- **Comprehensive Provenance**: Every report includes dl-driver and s3dlio version tracking
+- **Per-Stage Timing Metrics**: Detailed I/O, decode, and host-to-device latency analysis  
+- **Percentile Analysis**: P50, P95, P99 latencies for all performance stages
+- **Deterministic Validation**: Access-order capture ensures reproducible benchmarks
+- **Configurable Bounds**: `--max-epochs` and `--max-steps` CLI flags remove hardcoded limits
+
+## 🧪 Comprehensive Testing & Quality (NEW in v0.5.3)
+
+### Golden Reference System
+- **Automated Validation**: Complete test infrastructure with tolerance specifications (`docs/goldens/`)
+- **DLIO/MLPerf Compatibility**: Extensive test suite proving identical workload handling across UNet3D, BERT, ResNet, CosmoFlow benchmarks
+- **Multi-Backend Testing**: Validation across all storage backends (file://, directio://, s3://, az://)
+- **Performance Regression Detection**: Automated checks ensure consistent performance with configurable thresholds
+- **Execution Time Tracking**: Enhanced MLPerf reports include `total_execution_time_secs` for comprehensive analysis
+- **CI/CD Ready**: Scripts for `generate_golden_references.sh` and `validate_golden.sh`
+
 **A high-performance, enterprise-grade data loading framework for AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.5.2-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.5.3-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-6%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-60%2B%20comprehensive-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
 
@@ -16,7 +41,7 @@
 
 **Key Achievement**: Complete validation with numpy, h5py, and TensorFlow ensures seamless integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.5.2)
+## 🎯 Current Status (v0.5.3)
 
 **✅ PRODUCTION READY**: M5 Checkpoint Plugins & M6 MLPerf Enhancements Complete
 
@@ -60,7 +85,7 @@
 - **⚡ Enterprise Performance**: **62K+ files/second** with advanced AsyncPoolDataLoader
 - **🔄 Multi-Threading**: Concurrent processing with backend-optimized configurations
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
-- **🧪 Comprehensively Validated**: 56+ comprehensive tests covering all functionality
+- **🧪 Comprehensively Validated**: 60+ comprehensive tests with golden reference validation and MLCommons DLIO compatibility
 
 ## � M5 & M6 Enterprise Features (NEW in v0.5.2) 
 

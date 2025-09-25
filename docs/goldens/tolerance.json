@@ -1,0 +1,116 @@
+{
+  "version": "0.5.2",
+  "description": "Tolerance specifications for dl-driver MLPerf golden reference validation",
+  "last_updated": "2025-09-24",
+  "tolerance_rules": {
+    "performance_metrics": {
+      "throughput_samples_per_sec": {
+        "relative_tolerance_percent": 5.0,
+        "description": "Sample processing throughput variance"
+      },
+      "throughput_files_per_sec": {
+        "relative_tolerance_percent": 5.0,
+        "description": "File processing throughput variance"
+      },
+      "io_p50_latency_ms": {
+        "relative_tolerance_percent": 10.0,
+        "description": "I/O latency 50th percentile variance"
+      },
+      "io_p95_latency_ms": {
+        "relative_tolerance_percent": 15.0,
+        "description": "I/O latency 95th percentile variance"
+      },
+      "io_p99_latency_ms": {
+        "relative_tolerance_percent": 20.0,
+        "description": "I/O latency 99th percentile variance (higher tolerance for tail latencies)"
+      },
+      "decode_p50_latency_ms": {
+        "relative_tolerance_percent": 10.0,
+        "description": "Decode latency 50th percentile variance"
+      },
+      "decode_p95_latency_ms": {
+        "relative_tolerance_percent": 15.0,
+        "description": "Decode latency 95th percentile variance"
+      },
+      "total_execution_time_secs": {
+        "relative_tolerance_percent": 8.0,
+        "description": "Total benchmark execution time variance"
+      },
+      "memory_usage_mb": {
+        "relative_tolerance_percent": 15.0,
+        "description": "Peak memory usage variance"
+      }
+    },
+    "functional_metrics": {
+      "total_files_processed": {
+        "exact_match": true,
+        "description": "Number of files processed must match exactly"
+      },
+      "total_samples_processed": {
+        "exact_match": true,
+        "description": "Number of samples processed must match exactly"
+      },
+      "total_bytes_read": {
+        "exact_match": true,
+        "description": "Total bytes read must match exactly"
+      },
+      "total_batches": {
+        "exact_match": true,
+        "description": "Number of batches processed must match exactly"
+      },
+      "epochs_completed": {
+        "exact_match": true,
+        "description": "Number of epochs must match exactly"
+      }
+    },
+    "provenance_fields": {
+      "dl_driver_version": {
+        "version_compatible": true,
+        "description": "Version should be compatible (major.minor match)"
+      },
+      "s3dlio_version": {
+        "version_compatible": true,
+        "description": "s3dlio version should be compatible"
+      },
+      "config_hash": {
+        "ignore": true,
+        "description": "Configuration hash may vary due to timestamp differences"
+      }
+    },
+    "deterministic_validation": {
+      "visited_items_sample": {
+        "sequence_match": true,
+        "sample_size": 100,
+        "description": "First 100 items in access order must match exactly for deterministic validation"
+      }
+    }
+  },
+  "validation_modes": {
+    "strict": {
+      "description": "All tolerances reduced by 50% for critical validation",
+      "performance_tolerance_multiplier": 0.5
+    },
+    "relaxed": {
+      "description": "All tolerances increased by 50% for development validation",
+      "performance_tolerance_multiplier": 1.5
+    },
+    "development": {
+      "description": "Functional metrics only, performance tolerances ignored",
+      "ignore_performance_metrics": true
+    }
+  },
+  "backend_specific_adjustments": {
+    "s3": {
+      "io_latency_tolerance_multiplier": 2.0,
+      "description": "S3 backends may have higher latency variance due to network conditions"
+    },
+    "azure": {
+      "io_latency_tolerance_multiplier": 2.0,
+      "description": "Azure backends may have higher latency variance due to network conditions"
+    },
+    "directio": {
+      "throughput_tolerance_multiplier": 0.8,
+      "description": "DirectIO should have more consistent performance"
+    }
+  }
+}

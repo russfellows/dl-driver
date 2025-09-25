@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1354,6 +1354,7 @@ dependencies = [
  "real_dlio_formats",
  "real_dlio_storage",
  "s3dlio",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "tokio",
@@ -1365,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "dl_driver_core"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1398,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "dl_driver_frameworks"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "dl_driver_core",
@@ -3684,7 +3685,7 @@ dependencies = [
 
 [[package]]
 name = "real_dlio_formats"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3702,7 +3703,7 @@ dependencies = [
 
 [[package]]
 name = "real_dlio_py_api"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "dl_driver_core",
@@ -3714,7 +3715,7 @@ dependencies = [
 
 [[package]]
 name = "real_dlio_storage"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "tempfile",
 ]

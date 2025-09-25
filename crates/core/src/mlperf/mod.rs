@@ -205,14 +205,21 @@ impl MlperfMetrics {
         self.end_time = Some(self.start_time.unwrap() + duration);
     }
 
-    pub fn throughput_samples_per_sec(&self) -> f64 {
+    pub fn total_execution_time_secs(&self) -> f64 {
         if let (Some(start), Some(end)) = (self.start_time, self.end_time) {
-            let duration_secs = (end - start).as_secs_f64();
-            if duration_secs > 0.0 {
-                return self.total_samples as f64 / duration_secs;
-            }
+            (end - start).as_secs_f64()
+        } else {
+            0.0
         }
-        0.0
+    }
+
+    pub fn throughput_samples_per_sec(&self) -> f64 {
+        let duration_secs = self.total_execution_time_secs();
+        if duration_secs > 0.0 {
+            self.total_samples as f64 / duration_secs
+        } else {
+            0.0
+        }
     }
 
     pub fn latency_percentile(&self, percentile: f64) -> f64 {
@@ -278,6 +285,7 @@ pub struct MlperfReport {
     pub shuffle: bool,
     pub dl_driver_version: String,
     pub s3dlio_version: String,
+    pub total_execution_time_secs: f64,
     // Access order for deterministic validation (not included in CSV to avoid bloat)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub access_order_sample: Vec<String>, // First 10 items for validation
@@ -317,6 +325,7 @@ impl MlperfReport {
             // Note: s3dlio version matches s3dlio/Cargo.toml version 0.8.1
             // When s3dlio is updated, update this version string accordingly
             s3dlio_version: "0.8.1".to_string(),
+            total_execution_time_secs: metrics.total_execution_time_secs(),
             // Include first 10 access order items for deterministic validation
             access_order_sample: metrics.visited_items.iter()
                 .take(10)
