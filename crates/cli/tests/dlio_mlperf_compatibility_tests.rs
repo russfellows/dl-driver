@@ -104,7 +104,6 @@ async fn test_dlio_config_parsing_compatibility() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore] // TODO: Fix CheckpointPlugin bug - it uses wrong URI (data folder instead of checkpoint folder)
 async fn test_multi_backend_checkpoint_compatibility() -> Result<()> {
     let binary_path = get_dl_driver_binary()?;
     
@@ -423,23 +422,29 @@ checkpoint:
 }
 
 fn validate_checkpoints_created(checkpoint_path: &std::path::Path) -> Result<()> {
-    let checkpoint_dir = checkpoint_path;
+    use walkdir::WalkDir;
     
-    // Check that checkpoint files were created
-    let entries: Vec<_> = std::fs::read_dir(checkpoint_dir)?
-        .filter_map(Result::ok)
-        .collect();
-    
-    if entries.is_empty() {
-        anyhow::bail!("No checkpoint files were created");
+    // Search recursively for .ckpt files (checkpoints are stored in run_id subdirectories)
+    let mut ckpt_files = Vec::new();
+    for entry in WalkDir::new(checkpoint_path).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() && entry.file_name().to_string_lossy().ends_with(".ckpt") {
+            ckpt_files.push(entry.path().to_path_buf());
+        }
     }
     
-    // Validate checkpoint content (basic existence check)
-    for entry in entries {
-        let file_size = entry.metadata()?.len();
+    if ckpt_files.is_empty() {
+        anyhow::bail!("No checkpoint .ckpt files found under {:?}", checkpoint_path);
+    }
+    
+    println!("✅ Found {} checkpoint files", ckpt_files.len());
+    
+    // Validate checkpoint content (basic existence and size check)
+    for ckpt_file in &ckpt_files {
+        let file_size = std::fs::metadata(ckpt_file)?.len();
         if file_size == 0 {
-            anyhow::bail!("Checkpoint file is empty: {:?}", entry.path());
+            anyhow::bail!("Empty checkpoint file: {:?}", ckpt_file);
         }
+        println!("✅ Checkpoint file: {:?} ({} bytes)", ckpt_file, file_size);
     }
     
     Ok(())

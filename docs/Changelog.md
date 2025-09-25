@@ -5,6 +5,40 @@ All notable changes to the real_dlio project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-01-14 🎯
+
+### **Unified DLIO Engine Architecture Release**
+
+#### **Major Architecture Simplification** 🏗️
+- ✅ **Unified Command Interface**: Consolidated from separate `dlio`/`mlperf`/`legacy` commands to single `run` command
+- ✅ **Removed Artificial Separation**: Eliminated redundant command paths that used identical s3dlio execution core
+- ✅ **Legacy Code Removal**: Complete removal of `WorkloadRunner` and outdated execution paths (~500 lines cleaned)
+- ✅ **Simplified CLI**: Single `dl-driver run` command with optional `--mlperf` flag for enhanced reporting
+- ✅ **Consistent Execution**: Identical s3dlio-based execution across all operation modes and storage backends
+
+#### **Enhanced MLPerf Integration** 📊
+- ✅ **Optional MLPerf Mode**: Enhanced reporting via `--mlperf` flag while maintaining standard DLIO execution
+- ✅ **Unified Metrics System**: Same comprehensive metrics collection for both basic and MLPerf modes
+- ✅ **JSON/CSV Report Generation**: Professional MLPerf-compliant reports with P50/P95/P99 latency tracking
+- ✅ **Backward Compatibility**: All existing DLIO configurations continue working unchanged
+
+#### **Comprehensive Test Matrix** 🧪
+- ✅ **Multi-Backend Validation**: Automated testing across File, S3, and DirectIO storage backends
+- ✅ **Operation Mode Testing**: Validation of both standard and MLPerf execution modes
+- ✅ **Credential Detection**: Smart detection of backend availability based on environment configuration
+- ✅ **21/21 Tests Passing**: Complete validation matrix ensuring reliability across all supported configurations
+- ✅ **Automated Test Runner**: `test_matrix/comprehensive_test_matrix.sh` for continuous integration
+
+#### **Plugin System Stability** 🔌
+- ✅ **Unified Plugin Architecture**: CheckpointPlugin working identically across all modes and backends
+- ✅ **Consistent Interface**: No changes required to existing plugin implementations
+- ✅ **Cross-Backend Support**: Plugins validated on File, S3, and DirectIO storage systems
+
+#### **Breaking Changes** ⚠️
+- ❌ **Removed Commands**: `dl-driver dlio`, `dl-driver mlperf`, `dl-driver legacy` (use `dl-driver run` instead)
+- ❌ **Removed WorkloadRunner**: Internal execution simplified to unified s3dlio path
+- 📝 **Migration**: Replace command usage with `dl-driver run [config.yaml]` or `dl-driver run --mlperf [config.yaml]`
+
 ## [0.5.3] - 2025-09-24 🧪
 
 ### **Testing & Quality Assurance Release**

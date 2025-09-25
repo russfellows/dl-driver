@@ -10,7 +10,8 @@ pub mod metrics;
 pub mod mlperf;
 pub mod plugins;
 pub mod runner;
-pub mod workload;
+// Removed: WorkloadRunner is legacy code, no longer needed
+// pub mod workload;
 
 // Compatibility alias for existing imports
 pub mod dlio_compat {
@@ -28,7 +29,6 @@ pub use plan::RunPlan;
 // pub use generation::DatasetGenerator;
 pub use metrics::Metrics;
 pub use runner::Runner;
-pub use workload::WorkloadRunner;
 
 // New MLPerf runner
 pub use mlperf::{MlperfRunner, MlperfReport};

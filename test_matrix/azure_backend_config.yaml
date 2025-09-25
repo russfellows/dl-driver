@@ -1,0 +1,31 @@
+# Test Matrix: Azure Backend Configuration
+model:
+  name: "azure_backend_test"
+  
+framework: "pytorch"
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+
+dataset:
+  data_folder: "az://dldriverstorage/dldriver/test_matrix_data"
+  format: "npz"
+  num_files_train: 8
+  record_length_bytes: 1024
+  num_samples_per_file: 10
+
+reader:
+  batch_size: 4
+  prefetch: 2
+  shuffle: true
+  read_threads: 2
+  seed: 42
+
+checkpoint:
+  enabled: true
+  uri: "az://dldriverstorage/dldriver/test_matrix_checkpoints"
+  steps_between_checkpoints: 3
+  compression: "zstd"
+  compression_level: 3

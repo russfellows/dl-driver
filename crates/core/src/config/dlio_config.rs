@@ -54,10 +54,29 @@ pub struct Reader {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
     pub enabled: Option<bool>,
+
+    // Accept multiple legacy aliases: folder/path/dir
+    #[serde(alias = "folder", alias = "path", alias = "dir", alias = "checkpoint_folder")]
     pub uri: Option<String>,            // where to write checkpoints (any backend)
+
     pub steps_between_checkpoints: Option<u32>,
     pub compression: Option<String>,    // e.g. "zstd"
     pub compression_level: Option<i32>, // e.g. 3
+}
+
+/// Normalize URI to handle file:// schemes properly  
+/// Ensures file:// URIs use the format expected by s3dlio: file://absolute_path
+pub fn normalize_uri(uri: &str) -> String {
+    if uri.starts_with("file:///") {
+        // Convert file:///absolute/path to file:///absolute/path (keep the absolute path format)
+        // s3dlio expects file://path format where path is absolute, so keep as file:///absolute/path
+        uri.to_string()
+    } else if uri.starts_with("file://") {
+        // Already in correct format
+        uri.to_string() 
+    } else {
+        uri.to_string()
+    }
 }
 
 impl DlioConfig {
