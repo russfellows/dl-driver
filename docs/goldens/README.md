@@ -32,7 +32,7 @@ Golden reference reports serve as baselines for validating that dl-driver produc
 ### Generate New Golden References
 ```bash
 # Generate reference report for UNet3D
-./target/release/dl-driver mlperf --config docs/goldens/test_configs/unet3d.yaml --format json --output docs/goldens/unet3d_reference.json
+./target/release/dl-driver run --mlperf --config docs/goldens/test_configs/unet3d.yaml --format json --output docs/goldens/unet3d_reference.json
 
 # Generate for all benchmarks
 scripts/generate_golden_references.sh

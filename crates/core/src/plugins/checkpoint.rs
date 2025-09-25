@@ -41,6 +41,7 @@ pub struct CheckpointPlugin {
     run_id: String,
     config_snapshot: String,
     next_checkpoint_step: u32,
+    base_uri: String,
 }
 
 impl std::fmt::Debug for CheckpointPlugin {
@@ -77,9 +78,23 @@ impl CheckpointPlugin {
 
     /// Create a new CheckpointPlugin from DlioConfig if checkpointing is enabled
     pub async fn new(config: &DlioConfig) -> Result<Option<Self>> {
+        println!("DEBUG: CheckpointPlugin::new() called");
+        println!("DEBUG: config.checkpoint = {:?}", config.checkpoint);
+        
         let checkpoint_cfg = match config.checkpoint.as_ref() {
-            Some(cfg) if cfg.enabled.unwrap_or(false) => cfg,
-            _ => {
+            Some(cfg) => {
+                println!("DEBUG: Found checkpoint config: enabled = {:?}", cfg.enabled);
+                if cfg.enabled.unwrap_or(false) {
+                    println!("DEBUG: Checkpointing is enabled!");
+                    cfg
+                } else {
+                    println!("DEBUG: Checkpointing disabled in config (enabled = false)");
+                    debug!("Checkpointing not enabled in config");
+                    return Ok(None);
+                }
+            },
+            None => {
+                println!("DEBUG: No checkpoint config found");
                 debug!("Checkpointing not enabled in config");
                 return Ok(None);
             }
@@ -92,13 +107,16 @@ impl CheckpointPlugin {
         }
 
         // Use checkpoint URI if specified, otherwise fall back to data_folder
-        let checkpoint_uri = checkpoint_cfg.uri.as_ref()
+        let raw_uri = checkpoint_cfg.uri.as_ref()
             .unwrap_or(&config.dataset.data_folder);
+        
+        // Normalize the URI to handle file:// schemes properly
+        let checkpoint_uri = crate::config::dlio_config::normalize_uri(raw_uri);
 
         info!("Initializing CheckpointPlugin with URI: {}", checkpoint_uri);
         
         // Create object store for the checkpoint URI
-        let store = store_for_uri(checkpoint_uri)
+        let store = store_for_uri(&checkpoint_uri)
             .with_context(|| format!("Failed to create object store for URI: {}", checkpoint_uri))?;
 
         let run_id = Uuid::new_v4().to_string();
@@ -120,11 +138,14 @@ impl CheckpointPlugin {
             run_id,
             config_snapshot,
             next_checkpoint_step: step_interval,
+            base_uri: checkpoint_uri,
         }))
     }
 
     /// Write checkpoint for the given step
     async fn write_checkpoint(&self, step: u32) -> Result<()> {
+        println!("DEBUG: write_checkpoint() started for step {}", step);
+        
         let checkpoint_data = CheckpointData {
             run_id: self.run_id.clone(),
             step,
@@ -159,13 +180,32 @@ impl CheckpointPlugin {
         };
 
         // Create checkpoint file path: {run_id}/step_{step:08}.ckpt
-        let checkpoint_path = format!("{}/step_{:08}.ckpt", self.run_id, step);
+        let checkpoint_relative_path = format!("{}/step_{:08}.ckpt", self.run_id, step);
         
-        // Write to object store
-        self.store
-            .put(&checkpoint_path, &final_data)
-            .await
-            .with_context(|| format!("Failed to write checkpoint to {}", checkpoint_path))?;
+        // Construct full URI by appending relative path to base URI
+        let checkpoint_full_uri = if self.base_uri.ends_with('/') {
+            format!("{}{}", self.base_uri, checkpoint_relative_path)
+        } else {
+            format!("{}/{}", self.base_uri, checkpoint_relative_path)
+        };
+        
+        println!("DEBUG: base_uri = {}", self.base_uri);
+        println!("DEBUG: checkpoint_relative_path = {}", checkpoint_relative_path);
+        println!("DEBUG: checkpoint_full_uri = {}", checkpoint_full_uri);
+        println!("DEBUG: final_data.len() = {}", final_data.len());
+        
+        // Write to object store using full URI
+        println!("DEBUG: About to call store.put()...");
+        let result = self.store
+            .put(&checkpoint_full_uri, &final_data)
+            .await;
+            
+        match &result {
+            Ok(_) => println!("DEBUG: store.put() succeeded!"),
+            Err(e) => println!("DEBUG: store.put() failed: {}", e),
+        }
+        
+        result.with_context(|| format!("Failed to write checkpoint to {}", checkpoint_relative_path))?;
 
         let compression_info = if let Some(compressed) = compressed_size {
             format!(" (compressed {} -> {} bytes, {:.1}% reduction)", 
@@ -177,7 +217,7 @@ impl CheckpointPlugin {
 
         info!(
             "Checkpoint written: step={}, path={}{}", 
-            step, checkpoint_path, compression_info
+            step, checkpoint_relative_path, compression_info
         );
 
         Ok(())
@@ -204,7 +244,12 @@ impl Plugin for CheckpointPlugin {
     }
 
     async fn after_step(&mut self, step: u32) -> Result<()> {
+        println!("DEBUG: CheckpointPlugin::after_step() called with step = {}", step);
+        println!("DEBUG: should_checkpoint({}) = {}", step, self.should_checkpoint(step));
+        println!("DEBUG: next_checkpoint_step = {}", self.next_checkpoint_step);
+        
         if self.should_checkpoint(step) {
+            println!("DEBUG: Writing checkpoint at step {}", step);
             debug!("Writing checkpoint at step {}", step);
             self.write_checkpoint(step).await?;
             self.update_next_checkpoint(step);

@@ -59,6 +59,13 @@ impl MlperfRunner {
         self.plugins.initialize(&self.config).await
             .context("Failed to initialize plugins")?;
 
+        // Phase 1: Data Generation (if enabled)
+        if self.config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
+            info!("Phase 1: Generating data for MLPerf benchmark");
+            self.run_data_generation().await
+                .context("Data generation failed")?;
+        }
+
         // Build dataset from URI (supports file://, directio://, s3://, az://)
         let dataset = MultiBackendDataset::from_prefix(&self.plan.uri).await
             .context("Failed to create dataset from URI")?;
@@ -140,6 +147,81 @@ impl MlperfRunner {
         info!("MLPerf benchmark completed in {:.2}s", total_time.as_secs_f64());
         
         Ok(report)
+    }
+
+    /// Data generation phase using s3dlio for high-performance storage operations
+    async fn run_data_generation(&mut self) -> Result<()> {
+        use s3dlio::object_store::store_for_uri;
+        use anyhow::Context;
+        
+        let start_time = Instant::now();
+        info!("Starting data generation phase");
+
+        // Create object store for the configured storage backend
+        let store = store_for_uri(&self.config.dataset.data_folder)
+            .with_context(|| format!("Failed to create object store for {}", self.config.dataset.data_folder))?;
+
+        let num_files = self.config.dataset.num_files_train.unwrap_or(100);
+        let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1);
+        let record_size = self.config.dataset.record_length_bytes.unwrap_or(1024);
+
+        info!(
+            "Generating {} files with {} samples each ({}B per record)",
+            num_files, samples_per_file, record_size
+        );
+
+        // Generate data files using s3dlio's object store
+        for file_idx in 0..num_files {
+            // Create full URI path by combining base data folder with filename
+            let file_name = format!("train_file_{:06}.{}", file_idx, self.config.dataset.format);
+            let data_folder = &self.config.dataset.data_folder;
+            let full_path = if data_folder.ends_with('/') {
+                format!("{}{}", data_folder, file_name)
+            } else {
+                format!("{}/{}", data_folder, file_name)
+            };
+
+            let data = self.generate_file_data(samples_per_file, record_size)?;
+
+            let write_start = Instant::now();
+            store
+                .put(&full_path, &data)
+                .await
+                .with_context(|| format!("Failed to write file {}", full_path))?;
+            let write_time = write_start.elapsed();
+
+            info!(
+                "Wrote {} bytes to {} in {:?}",
+                (samples_per_file * record_size), full_path, write_time
+            );
+
+            if file_idx % 10 == 0 || file_idx == num_files - 1 {
+                info!("Generated {}/{} files", file_idx + 1, num_files);
+            }
+        }
+
+        let generation_time = start_time.elapsed();
+        info!("Data generation completed in {:?}", generation_time);
+        Ok(())
+    }
+
+    /// Generate data for a single file
+    fn generate_file_data(&self, samples: usize, record_size: usize) -> Result<Vec<u8>> {
+        // Generate synthetic data based on format
+        match self.config.dataset.format.as_str() {
+            "npz" => {
+                // Use s3dlio's data generation utilities
+                let total_size = samples * record_size;
+                let data = s3dlio::generate_controlled_data(total_size, 0, 0);
+                Ok(data)
+            }
+            _ => {
+                // Generate random data for other formats
+                let total_size = samples * record_size;
+                let data = (0..total_size).map(|i| (i % 256) as u8).collect();
+                Ok(data)
+            }
+        }
     }
 }
 

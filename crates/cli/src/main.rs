@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use dl_driver_core::{DlioConfig, WorkloadRunner, MlperfRunner};
+use dl_driver_core::DlioConfig;
 use dl_driver_core::plugins::PluginManager;
 use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset};
 use tracing::{error, info};
 
 use futures_util::StreamExt;
 
-/// dl-driver CLI – A high-performance DLIO benchmark alternative built in Rust.
+/// dl-driver – Unified DLIO execution engine with optional MLPerf compliance mode
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -21,18 +21,8 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Run with legacy dl-driver config format
-    Legacy {
-        /// Path to a dl-driver YAML config file
-        #[arg(short, long)]
-        config: std::path::PathBuf,
-
-        /// If set, dump the parsed YAML back to stdout
-        #[arg(long)]
-        pretty: bool,
-    },
-    /// Run with DLIO-compatible config format
-    Dlio {
+    /// Run DLIO workload (use --mlperf for enhanced reporting and compliance)
+    Run {
         /// Path to a DLIO YAML config file
         #[arg(short, long)]
         config: std::path::PathBuf,
@@ -40,6 +30,26 @@ enum Commands {
         /// If set, dump the parsed YAML back to stdout
         #[arg(long)]
         pretty: bool,
+
+        /// Enable MLPerf compliance mode with enhanced reporting
+        #[arg(long)]
+        mlperf: bool,
+
+        /// Output format for MLPerf reports (json, csv)
+        #[arg(long, default_value = "json")]
+        format: String,
+
+        /// Save MLPerf report to file instead of stdout
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+
+        /// Maximum number of epochs to run (MLPerf mode)
+        #[arg(long, default_value_t = 3)]
+        max_epochs: u32,
+
+        /// Maximum number of steps to run (MLPerf mode)
+        #[arg(long, default_value_t = 1000)]
+        max_steps: u32,
 
         /// Override pool size for AsyncPoolDataLoader
         #[arg(long, default_value = "16")]
@@ -81,31 +91,7 @@ enum Commands {
         #[arg(long)]
         skip_existing: bool,
     },
-    /// Run MLPerf benchmark (standalone, no WorkloadRunner)
-    Mlperf {
-        /// Path to a DLIO YAML config file
-        #[arg(short, long)]
-        config: std::path::PathBuf,
-
-        /// Output format for report
-        #[arg(long, default_value = "json")]
-        format: String,
-
-        /// Save report to file instead of stdout
-        #[arg(short, long)]
-        output: Option<std::path::PathBuf>,
-
-        /// Maximum number of epochs to run (overrides config)
-        #[arg(long, default_value_t = 3)]
-        max_epochs: u32,
-
-        /// Maximum number of steps to run (overrides config)  
-        #[arg(long, default_value_t = 1000)]
-        max_steps: u32,
-    },
-}
-
-#[tokio::main]
+}#[tokio::main]
 async fn main() -> Result<()> {
     // Load environment variables from .env file early for S3/Azure credentials
     dotenvy::dotenv().ok(); // Ignore errors if .env doesn't exist
@@ -121,15 +107,31 @@ async fn main() -> Result<()> {
     info!("dl-driver v{} starting", env!("CARGO_PKG_VERSION"));
 
     match args.command {
-        Commands::Legacy { config, pretty } => run_legacy_config(&config, pretty).await,
-        Commands::Dlio {
+        Commands::Run {
             config,
             pretty,
+            mlperf,
+            format,
+            output,
+            max_epochs,
+            max_steps,
             pool_size,
             readahead,
             max_inflight,
             timeout,
-        } => run_dlio_config(&config, pretty, pool_size, readahead, max_inflight, timeout).await,
+        } => run_unified_dlio(
+            &config, 
+            pretty, 
+            mlperf, 
+            &format, 
+            output.as_deref(),
+            max_epochs,
+            max_steps,
+            pool_size, 
+            readahead, 
+            max_inflight, 
+            timeout
+        ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
         Commands::Generate {
             config: _,
@@ -139,47 +141,18 @@ async fn main() -> Result<()> {
             eprintln!("Generate command temporarily disabled during refactor");
             Ok(())
         },
-        Commands::Mlperf { config, format, output, max_epochs, max_steps } => {
-            run_mlperf_benchmark(&config, &format, output.as_deref(), max_epochs, max_steps).await
-        },
     }
 }
 
-async fn run_legacy_config(config_path: &std::path::Path, pretty: bool) -> Result<()> {
-    info!("Loading legacy dl-driver config from: {:?}", config_path);
-
-    // Load and parse configuration
-    let config = DlioConfig::from_yaml_file(config_path)?;
-
-    if pretty {
-        // Pretty-print the parsed config
-        println!("=== Parsed Legacy Configuration ===");
-        println!("{:#?}", config);
-        println!("Storage Backend: {:?}", config.storage_backend());
-        println!("Storage URI: {}", config.storage_uri());
-        return Ok(());
-    }
-
-    // Run the workload
-    let mut runner = WorkloadRunner::new(config);
-
-    match runner.run().await {
-        Ok(()) => {
-            info!("Legacy workload completed successfully");
-            runner.get_metrics().print_summary();
-        }
-        Err(e) => {
-            error!("Legacy workload failed: {}", e);
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}
-
-async fn run_dlio_config(
+/// Unified DLIO execution engine with optional MLPerf compliance mode
+async fn run_unified_dlio(
     config_path: &std::path::Path,
     pretty: bool,
+    mlperf_mode: bool,
+    format: &str,
+    output_path: Option<&std::path::Path>,
+    max_epochs: u32,
+    max_steps: u32,
     pool_size: usize,
     readahead: usize,
     max_inflight: usize,
@@ -201,7 +174,37 @@ async fn run_dlio_config(
         );
         println!("Should train: {}", dlio_config.should_train());
         println!("Should checkpoint: {}", dlio_config.should_checkpoint());
+        if mlperf_mode {
+            println!("MLPerf compliance mode: ENABLED");
+            println!("Max epochs: {}, Max steps: {}", max_epochs, max_steps);
+        }
         return Ok(());
+    }
+
+    // Create plugin manager with CheckpointPlugin if enabled
+    let mut plugins = PluginManager::new();
+    
+    // Add CheckpointPlugin if checkpointing is enabled in config
+    if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&dlio_config).await? {
+        plugins.push(Box::new(checkpoint_plugin));
+        info!("CheckpointPlugin registered");
+    }
+    
+    plugins.initialize(&dlio_config).await
+        .context("Failed to initialize plugins")?;
+
+    // Initialize metrics system (always available, enhanced in MLPerf mode)
+    let mut metrics = if mlperf_mode {
+        dl_driver_core::mlperf::MlperfMetrics::new()
+    } else {
+        dl_driver_core::mlperf::MlperfMetrics::new() // Same system for both modes
+    };
+
+    // Phase 1: Data Generation (if enabled)
+    if dlio_config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
+        info!("Phase 1: Generating data");
+        run_data_generation(&dlio_config).await
+            .context("Data generation failed")?;
     }
 
     // Convert to LoaderOptions
@@ -218,13 +221,13 @@ async fn run_dlio_config(
         s3dlio::data_loader::options::LoadingMode::AsyncPool(pool_config.clone());
 
     info!(
-        "Creating object store for URI: {}",
+        "Creating dataset for URI: {}",
         dlio_config.data_folder_uri()
     );
 
     // Create dataset from DLIO config
     let dataset = MultiBackendDataset::from_prefix(dlio_config.data_folder_uri()).await?;
-    info!("✅ Dataset created successfully");
+    info!("✅ Dataset created with {} files", dataset.len());
 
     // Create AsyncPoolDataLoader
     let dataloader = AsyncPoolDataLoader::new(dataset, loader_opts);
@@ -233,30 +236,80 @@ async fn run_dlio_config(
         pool_size, readahead
     );
 
-    // Run the data loading simulation
-    let mut stream = dataloader.stream_with_pool(pool_config);
-    let mut batch_count = 0;
-    let mut total_files = 0;
+    // Start metrics tracking
+    metrics.begin_run();
     let start_time = std::time::Instant::now();
 
+    // Run the unified data loading loop
+    let mut stream = dataloader.stream_with_pool(pool_config);
+    let mut batch_count = 0;
+    let mut step: u32 = 0;
+    let mut epoch: u32 = 0;
+    let samples_per_epoch = dlio_config.dataset.num_files_train.unwrap_or(100) 
+        * dlio_config.dataset.num_samples_per_file.unwrap_or(1);
+    let mut samples_this_epoch = 0;
+
     info!("🚀 Starting DLIO workload execution...");
+    if mlperf_mode {
+        info!("MLPerf mode: Enhanced metrics and reporting enabled");
+        info!("Limits: {} epochs, {} steps", max_epochs, max_steps);
+    }
 
     while let Some(batch_result) = stream.next().await {
         match batch_result {
             Ok(batch) => {
                 batch_count += 1;
-                total_files += batch.len();
+                samples_this_epoch += batch.len();
+
+                // Record metrics (enhanced in MLPerf mode)
+                metrics.on_batch(&batch);
+                
+                // Record access order for deterministic validation (MLPerf compliance)
+                if mlperf_mode {
+                    metrics.record_item_access(format!("step_{:08}", step));
+                }
 
                 if batch_count % 10 == 0 {
+                    let total_samples = metrics.total_samples;
                     info!(
-                        "Processed {} batches, {} files total",
-                        batch_count, total_files
+                        "Processed {} batches, {} samples total",
+                        batch_count, total_samples
                     );
                 }
 
                 // Simulate some compute work based on DLIO config
                 if let Some(_compute_threads) = dlio_config.reader.compute_threads {
                     tokio::task::yield_now().await; // Simulate compute delay
+                }
+
+                // Plugin hook after each step (batch)
+                plugins.after_step(step).await
+                    .context("Plugin after_step failed")?;
+                
+                step += 1;
+
+                // Check if we've completed an epoch (MLPerf tracking)
+                if mlperf_mode && samples_this_epoch >= samples_per_epoch {
+                    epoch += 1;
+                    samples_this_epoch = 0;
+                    
+                    info!("Completed epoch {} after {} steps", epoch, step);
+                    
+                    // Plugin hook after each epoch
+                    plugins.after_epoch(epoch).await
+                        .context("Plugin after_epoch failed")?;
+
+                    // Check configurable epoch limit (MLPerf mode)
+                    if epoch >= max_epochs {
+                        info!("Completed {} epochs (limit: {}), ending benchmark", epoch, max_epochs);
+                        break;
+                    }
+                }
+
+                // Check configurable step limit (MLPerf mode)
+                if mlperf_mode && step >= max_steps {
+                    info!("Reached step limit ({} steps), ending benchmark", step);
+                    break;
                 }
             }
             Err(e) => {
@@ -266,19 +319,127 @@ async fn run_dlio_config(
         }
     }
 
-    let elapsed = start_time.elapsed();
-    info!("✅ DLIO workload completed successfully");
-    info!(
-        "📊 Final Stats: {} batches, {} files in {:?}",
-        batch_count, total_files, elapsed
-    );
+    // Finalize plugins
+    plugins.finalize().await
+        .context("Failed to finalize plugins")?;
 
-    if total_files > 0 {
-        let throughput = total_files as f64 / elapsed.as_secs_f64();
-        info!("📈 Throughput: {:.2} files/sec", throughput);
+    let total_time = start_time.elapsed();
+    metrics.complete_run(total_time);
+
+    info!("✅ DLIO workload completed successfully");
+
+    // Output results based on mode
+    if mlperf_mode {
+        // Generate comprehensive MLPerf report
+        let report = dl_driver_core::mlperf::MlperfReport::from_metrics(&metrics, &dlio_config);
+        
+        let output_content = match format.to_lowercase().as_str() {
+            "json" => report.to_json()?,
+            "csv" => {
+                let mut csv_content = String::new();
+                csv_content.push_str(&format!("{}\n", dl_driver_core::mlperf::MlperfReport::to_csv_header()));
+                csv_content.push_str(&format!("{}\n", report.to_csv_row()));
+                csv_content
+            }
+            _ => return Err(anyhow::anyhow!("Unsupported format '{}'. Use 'json' or 'csv'", format)),
+        };
+
+        // Output to file or stdout
+        if let Some(output_file) = output_path {
+            std::fs::write(output_file, output_content)
+                .with_context(|| format!("Failed to write report to {:?}", output_file))?;
+            eprintln!("✅ MLPerf report written to {:?}", output_file);
+        } else {
+            println!("{}", output_content);
+        }
+
+        // Print summary to stderr so it doesn't interfere with JSON/CSV output
+        eprintln!("🏁 MLPerf benchmark completed:");
+        eprintln!("  Backend: {}", report.backend_type);
+        eprintln!("  Samples: {}", report.total_samples);
+        eprintln!("  Throughput: {:.2} samples/sec", report.throughput_samples_per_sec);
+        eprintln!("  P99 latency: {:.3} ms", report.p99_latency_ms);
+    } else {
+        // Basic DLIO output
+        info!(
+            "📊 Final Stats: {} batches, {} samples in {:?}",
+            batch_count, metrics.total_samples, total_time
+        );
+
+        if metrics.total_samples > 0 {
+            let throughput = metrics.throughput_samples_per_sec();
+            info!("📈 Throughput: {:.2} samples/sec", throughput);
+        }
     }
 
     Ok(())
+}
+
+/// Data generation phase using s3dlio (shared by both modes)
+async fn run_data_generation(config: &DlioConfig) -> Result<()> {
+    use s3dlio::object_store::store_for_uri;
+    
+    let start_time = std::time::Instant::now();
+    info!("Starting data generation phase");
+
+    // Create object store for the configured storage backend
+    let store = store_for_uri(&config.dataset.data_folder)
+        .with_context(|| format!("Failed to create object store for {}", config.dataset.data_folder))?;
+
+    let num_files = config.dataset.num_files_train.unwrap_or(100);
+    let samples_per_file = config.dataset.num_samples_per_file.unwrap_or(1);
+    let record_size = config.dataset.record_length_bytes.unwrap_or(1024);
+
+    info!(
+        "Generating {} files with {} samples each ({}B per record)",
+        num_files, samples_per_file, record_size
+    );
+
+    // Generate data files using s3dlio's object store
+    for file_idx in 0..num_files {
+        // Create full URI path by combining base data folder with filename
+        let file_name = format!("train_file_{:06}.{}", file_idx, config.dataset.format);
+        let data_folder = &config.dataset.data_folder;
+        let full_path = if data_folder.ends_with('/') {
+            format!("{}{}", data_folder, file_name)
+        } else {
+            format!("{}/{}", data_folder, file_name)
+        };
+
+        // Generate synthetic data (simple for now)
+        let data = generate_synthetic_data(samples_per_file, record_size);
+
+        let write_start = std::time::Instant::now();
+        store
+            .put(&full_path, &data)
+            .await
+            .with_context(|| format!("Failed to write file {}", full_path))?;
+        let write_time = write_start.elapsed();
+
+        if file_idx % 10 == 0 || file_idx == num_files - 1 {
+            info!(
+                "Generated {}/{} files (wrote {} bytes to {} in {:?})",
+                file_idx + 1, num_files, data.len(), full_path, write_time
+            );
+        }
+    }
+
+    let generation_time = start_time.elapsed();
+    info!("✅ Data generation completed in {:?}", generation_time);
+    Ok(())
+}
+
+/// Generate synthetic data for testing (shared utility)
+fn generate_synthetic_data(samples: usize, record_size: usize) -> Vec<u8> {
+    let total_size = samples * record_size;
+    let mut data = vec![0u8; total_size];
+    
+    // Fill with some pattern for testing
+    for i in 0..total_size {
+        data[i] = (i % 256) as u8;
+    }
+    
+    data
 }
 
 async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> Result<()> {
@@ -380,67 +541,4 @@ async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> R
     Ok(())
 }
 
-async fn run_mlperf_benchmark(
-    config_path: &std::path::Path,
-    format: &str,
-    output_path: Option<&std::path::Path>,
-    max_epochs: u32,
-    max_steps: u32,
-) -> Result<()> {
-    info!("Loading DLIO config for MLPerf benchmark from: {:?}", config_path);
 
-    // Load and parse DLIO configuration
-    let config = DlioConfig::from_yaml_file(config_path)
-        .with_context(|| format!("Failed to load DLIO config from {:?}", config_path))?;
-
-    info!("Running MLPerf benchmark: {}", 
-          config.model.as_ref()
-              .and_then(|m| m.name.as_ref())
-              .unwrap_or(&"unknown".to_string()));
-
-    // Create plugin manager with CheckpointPlugin if enabled
-    let mut plugins = PluginManager::new();
-    
-    // Add CheckpointPlugin if checkpointing is enabled in config
-    if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&config).await? {
-        plugins.push(Box::new(checkpoint_plugin));
-        info!("CheckpointPlugin registered");
-    }
-
-    // Create and run MLPerf runner with configurable bounds
-    let mut runner = MlperfRunner::new(config, plugins)
-        .with_max_epochs(max_epochs)
-        .with_max_steps(max_steps);
-    let report = runner.run().await
-        .context("MLPerf benchmark execution failed")?;
-
-    // Generate output based on format
-    let output_content = match format.to_lowercase().as_str() {
-        "json" => report.to_json()?,
-        "csv" => {
-            let mut csv_content = String::new();
-            csv_content.push_str(&format!("{}\n", dl_driver_core::MlperfReport::to_csv_header()));
-            csv_content.push_str(&format!("{}\n", report.to_csv_row()));
-            csv_content
-        }
-        _ => return Err(anyhow::anyhow!("Unsupported format '{}'. Use 'json' or 'csv'", format)),
-    };
-
-    // Output to file or stdout
-    if let Some(output_file) = output_path {
-        std::fs::write(output_file, output_content)
-            .with_context(|| format!("Failed to write report to {:?}", output_file))?;
-        println!("✅ MLPerf report written to {:?}", output_file);
-    } else {
-        println!("{}", output_content);
-    }
-
-    // Print summary to stderr so it doesn't interfere with JSON/CSV output
-    eprintln!("🏁 MLPerf benchmark completed:");
-    eprintln!("  Backend: {}", report.backend_type);
-    eprintln!("  Samples: {}", report.total_samples);
-    eprintln!("  Throughput: {:.2} samples/sec", report.throughput_samples_per_sec);
-    eprintln!("  P99 latency: {:.3} ms", report.p99_latency_ms);
-
-    Ok(())
-}

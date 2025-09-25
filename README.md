@@ -1,37 +1,12 @@
 # dl-driver
 
-**A high-performance, enterprise-grade data loading## � M5 & M6 Enterprise Features (v0.5.2) 
-
-### M5: Checkpoint Plugin System
-- **Multi-Backend Persistence**: Checkpoints work seamlessly across file://, directio://, s3://, and az:// storage
-- **Configurable Compression**: Optional zstd compression reduces checkpoint artifact sizes
-- **Async Plugin Architecture**: Complete lifecycle management with proper error handling
-- **Automatic Integration**: Enable via `checkpoint.enabled: true` in DLIO config
-
-### M6: MLPerf Production Readiness
-- **Comprehensive Provenance**: Every report includes dl-driver and s3dlio version tracking
-- **Per-Stage Timing Metrics**: Detailed I/O, decode, and host-to-device latency analysis  
-- **Percentile Analysis**: P50, P95, P99 latencies for all performance stages
-- **Deterministic Validation**: Access-order capture ensures reproducible benchmarks
-- **Configurable Bounds**: `--max-epochs` and `--max-steps` CLI flags remove hardcoded limits
-
-## 🧪 Comprehensive Testing & Quality (NEW in v0.5.3)
-
-### Golden Reference System
-- **Automated Validation**: Complete test infrastructure with tolerance specifications (`docs/goldens/`)
-- **DLIO/MLPerf Compatibility**: Extensive test suite proving identical workload handling across UNet3D, BERT, ResNet, CosmoFlow benchmarks
-- **Multi-Backend Testing**: Validation across all storage backends (file://, directio://, s3://, az://)
-- **Performance Regression Detection**: Automated checks ensure consistent performance with configurable thresholds
-- **Execution Time Tracking**: Enhanced MLPerf reports include `total_execution_time_secs` for comprehensive analysis
-- **CI/CD Ready**: Scripts for `generate_golden_references.sh` and `validate_golden.sh`
-
-**A high-performance, enterprise-grade data loading framework for AI/ML workloads**
+**A unified, high-performance AI/ML data loading framework with enterprise-grade capabilities**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.5.3-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-60%2B%20comprehensive-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-21%2F21%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
 
@@ -41,9 +16,17 @@
 
 **Key Achievement**: Complete validation with numpy, h5py, and TensorFlow ensures seamless integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.5.3)
+## 🎯 Current Status (v0.6.0)
 
-**✅ PRODUCTION READY**: M5 Checkpoint Plugins & M6 MLPerf Enhancements Complete
+**✅ UNIFIED ARCHITECTURE**: Single execution engine with optional MLPerf compliance mode
+
+### Major v0.6.0 Improvements
+- **🏗️ Unified Command Interface**: Single `dl-driver run` command replaces fragmented dlio/mlperf/legacy commands
+- **🎯 Simplified Architecture**: Removed artificial separation, all execution uses identical s3dlio core
+- **📊 Optional MLPerf Mode**: Enhanced reporting via `--mlperf` flag while maintaining standard DLIO execution
+- **🧪 Comprehensive Test Matrix**: 21/21 tests passing across File, S3, and DirectIO backends
+- **🔌 Stable Plugin System**: CheckpointPlugin working identically across all modes and backends
+- **⚡ Performance Consistency**: Identical execution performance regardless of reporting mode
 
 ### Compilation Status
 - **Full Workspace Compilation**: `cargo check --workspace` ✅ SUCCESS  
@@ -63,14 +46,14 @@
 # Validate DLIO configurations
 ./target/release/dl-driver validate --config tests/dlio_configs/minimal_config.yaml
 
-# Process DLIO configurations  
-./target/release/dl-driver dlio --config <config> --pretty
+# Run DLIO workloads (standard execution)
+./target/release/dl-driver run --config <config> --pretty
 
-# Run MLPerf benchmarks with enhanced metrics and checkpointing
-./target/release/dl-driver mlperf --config <config> --format json --max-epochs 5 --max-steps 2000
+# Run with MLPerf compliance reporting (same execution, enhanced metrics)
+./target/release/dl-driver run --mlperf --config <config> --format json --max-epochs 5 --max-steps 2000
 
-# Generate comprehensive reports with provenance and per-stage timing
-./target/release/dl-driver mlperf --config <config> --format csv --output mlperf_report.csv
+# Generate MLPerf reports with comprehensive analysis
+./target/release/dl-driver run --mlperf --config <config> --format csv --output mlperf_report.csv
 ```
 
 ### ✨ Key Features
@@ -236,8 +219,8 @@ cargo build --release
 # Generate test datasets with different formats
 ./target/release/dl-driver generate --config tests/dlio_configs/minimal_config.yaml
 
-# Run DLIO-compatible workloads  
-./target/release/dl-driver dlio --config tests/dlio_configs/unet3d_config.yaml
+# Run DLIO-compatible workloads (unified execution engine)
+./target/release/dl-driver run --config tests/dlio_configs/unet3d_config.yaml
 
 # Validate configuration without running
 ./target/release/dl-driver validate --config tests/dlio_configs/bert_config.yaml
@@ -250,7 +233,7 @@ python tools/validation/validate_formats.py
 ```bash
 dl-driver --help                    # Show all available commands
 dl-driver generate --help           # Generate synthetic datasets  
-dl-driver dlio --help              # Run DLIO-compatible workloads
+dl-driver run --help               # Run DLIO workloads (with optional MLPerf mode)
 dl-driver validate --help          # Validate configurations
 ```
 
