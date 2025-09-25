@@ -1,5 +1,5 @@
 use anyhow::Result;
-use dl_driver_core::dlio_compat::DlioConfig;
+use dl_driver_core::config::DlioConfig;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for framework integrations

@@ -5,6 +5,35 @@ All notable changes to the real_dlio project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2025-09-24 🧪
+
+### **Testing & Quality Assurance Release**
+
+#### **Comprehensive Testing Infrastructure** ✅
+- ✅ **Golden Reference System**: Complete validation framework with tolerance specifications (`docs/goldens/`)
+- ✅ **DLIO/MLPerf Compatibility Tests**: Extensive test suite proving identical workload handling across all MLCommons benchmarks (UNet3D, BERT, ResNet, CosmoFlow)
+- ✅ **Automated Validation Scripts**: `generate_golden_references.sh` and `validate_golden.sh` for CI/CD integration
+- ✅ **Multi-Backend Testing**: Validation across file://, directio://, s3://, and az:// storage backends
+- ✅ **Performance Regression Detection**: Automated checks for performance consistency with configurable thresholds
+- ✅ **Deterministic Testing**: Reproducible results with controlled randomization and access-order validation
+
+#### **MLPerf Enhancements** 📊
+- ✅ **Execution Time Tracking**: Added `total_execution_time_secs` field to MLPerf reports for comprehensive performance analysis
+- ✅ **Enhanced Report Validation**: Improved test suite validates all MLPerf report fields and performance thresholds
+- ✅ **Robust Test Framework**: Fixed field name mismatches and added proper error handling
+
+#### **Code Quality & Cleanup** 🧹
+- ✅ **Legacy Code Removal**: Cleaned up unused `metrics_old.rs` (248 lines) and legacy implementations  
+- ✅ **Import Path Fixes**: Resolved inconsistencies in framework adapters and configuration modules
+- ✅ **Compilation Warnings Fixed**: Eliminated all unused variable warnings and dead code
+- ✅ **Test Infrastructure**: Fixed binary path resolution and configuration file access for robust testing
+
+#### **Infrastructure Improvements** 🔧
+- ✅ **Workspace Path Management**: Uses `/mnt/vast1` for large data operations per project guidelines
+- ✅ **Tolerance Management**: Precise variance thresholds for numerical validation (`tolerance.json`)
+- ✅ **Test Configuration Management**: Centralized test configs with MLCommons benchmark compatibility
+- ✅ **Documentation Updates**: Enhanced README, changelog, and API documentation
+
 ## [0.5.2] - 2025-09-24 🚀
 
 ### **MAJOR: M5 Checkpoint Plugins & M6 MLPerf Enhancements**

@@ -1,6 +1,6 @@
 use crate::framework_config::PyTorchConfig;
 use anyhow::Result;
-use dl_driver_core::dlio_compat::DlioConfig;
+use dl_driver_core::config::DlioConfig;
 use s3dlio::LoaderOptions;
 
 /// Format types supported by the PyTorch adapter

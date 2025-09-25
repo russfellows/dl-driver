@@ -1,0 +1,26 @@
+# DLIO Minimal Example from MLCommons README
+# This is the baseline configuration that all DLIO implementations should support
+
+model:
+  name: my_workload
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/vast1/dlio_minimal_data
+  format: npz
+  num_files_train: 100
+  record_length_bytes: 1048576
+
+reader:
+  data_loader: pytorch
+  batch_size: 16
+  read_threads: 4
+  compute_threads: 2
+  prefetch: 8
+  shuffle: true
