@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use crate::{PyTorchDataLoader, FrameworkConfig};
 use crate::framework_config::PyTorchConfig;
 use dl_driver_core::dlio_compat::{DlioConfig, DatasetConfig, ReaderConfig};

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // crates/core/src/plugins/checkpoint.rs
 use anyhow::{Context, Result};
 use async_trait::async_trait;

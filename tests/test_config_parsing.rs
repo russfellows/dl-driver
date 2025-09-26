@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use anyhow::Result;
 use real_dlio_core::Config;
 

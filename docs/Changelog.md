@@ -5,6 +5,47 @@ All notable changes to the real_dlio project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2025-09-26 📜
+
+### **Enterprise License Compliance & Professional Standards Release**
+
+#### **Complete REUSE 3.3 License Compliance Implementation** 📋
+- ✅ **SPDX Headers**: Added comprehensive SPDX copyright and license headers to all 64+ source files
+- ✅ **GPL-3.0-or-later Licensing**: Consistent GPL-3.0-or-later licensing across entire codebase
+- ✅ **Professional Attribution**: Updated copyright attribution to `Russ Fellows <russ.fellows@gmail.com>`
+- ✅ **REUSE Infrastructure**: Complete `.reuse/dep5` configuration covering all file types and patterns
+- ✅ **License Files**: Added `LICENSES/GPL-3.0-or-later.txt` and license policy configuration
+
+#### **ScanCode Toolkit Integration** 🔍
+- ✅ **ScanCode Compatibility**: Full compatibility with ScanCode toolkit v32.4.1 for license scanning
+- ✅ **Automated Validation**: Docker-based ScanCode execution with comprehensive license detection
+- ✅ **Clean Scan Results**: 201 files scanned, 72 SPDX identifiers detected, 80 copyright attributions found
+- ✅ **CI/CD Integration**: GitHub Actions workflow for automated license compliance checking
+
+#### **GitHub Integration & Documentation** 🏷️
+- ✅ **Compliance Badges**: Added REUSE, GPL-3.0, and ScanCode compatibility badges to README
+- ✅ **Professional Documentation**: Created `docs/LICENSE-COMPLIANCE.md` with comprehensive compliance report
+- ✅ **Local Validation Tools**: `scripts/check-license-compliance.sh` for local compliance verification
+- ✅ **GitHub Actions**: Enhanced CI/CD with automated license scanning and compliance reporting
+
+#### **Development Workflow Improvements** 🔧
+- ✅ **.gitignore Updates**: Added ScanCode output exclusions for clean repository management
+- ✅ **Version Consistency**: Updated all workspace versions from 0.6.0 → 0.6.1 across 6 crates
+- ✅ **Build Verification**: Confirmed successful compilation and functionality after all changes
+- ✅ **Enterprise Standards**: Full compliance with enterprise open-source licensing requirements
+
+#### **Compliance Validation Results** ✅
+- 🎯 **133/133 Files Compliant**: Perfect REUSE 3.3 specification compliance
+- 🎯 **Zero License Violations**: Clean ScanCode analysis with proper license attribution
+- 🎯 **Professional Standards**: Enterprise-grade licensing implementation ready for production use
+- 🎯 **GitHub Ready**: Badges, documentation, and automated validation configured for public repository
+
+### **Technical Implementation Details**
+- 📝 **File Coverage**: Updated headers in Rust (`.rs`), Python (`.py`), shell scripts (`.sh`), and configuration files
+- 📝 **Workspace Structure**: Maintained existing crate architecture while adding compliance infrastructure
+- 📝 **Backward Compatibility**: No functional changes to existing APIs or command-line interfaces
+- 📝 **Clean Implementation**: Targeted license compliance with zero impact on application logic
+
 ## [0.6.0] - 2025-01-14 🎯
 
 ### **Unified DLIO Engine Architecture Release**

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use ndarray::{ArrayD, IxDyn};
 use ndarray_npy::{write_npy};
 use std::io::Cursor;

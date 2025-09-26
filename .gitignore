@@ -12,6 +12,11 @@ s3dlio_wheel_contents/
 __pycache__/
 .venv/
 
+# ScanCode output files
+scancode-report.html
+scancode-report_files/
+scancode-results.json
+
 # Rust build artifacts
 /target
 

@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Generate golden reference reports for dl-driver MLPerf compatibility testing
 
 set -euo pipefail

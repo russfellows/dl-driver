@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Core library for dl-driver ─ Enhanced with s3dlio data loading and DLIO compatibility.
 
 pub mod config;

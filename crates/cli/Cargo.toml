@@ -1,6 +1,6 @@
 [package]
 name    = "dl-driver"          # ← the binary you will run
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 
 [dependencies]
@@ -12,9 +12,9 @@ tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = "0.3"
 dotenvy     = "0.15"
-dl_driver_core = { path = "../core", version = "0.6.0" }
-real_dlio_formats = { path = "../formats", version = "0.6.0" }
-real_dlio_storage = { path = "../storage", version = "0.6.0" }
+dl_driver_core = { path = "../core", version = "0.6.1" }
+real_dlio_formats = { path = "../formats", version = "0.6.1" }
+real_dlio_storage = { path = "../storage", version = "0.6.1" }
 s3dlio = { path = "../../../s3dlio" }   # ← for testing s3dlio integration
 
 [dev-dependencies]

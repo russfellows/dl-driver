@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 Final Verification: s3dlio v0.8.1 Multi-Backend Bug Fix
 

@@ -1,0 +1,56 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: dl-driver
+Upstream-Contact: Russ Fellows <russ.fellows@gmail.com>
+Source: https://github.com/russfellows/dl-driver
+
+Files: *.md
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: *.yaml *.yml
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: *.toml
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: *.json
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: *.txt
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: Cargo.lock
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: LICENSE
+Copyright: 2007 Free Software Foundation, Inc.
+License: GPL-3.0-or-later
+
+Files: .gitignore
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: README
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: docs/goldens/*.json
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: test_matrix/*.yaml
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: tools/validation/test_configs/*.yaml
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later
+
+Files: crates/*/Cargo.toml
+Copyright: 2025 Russ Fellows <russ.fellows@gmail.com>
+License: GPL-3.0-or-later

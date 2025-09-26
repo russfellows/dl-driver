@@ -1,0 +1,35 @@
+# License Policy for dl-driver project
+# This file defines acceptable licenses for the project
+
+# Allowed licenses (compatible with GPL-3.0-or-later)
+allowed_licenses:
+  - GPL-3.0-or-later
+  - GPL-3.0-only
+  - GPL-2.0-or-later
+  - GPL-2.0-only
+  - LGPL-3.0-or-later
+  - LGPL-2.1-or-later
+  - MIT
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - Apache-2.0
+  - ISC
+  - Unlicense
+  - CC0-1.0
+
+# Licenses requiring review
+review_licenses:
+  - MPL-2.0
+  - CDDL-1.0
+  - EPL-1.0
+  - EPL-2.0
+
+# Forbidden licenses (incompatible with GPL-3.0-or-later)
+forbidden_licenses:
+  - proprietary
+  - unknown
+  - AGPL-3.0-only  # Generally avoid in libraries
+  - SSPL-1.0       # Server Side Public License
+  - BUSL-1.1       # Business Source License
+  - CC-BY-NC       # Non-commercial restrictions
+  - CC-BY-ND       # No derivatives restrictions

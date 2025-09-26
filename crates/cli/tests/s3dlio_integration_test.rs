@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /// Test that we can create a config and it has s3dlio integration working
 #[test]
 fn test_s3dlio_integration_compiles() {
