@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Comprehensive Test Matrix for Unified DLIO Engine
 # Tests: 4 Backends × 2 Modes × 4 Operations = 32 test scenarios
 

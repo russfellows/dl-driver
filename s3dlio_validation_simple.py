@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 Simplified s3dlio validation to avoid iteration bugs.
 Tests core functionality without triggering the broken _AsyncBytesSource.

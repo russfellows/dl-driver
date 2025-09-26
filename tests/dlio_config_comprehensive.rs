@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // tests/dlio_config_comprehensive.rs
 //
 // Comprehensive tests for DLIO configuration parsing, validation, and conversion

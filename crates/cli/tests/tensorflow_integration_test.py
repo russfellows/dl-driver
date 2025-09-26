@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 Real TensorFlow/JAX Integration Test for dl-driver M4 Framework Profiles
 Tests end-to-end TensorFlow and JAX integration with actual dependencies and generated data.

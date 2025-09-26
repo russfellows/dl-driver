@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 Performance Benchmark Tests for dl-driver M4 Framework Profiles
 Compares dl-driver framework integrations against pure s3dlio usage.

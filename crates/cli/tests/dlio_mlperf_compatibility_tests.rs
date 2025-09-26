@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Comprehensive DLIO/MLPerf compatibility tests for dl-driver
 // Tests that dl-driver can run identical workloads to DLIO with same configs
 use anyhow::Result;

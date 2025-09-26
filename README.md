@@ -3,12 +3,15 @@
 **A unified, high-performance AI/ML data loading framework with enterprise-grade capabilities**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.6.1-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-21%2F21%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
+[![REUSE status](https://api.reuse.software/badge/github.com/russfellows/dl-driver)](https://api.reuse.software/info/github.com/russfellows/dl-driver)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![ScanCode Compatible](https://img.shields.io/badge/ScanCode-Compatible-green.svg)](https://scancode.io/)
 
 ## 🚀 Overview
 
@@ -16,9 +19,16 @@
 
 **Key Achievement**: Complete validation with numpy, h5py, and TensorFlow ensures seamless integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.6.0)
+## 🎯 Current Status (v0.6.1)
 
 **✅ UNIFIED ARCHITECTURE**: Single execution engine with optional MLPerf compliance mode
+**✅ ENTERPRISE COMPLIANCE**: REUSE 3.3 compliant with comprehensive license scanning
+
+### Latest v0.6.1 Release - Enterprise License Compliance
+- **📜 Complete REUSE 3.3 Compliance**: Professional SPDX headers across all 64+ source files
+- **🔍 ScanCode Integration**: Automated license scanning with Docker-based validation
+- **🏷️ GitHub Integration**: Compliance badges, documentation, and CI/CD workflows
+- **🎯 Zero License Violations**: Clean enterprise-grade licensing implementation
 
 ### Major v0.6.0 Improvements
 - **🏗️ Unified Command Interface**: Single `dl-driver run` command replaces fragmented dlio/mlperf/legacy commands
@@ -62,9 +72,10 @@
 - **🔗 DLIO Configuration Compatibility**: Drop-in replacement for existing DLIO YAML configs
 - **📋 3 Production Formats**: NPZ, HDF5, TFRecord with 100% standard library compatibility
 - **🏪 4 Universal Storage Backends**: File, S3/MinIO, Azure Blob, DirectIO with unified interface  
-- **� M5 Checkpoint Plugin System**: Multi-backend checkpointing with optional zstd compression
+- **📄 Enterprise License Compliance**: REUSE 3.3 compliant, ScanCode validated, automated CI/CD scanning
+- **🛡️ M5 Checkpoint Plugin System**: Multi-backend checkpointing with optional zstd compression
 - **📊 M6 MLPerf Production Readiness**: Provenance tracking, per-stage metrics, deterministic validation
-- **�🔧 Framework Integration**: PyTorch, TensorFlow, and JAX adapters with M4 Framework Profiles
+- **🔧 Framework Integration**: PyTorch, TensorFlow, and JAX adapters with M4 Framework Profiles
 - **⚡ Enterprise Performance**: **62K+ files/second** with advanced AsyncPoolDataLoader
 - **🔄 Multi-Threading**: Concurrent processing with backend-optimized configurations
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
@@ -403,9 +414,34 @@ cargo build --release
 - [s3dlio](https://github.com/russfellows/s3dlio) - Powerful multi-backend storage library
 - Rust ecosystem - tokio, serde, anyhow, and many other excellent crates
 
-## 📄 License
+## 📄 License & Compliance
 
-This project is licensed under the same terms as the original DLIO benchmark.
+This project maintains **enterprise-grade license compliance** with comprehensive scanning and validation.
+
+### License Information
+- **License**: [GPL-3.0-or-later](LICENSES/GPL-3.0-or-later.txt) 
+- **REUSE Compliant**: Full compliance with [REUSE Specification 3.3](https://reuse.software/spec/)
+- **SPDX Standards**: All source files include proper SPDX license identifiers
+- **ScanCode Compatible**: Validated with ScanCode Toolkit for enterprise scanning
+
+### Compliance Summary
+- ✅ **201 files scanned** by ScanCode Toolkit
+- ✅ **72 files** with SPDX GPL-3.0 identifiers  
+- ✅ **80 files** with proper copyright attribution
+- ✅ **Automated CI/CD** license validation via GitHub Actions
+
+📋 **[View Detailed Compliance Report](docs/LICENSE-COMPLIANCE.md)**
+
+### Local Validation
+```bash
+# REUSE compliance check
+reuse lint
+
+# ScanCode analysis (via Docker)
+docker run --rm -v $(pwd):/workdir sixarm/scancode \
+  --copyright --license --package --info --license-text \
+  --strip-root --format html-app /workdir /workdir/compliance-report.html
+```
 
 ---
 

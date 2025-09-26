@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // crates/formats/src/hdf5.rs
 //
 // HDF5 format implementation for DLIO compatibility

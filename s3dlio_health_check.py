@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 s3dlio Health Check and Diagnostics
 Tests core s3dlio functionality to identify any Tokio runtime or version issues.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // crates/core/src/config/dlio_config.rs
 use serde::{Deserialize, Serialize};
 use anyhow::Result;

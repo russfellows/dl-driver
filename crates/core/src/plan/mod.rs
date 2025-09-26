@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // crates/core/src/plan/mod.rs
 use crate::config::DlioConfig;
 use s3dlio::data_loader::{LoaderOptions, PoolConfig};

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 Error Handling and Edge Case Tests for dl-driver M4 Framework Profiles
 Tests invalid configurations, missing dependencies, network failures, and malformed data.

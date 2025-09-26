@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Russ Fellows <russ.fellows@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /// MLCommons DLIO Configuration Validation Tests
 /// Tests that dl-driver can parse and execute actual DLIO benchmark configurations
 use anyhow::Result;
