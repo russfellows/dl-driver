@@ -6,11 +6,17 @@
 // DLIO-compatible configuration parsing for MLCommons benchmarks
 //
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use s3dlio::api::advanced::PoolConfig;
 use s3dlio::data_loader::options::LoadingMode;
 use s3dlio::{LoaderOptions, ReaderMode};
+
+/// Helper function to deserialize AU values that can be either fraction (0.90) or percentage (90)
+fn de_frac_or_pct<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
+    let v: Option<f64> = Option::<f64>::deserialize(d)?;
+    Ok(v.map(|x| if x > 1.0 { x / 100.0 } else { x }))
+}
 
 /// Unified execution plan derived from DLIO config
 /// This normalizes and validates all DLIO configuration into an actionable plan
@@ -27,6 +33,12 @@ pub struct RunPlan {
 
     /// Reader/loader configuration
     pub reader: ReaderPlan,
+
+    /// Training configuration
+    pub train: TrainPlan,
+
+    /// Metric configuration for pass/fail
+    pub metric: Option<MetricPlan>,
 
     /// Checkpointing configuration
     pub checkpointing: Option<CheckpointingPlan>,
@@ -48,6 +60,19 @@ pub struct WorkflowPlan {
     pub train: bool,
     pub checkpoint: bool,
     pub evaluation: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrainPlan {
+    pub epochs: u32,
+    pub computation_time: f64,
+    pub computation_time_stdev: Option<f64>,
+    pub total_training_steps: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MetricPlan {
+    pub au_threshold: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +122,27 @@ pub struct ProfilingPlan {
     pub profiler_type: String,
 }
 
+/// Training configuration for DLIO workload execution
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TrainConfig {
+    /// Number of epochs to train for
+    pub epochs: Option<u32>,
+    /// Emulated computation time per step in seconds
+    pub computation_time: Option<f64>,
+    /// Standard deviation for computation time (for realistic variation)
+    pub computation_time_stdev: Option<f64>,
+    /// Total training steps (alternative to epochs-based termination)
+    pub total_training_steps: Option<i64>,
+}
+
+/// Metric configuration for pass/fail determination
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MetricConfig {
+    /// Accelerator Utilization threshold for pass/fail (accepts 0.90 or 90)
+    #[serde(default, deserialize_with = "de_frac_or_pct")]
+    pub au: Option<f64>,
+}
+
 /// DLIO-compatible JSON configuration structure
 /// Based on MLCommons DLIO YAML schema translated to JSON
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -106,6 +152,8 @@ pub struct DlioConfig {
     pub workflow: Option<WorkflowConfig>,
     pub dataset: DatasetConfig,
     pub reader: ReaderConfig,
+    pub train: Option<TrainConfig>,
+    pub metric: Option<MetricConfig>,
     pub checkpointing: Option<CheckpointingConfig>,
     pub profiling: Option<ProfilingConfig>,
 
@@ -394,6 +442,17 @@ impl DlioConfig {
                 loader_options: self.to_loader_options(),
                 pool_config: self.to_pool_config(),
             },
+
+            train: TrainPlan {
+                epochs: self.train.as_ref().and_then(|t| t.epochs).unwrap_or(1),
+                computation_time: self.train.as_ref().and_then(|t| t.computation_time).unwrap_or(0.0),
+                computation_time_stdev: self.train.as_ref().and_then(|t| t.computation_time_stdev),
+                total_training_steps: self.train.as_ref().and_then(|t| t.total_training_steps),
+            },
+
+            metric: self.metric.as_ref().map(|m| MetricPlan {
+                au_threshold: m.au.unwrap_or(0.9), // Default to 90% AU threshold
+            }),
 
             checkpointing: self.checkpointing.as_ref().map(|c| CheckpointingPlan {
                 enabled: c.checkpoint_after_epoch.unwrap_or(0) > 0,

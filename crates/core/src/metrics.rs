@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use crate::dlio_compat::DlioConfig;
 
 /// Performance metrics collection with interior mutability for Arc compatibility
 #[derive(Debug, Default)]
@@ -15,12 +16,23 @@ pub struct Metrics {
 #[derive(Debug, Default)]
 struct MetricsData {
     pub total_time: Option<Duration>,
-    pub read_times: Vec<Duration>,
+    pub read_times: Vec<Duration>,        // Pure I/O times
     pub write_times: Vec<Duration>,
+    pub compute_times: Vec<Duration>,     // Pure computation times
+    pub batch_times: Vec<Duration>,       // Total batch times (I/O + compute)
+    pub epoch_times: Vec<Duration>,       // Per-epoch times
     pub files_processed: u64,
     pub bytes_read: u64,
     pub bytes_written: u64,
     pub batches_processed: u64,
+}
+
+/// Result of Accelerator Utilization calculation
+#[derive(Debug, Clone)]
+pub struct AuResult {
+    pub au_fraction: f64,   // 0..1
+    pub au_percent: f64,    // 0..100
+    pub pass: Option<bool>, // None if no threshold in config
 }
 
 impl Metrics {
@@ -87,6 +99,24 @@ impl Metrics {
         data.bytes_read += bytes;
     }
 
+    /// Record computation time (GPU simulation)
+    pub fn record_compute_time(&self, duration: Duration) {
+        let mut data = self.data.lock().unwrap();
+        data.compute_times.push(duration);
+    }
+
+    /// Record total batch time (I/O + compute)
+    pub fn record_batch_time(&self, duration: Duration) {
+        let mut data = self.data.lock().unwrap();
+        data.batch_times.push(duration);
+    }
+
+    /// Record epoch time
+    pub fn record_epoch_time(&self, duration: Duration) {
+        let mut data = self.data.lock().unwrap();
+        data.epoch_times.push(duration);
+    }
+
     /// Record bytes written
     pub fn record_bytes_written(&self, bytes: u64) {
         let mut data = self.data.lock().unwrap();
@@ -113,8 +143,9 @@ impl Metrics {
         if !data.write_times.is_empty() {
             let avg_write =
                 data.write_times.iter().sum::<Duration>() / data.write_times.len() as u32;
-            let write_throughput = if avg_write.as_secs_f64() > 0.0 {
-                (data.bytes_written as f64) / (1024.0 * 1024.0) / avg_write.as_secs_f64()
+            let total_write_time = data.write_times.iter().sum::<Duration>();
+            let write_throughput = if total_write_time.as_secs_f64() > 0.0 {
+                (data.bytes_written as f64) / (1024.0 * 1024.0) / total_write_time.as_secs_f64()
             } else {
                 0.0
             };
@@ -124,14 +155,52 @@ impl Metrics {
 
         if !data.read_times.is_empty() {
             let avg_read = data.read_times.iter().sum::<Duration>() / data.read_times.len() as u32;
-            let read_throughput = if avg_read.as_secs_f64() > 0.0 {
-                (data.bytes_read as f64) / (1024.0 * 1024.0) / avg_read.as_secs_f64()
+            
+            // CORRECT STORAGE THROUGHPUT CALCULATION:
+            // Use wall-clock time from epochs, not sum of individual I/O times
+            // (Individual I/O times are microseconds with parallel I/O, wall-clock is real storage time)
+            let wall_clock_time = if !data.epoch_times.is_empty() {
+                data.epoch_times.iter().sum::<Duration>()
+            } else {
+                data.total_time.unwrap_or(Duration::from_secs(1)) // Fallback to 1 second
+            };
+            
+            let storage_throughput_mbps = if wall_clock_time.as_secs_f64() > 0.0 {
+                (data.bytes_read as f64) / (1024.0 * 1024.0) / wall_clock_time.as_secs_f64()
             } else {
                 0.0
             };
+            
+            let storage_throughput_gibps = storage_throughput_mbps / 1024.0; // Convert MB/s to GiB/s
+            
             println!("Average read time: {:?}", avg_read);
-            println!("Read throughput: {:.2} MB/s", read_throughput);
+            println!("Read throughput: {:.2} MB/s ({:.2} GiB/s) [STORAGE WALL-CLOCK]", 
+                     storage_throughput_mbps, storage_throughput_gibps);
         }
+
+        // Enhanced timing breakdown
+        if !data.compute_times.is_empty() {
+            let total_compute = data.compute_times.iter().sum::<Duration>();
+            let avg_compute = total_compute / data.compute_times.len() as u32;
+            println!("Total compute time: {:?}", total_compute);
+            println!("Average compute time: {:?}", avg_compute);
+        }
+
+        if !data.batch_times.is_empty() {
+            let total_batch = data.batch_times.iter().sum::<Duration>();
+            let avg_batch = total_batch / data.batch_times.len() as u32;
+            println!("Total batch time: {:?}", total_batch);
+            println!("Average batch time: {:?}", avg_batch);
+        }
+
+        if !data.epoch_times.is_empty() {
+            let total_epoch = data.epoch_times.iter().sum::<Duration>();
+            let avg_epoch = total_epoch / data.epoch_times.len() as u32;
+            println!("Total epoch time: {:?}", total_epoch);
+            println!("Average epoch time: {:?}", avg_epoch);
+            println!("Number of epochs: {}", data.epoch_times.len());
+        }
+
         println!("=============================\n");
     }
 
@@ -180,6 +249,40 @@ impl Metrics {
         } else {
             None
         }
+    }
+
+    /// Compute Accelerator Utilization (AU) for MLPerf Storage compliance
+    pub fn compute_au(&self, cfg: &DlioConfig, total_runtime: Duration, accelerators: u32) -> Option<AuResult> {
+        use tracing::debug;
+        let ds = &cfg.dataset;
+        let rd = &cfg.reader;
+        
+        debug!("AU calculation: checking train config");
+        let tr = cfg.train.as_ref()?;
+        debug!("AU calculation: train config found, checking computation_time");
+        let sleep_time = tr.computation_time?; // seconds per step
+        debug!("AU calculation: sleep_time = {}", sleep_time);
+        let batch_size = rd.batch_size.unwrap_or(1) as f64;
+
+        let total_files = ds.num_files_train? as f64;
+        let rec_per_file = ds.num_samples_per_file? as f64;
+        let total_samples = total_files * rec_per_file;
+
+        // Calculate total steps (same as DLIO/MLPerf logic)
+        let steps_total = (total_samples / (batch_size * (accelerators as f64))).ceil();
+        let total_compute_time = steps_total * sleep_time; // seconds
+        
+        let au_frac = (total_compute_time / total_runtime.as_secs_f64()).clamp(0.0, 1.0);
+        let au_pct = au_frac * 100.0;
+
+        let thresh = cfg.metric.as_ref().and_then(|m| m.au);
+        let pass = thresh.map(|t| au_frac >= t);
+        
+        Some(AuResult { 
+            au_fraction: au_frac, 
+            au_percent: au_pct, 
+            pass 
+        })
     }
 }
 

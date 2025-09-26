@@ -1,0 +1,26 @@
+# Quick test for storage throughput validation
+model:
+  framework: "tensorflow"
+
+dataset:
+  data_folder: "file:///mnt/vast1/dl_driver_large_threading_test"  # Use existing data
+  format: "npz"
+  num_files_train: 2000 
+  record_length_bytes: 1048576
+  num_samples_per_file: 32
+
+reader:
+  data_loader: "tensorflow"
+  read_threads: 16
+  prefetch: 4
+  batch_size: 16
+  shuffle: false
+
+train:
+  epochs: 1                    # Just 1 epoch for quick validation
+  computation_time: 0.05
+
+workload:
+  workflow:
+    generate_data: false       # Use existing data
+    train: true

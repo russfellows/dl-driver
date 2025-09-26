@@ -1,0 +1,32 @@
+# DLIO Test Configuration with Computation Time for Threading Model Validation
+# This config includes proper computation_time to test AU calculation
+
+model:
+  name: threading_test
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/vast1/dlio_threading_test
+  format: npz
+  num_files_train: 20
+  record_length_bytes: 1048576
+
+reader:
+  data_loader: pytorch
+  batch_size: 4
+  read_threads: 4
+  prefetch: 2
+  shuffle: true
+
+train:
+  epochs: 2
+  computation_time: 0.05  # 50ms per batch (realistic GPU simulation)
+
+metric:
+  au: 0.6  # Target 60% accelerator utilization

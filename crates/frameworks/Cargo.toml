@@ -1,6 +1,6 @@
 [package]
 name = "dl_driver_frameworks"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 description = "Framework integrations for dl-driver (PyTorch, TensorFlow)"
 license = "MIT"
