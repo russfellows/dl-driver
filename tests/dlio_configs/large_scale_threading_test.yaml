@@ -1,0 +1,38 @@
+# Large-scale DLIO configuration for testing parallel I/O threading
+# This config creates realistic ML workload conditions to test I/O vs compute overlap
+
+model:
+  framework: "tensorflow"
+  framework_version: "2.10.0"
+
+dataset:
+  data_folder: "file:///mnt/vast1/dl_driver_large_threading_test"
+  format: "npz"
+  num_files_train: 2000        # Much larger dataset
+  record_length_bytes: 1048576 # 1MB per record (realistic size)
+  num_samples_per_file: 32     # 32MB per file (realistic ML file size)
+
+reader:
+  data_loader: "tensorflow"
+  read_threads: 16            # More threads for aggressive parallel I/O
+  prefetch_size: 8            # Larger queue for better pipelining  
+  batch_size: 16              # Smaller batches = 512MB per batch (better for pipelining)
+  shuffle: false              # Disable for consistent timing
+  seed: 42
+
+train:
+  epochs: 5
+  computation_time: 0.05      # 50ms compute per batch (realistic GPU time)
+  checkpoint:
+    checkpoint_folder: "file:///mnt/vast1/dl_driver_large_threading_test/checkpoints"
+    epochs_between_checkpoints: 2
+    steps_between_checkpoints: -1
+
+profiling:
+  profiler: "iostat"
+
+workload:
+  workflow:
+    generate_data: true
+    train: true
+    checkpoint: false

@@ -3,6 +3,10 @@
 
 //! Core library for dl-driver ─ Enhanced with s3dlio data loading and DLIO compatibility.
 
+// Main DLIO compatibility module with train/metric support
+pub mod dlio_compat;
+
+// Legacy config module for backward compatibility  
 pub mod config;
 // Temporarily disabled - needs update for new config system
 // pub mod dataset;
@@ -13,16 +17,10 @@ pub mod metrics;
 pub mod mlperf;
 pub mod plugins;
 pub mod runner;
-// Removed: WorkloadRunner is legacy code, no longer needed
-// pub mod workload;
+pub mod workload;
 
-// Compatibility alias for existing imports
-pub mod dlio_compat {
-    pub use crate::config::{DlioConfig, yaml_to_json};
-}
-
-// Re-export unified config system
-pub use config::DlioConfig;
+// Re-export unified config system from dlio_compat (has train/metric fields)
+pub use dlio_compat::DlioConfig;
 pub use plan::RunPlan;
 
 // Legacy exports removed - use DlioConfig directly
@@ -32,6 +30,7 @@ pub use plan::RunPlan;
 // pub use generation::DatasetGenerator;
 pub use metrics::Metrics;
 pub use runner::Runner;
+pub use workload::WorkloadRunner;
 
 // New MLPerf runner
 pub use mlperf::{MlperfRunner, MlperfReport};

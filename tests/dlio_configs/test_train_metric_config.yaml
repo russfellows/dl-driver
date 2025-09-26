@@ -1,0 +1,38 @@
+# DLIO Test Configuration with Train and Metric sections
+# Demonstrates the new DLIO compliance features
+
+model:
+  name: test_train_metric_workload
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/vast1/dlio_test_train_metric
+  format: npz
+  num_files_train: 10
+  num_samples_per_file: 1
+  record_length_bytes: 1048576
+
+reader:
+  data_loader: pytorch
+  batch_size: 2
+  read_threads: 2
+  compute_threads: 2
+  prefetch: 2
+  shuffle: true
+
+# CRITICAL: Train configuration for proper DLIO emulation
+train:
+  epochs: 3
+  computation_time: 0.1
+  computation_time_stdev: 0.01
+  total_training_steps: 100
+
+# CRITICAL: Metric configuration for pass/fail determination  
+metric:
+  au: 0.90  # 90% accelerator utilization threshold
