@@ -102,21 +102,6 @@ cargo build --release
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
 - **🧪 Comprehensively Validated**: 60+ comprehensive tests with golden reference validation and MLCommons DLIO compatibility
 
-## � M5 & M6 Enterprise Features (NEW in v0.5.2) 
-
-### M5: Checkpoint Plugin System
-- **Multi-Backend Persistence**: Checkpoints work seamlessly across file://, directio://, s3://, and az:// storage
-- **Configurable Compression**: Optional zstd compression reduces checkpoint artifact sizes
-- **Async Plugin Architecture**: Complete lifecycle management with proper error handling
-- **Automatic Integration**: Enable via `checkpoint.enabled: true` in DLIO config
-
-### M6: MLPerf Production Readiness
-- **Comprehensive Provenance**: Every report includes dl-driver and s3dlio version tracking
-- **Per-Stage Timing Metrics**: Detailed I/O, decode, and host-to-device latency analysis  
-- **Percentile Analysis**: P50, P95, P99 latencies for all performance stages
-- **Deterministic Validation**: Access-order capture ensures reproducible benchmarks
-- **Configurable Bounds**: `--max-epochs` and `--max-steps` CLI flags remove hardcoded limits
-
 ## 🎯 Technical Specifications
 
 ### Storage Backends
@@ -264,28 +249,7 @@ cargo build --release
 4. Ensure all tests pass
 5. Submit a pull request
 
-## 📈 Roadmap
-
-### ✅ Completed (v0.4.0) - AI/ML Format Compatibility
-- ✅ **Complete format compatibility**: NPZ, HDF5, TFRecord with 100% Python library validation
-- ✅ **Enhanced s3dlio integration**: Unified data generation and advanced AsyncPoolDataLoader
-- ✅ **Comprehensive validation framework**: 36 format tests + 45 integration tests
-- ✅ **MLCommons DLIO compliance**: Full configuration support and parsing validation
-- ✅ **Professional project structure**: Proper Rust conventions, documentation, testing
-
-### ✅ Previous Releases
-**v0.3.0**: Enterprise-grade performance (62K+ files/second), dynamic batching, auto-tuning
-**v0.2.0**: Multi-backend storage (File, S3, Azure, DirectIO), DLIO configuration compatibility
-
-### � Future Enhancements (v0.5.3+)
-- **Additional formats**: Parquet, Arrow for modern data science workflows
-- **Enhanced Python bindings**: Complete PyO3 API for Python integration
-- **Golden reference validation**: Automated tolerance-based benchmark validation
-- **Distributed coordination**: Multi-node workload orchestration  
-- **Advanced profiling**: Extended I/O and compute metrics beyond current per-stage timing
-- **Cloud-native features**: Kubernetes integration, auto-scaling
-
-## 📚 Documentation
+##  Documentation
 
 - [Changelog](./docs/Changelog.md) - Detailed version history
 - [Configuration Guide](./tests/configs/) - Example configurations
