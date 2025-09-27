@@ -1,6 +1,6 @@
 # dl-driver
 
-**A unified, high-performance AI/ML data loading framework with enterprise-grade capabilities**
+**A high-performance tool for performing realistic testing of AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.6.3-green.svg)](./docs/Changelog.md)
