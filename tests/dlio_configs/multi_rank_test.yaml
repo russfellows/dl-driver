@@ -1,0 +1,41 @@
+# Multi-rank DLIO test configuration
+# Optimized for 8-rank distributed execution with proper sharding
+
+model:
+  name: "multi_rank_scaling_test"
+  type: "synthetic"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: "file:///mnt/vast1/dl_driver_multi_rank_test"
+  format: "npz"
+  num_files_train: 160      # 20 files per rank (160/8 = 20)
+  num_samples_per_file: 1
+  record_length_bytes: 16777216  # 16 MB per file (160 × 16MB = 2.5GB total)
+  compression: "none"
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 4             # Small batch for testing sharding
+  read_threads: 4           # Per-rank thread count
+  compute_threads: 4
+  prefetch: 2              # Conservative prefetch to avoid memory explosion
+  shuffle: true
+  seed: 42
+
+# Training configuration for realistic AU calculation
+train:
+  epochs: 2
+  computation_time: 0.05    # 50ms compute per batch
+  computation_time_stdev: 0.01
+  total_training_steps: 80  # 160 files / 4 batch_size = 40 batches/epoch × 2 epochs
+
+# Multi-rank performance expectations
+metric:
+  au: 0.85                 # Expect good AU with proper multi-rank coordination

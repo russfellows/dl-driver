@@ -252,37 +252,127 @@ impl Metrics {
     }
 
     /// Compute Accelerator Utilization (AU) for MLPerf Storage compliance
-    pub fn compute_au(&self, cfg: &DlioConfig, total_runtime: Duration, accelerators: u32) -> Option<AuResult> {
+    pub fn compute_au(&self, cfg: &DlioConfig, _total_runtime: Duration, _accelerators: u32) -> Option<AuResult> {
         use tracing::debug;
-        let ds = &cfg.dataset;
-        let rd = &cfg.reader;
         
-        debug!("AU calculation: checking train config");
-        let tr = cfg.train.as_ref()?;
-        debug!("AU calculation: train config found, checking computation_time");
-        let sleep_time = tr.computation_time?; // seconds per step
-        debug!("AU calculation: sleep_time = {}", sleep_time);
-        let batch_size = rd.batch_size.unwrap_or(1) as f64;
-
-        let total_files = ds.num_files_train? as f64;
-        let rec_per_file = ds.num_samples_per_file? as f64;
-        let total_samples = total_files * rec_per_file;
-
-        // Calculate total steps (same as DLIO/MLPerf logic)
-        let steps_total = (total_samples / (batch_size * (accelerators as f64))).ceil();
-        let total_compute_time = steps_total * sleep_time; // seconds
+        // Use the same calculation as calculate_au_internal for consistency
+        let data = self.data.lock().unwrap();
         
-        let au_frac = (total_compute_time / total_runtime.as_secs_f64()).clamp(0.0, 1.0);
-        let au_pct = au_frac * 100.0;
-
-        let thresh = cfg.metric.as_ref().and_then(|m| m.au);
-        let pass = thresh.map(|t| au_frac >= t);
+        debug!("AU calculation: {} compute times, {} epoch times recorded", 
+               data.compute_times.len(), data.epoch_times.len());
         
-        Some(AuResult { 
-            au_fraction: au_frac, 
-            au_percent: au_pct, 
-            pass 
+        // Ensure we have timing data
+        if data.compute_times.is_empty() || data.epoch_times.is_empty() {
+            debug!("AU calculation failed: no timing data available");
+            return None;
+        }
+        
+        // Use measured timing data (same as JSON export) for consistency
+        let total_compute = data.compute_times.iter().sum::<Duration>();
+        let wall_clock_time = data.epoch_times.iter().sum::<Duration>();
+        
+        debug!("AU calculation: total_compute={:.3}s, wall_clock={:.3}s", 
+               total_compute.as_secs_f64(), wall_clock_time.as_secs_f64());
+        
+        if wall_clock_time.is_zero() {
+            debug!("AU calculation failed: wall clock time is zero");
+            return None;
+        }
+        
+        let au_fraction = total_compute.as_secs_f64() / wall_clock_time.as_secs_f64();
+        let au_percent = (au_fraction * 100.0).min(100.0);
+        
+        let pass = cfg.metric.as_ref()
+            .and_then(|m| m.au)
+            .map(|threshold| au_fraction >= threshold);
+        
+        debug!("AU calculation result: {:.3} fraction ({:.1}%), pass={:?}", 
+               au_fraction, au_percent, pass);
+            
+        Some(AuResult { au_fraction, au_percent, pass })
+    }
+
+    /// Export metrics as JSON for multi-rank aggregation
+    pub fn to_json(&self, rank: u32, config: &DlioConfig) -> serde_json::Value {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        
+        let data = self.data.lock().unwrap();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+        
+        // Calculate comprehensive metrics
+        let total_read_time: Duration = data.read_times.iter().sum();
+        let total_compute_time: Duration = data.compute_times.iter().sum();
+        let total_batch_time: Duration = data.batch_times.iter().sum();
+        let wall_clock_time = data.epoch_times.iter().sum::<Duration>();
+        
+        let throughput_gib_s = if wall_clock_time.as_secs_f64() > 0.0 {
+            (data.bytes_read as f64) / (1024.0_f64.powi(3)) / wall_clock_time.as_secs_f64()
+        } else {
+            0.0
+        };
+        
+        // Calculate AU if we have the data
+        let au_result = if !data.compute_times.is_empty() && !data.batch_times.is_empty() {
+            self.calculate_au_internal(&data, config)
+        } else {
+            AuResult { au_fraction: 0.0, au_percent: 0.0, pass: None }
+        };
+        
+        serde_json::json!({
+            "rank": rank,
+            "timestamp": now,
+            "start_time": now - wall_clock_time.as_secs_f64(),
+            "end_time": now,
+            "config": {
+                "data_folder": config.data_folder_uri(),
+                "batch_size": config.reader.batch_size.unwrap_or(1),
+                "epochs": config.train.as_ref().and_then(|t| t.epochs).unwrap_or(1),
+                "computation_time": config.train.as_ref().and_then(|t| t.computation_time).unwrap_or(0.1)
+            },
+            "metrics": {
+                "files_processed": data.files_processed,
+                "bytes_read": data.bytes_read,
+                "bytes_written": data.bytes_written,
+                "batches_processed": data.batches_processed,
+                "storage_throughput_gib_s": throughput_gib_s,
+                "total_read_time_ms": total_read_time.as_millis(),
+                "total_compute_time_ms": total_compute_time.as_millis(),
+                "total_batch_time_ms": total_batch_time.as_millis(),
+                "wall_clock_time_ms": wall_clock_time.as_millis(),
+                "average_batch_time_ms": if !data.batch_times.is_empty() {
+                    total_batch_time.as_millis() / data.batch_times.len() as u128
+                } else { 0 },
+                "au_fraction": au_result.au_fraction,
+                "au_percent": au_result.au_percent,
+                "au_pass": au_result.pass
+            },
+            "timing_details": {
+                "read_times_ms": data.read_times.iter().map(|d| d.as_millis()).collect::<Vec<_>>(),
+                "compute_times_ms": data.compute_times.iter().map(|d| d.as_millis()).collect::<Vec<_>>(),
+                "batch_times_ms": data.batch_times.iter().map(|d| d.as_millis()).collect::<Vec<_>>(),
+                "epoch_times_ms": data.epoch_times.iter().map(|d| d.as_millis()).collect::<Vec<_>>()
+            }
         })
+    }
+
+    /// Internal AU calculation helper
+    fn calculate_au_internal(&self, data: &MetricsData, config: &DlioConfig) -> AuResult {
+        // Replicate the logic from calculate_au but with already-locked data
+        let total_compute = data.compute_times.iter().sum::<Duration>();
+        let wall_clock_time = data.epoch_times.iter().sum::<Duration>();
+        
+        if wall_clock_time.is_zero() {
+            return AuResult { au_fraction: 0.0, au_percent: 0.0, pass: None };
+        }
+        
+        let au_fraction = total_compute.as_secs_f64() / wall_clock_time.as_secs_f64();
+        let au_percent = (au_fraction * 100.0).min(100.0);
+        
+        let pass = config.metric.as_ref()
+            .and_then(|m| m.au)
+            .map(|threshold| au_fraction >= threshold);
+            
+        AuResult { au_fraction, au_percent, pass }
     }
 }
 

@@ -21,6 +21,9 @@ pub struct WorkloadRunner {
     metrics: Arc<Metrics>,
     accelerators: u32,
     strict_au: bool,
+    rank: u32,
+    world_size: u32,
+    file_list: Option<Vec<String>>,
 }
 
 impl WorkloadRunner {
@@ -35,6 +38,9 @@ impl WorkloadRunner {
             metrics: Arc::new(Metrics::new()),
             accelerators: 1, // Default to 1 accelerator
             strict_au: false, // Default to non-strict mode
+            rank: 0, // Default to single-process mode
+            world_size: 1,
+            file_list: None,
         }
     }
 
@@ -42,6 +48,14 @@ impl WorkloadRunner {
     pub fn with_accelerator_config(mut self, accelerators: u32, strict_au: bool) -> Self {
         self.accelerators = accelerators;
         self.strict_au = strict_au;
+        self
+    }
+
+    /// Set multi-rank configuration for distributed execution
+    pub fn with_rank_config(mut self, rank: u32, world_size: u32, file_list: Option<Vec<String>>) -> Self {
+        self.rank = rank;
+        self.world_size = world_size;
+        self.file_list = file_list;
         self
     }
 
@@ -67,19 +81,23 @@ impl WorkloadRunner {
         self.metrics.print_summary();
         
         // Calculate Accelerator Utilization (AU) if metric configuration is present
+        debug!("Checking for metric configuration");
         if let Some(metric_config) = &self.config.metric {
-            info!("=== Accelerator Utilization (AU) Analysis ===");
+            debug!("Metric config found: {:?}", metric_config);
+            println!("=== Accelerator Utilization (AU) Analysis ===");
             debug!("Train config: {:?}", self.config.train);
-            debug!("Metric config: {:?}", metric_config);
+            debug!("Calling compute_au with training_time={:?}, accelerators={}", training_time, self.accelerators);
             if let Some(au_result) = (*self.metrics).compute_au(&self.config, training_time, self.accelerators) {
-                info!("AU Result: {:.1}% ({:.3} fraction)", au_result.au_percent, au_result.au_fraction);
+                debug!("compute_au returned result: {:?}", au_result);
+                println!("AU Result: {:.1}% ({:.3} fraction)", au_result.au_percent, au_result.au_fraction);
                 
                 if let Some(pass) = au_result.pass {
                     let threshold = metric_config.au.unwrap_or(0.90);
+                    debug!("AU pass/fail evaluation: pass={}, threshold={:.3}", pass, threshold);
                     if pass {
-                        info!("✅ AU PASS: {:.1}% >= {:.1}% threshold", au_result.au_percent, threshold * 100.0);
+                        println!("✅ AU PASS: {:.1}% >= {:.1}% threshold", au_result.au_percent, threshold * 100.0);
                     } else {
-                        warn!("❌ AU FAIL: {:.1}% < {:.1}% threshold", au_result.au_percent, threshold * 100.0);
+                        println!("❌ AU FAIL: {:.1}% < {:.1}% threshold", au_result.au_percent, threshold * 100.0);
                         
                         // In strict mode, AU failure should cause the workload to fail
                         if self.strict_au {
@@ -90,12 +108,14 @@ impl WorkloadRunner {
                         }
                     }
                 } else {
-                    info!("AU threshold not configured for pass/fail");
+                    debug!("AU pass/fail not configured (no threshold in metric config)");
+                    println!("AU threshold not configured for pass/fail");
                 }
             } else {
-                info!("AU calculation not available (missing train configuration)");
+                debug!("compute_au returned None - no timing data available");
+                println!("AU calculation not available (missing timing data)");
             }
-            info!("==============================================");
+            println!("==============================================");
         }
         
         Ok(())
