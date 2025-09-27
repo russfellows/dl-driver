@@ -1,6 +1,6 @@
 # dl-driver
 
-**A high-performance tool for performing realistic testing of AI/ML workloads**
+**A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.6.3-green.svg)](./docs/Changelog.md)
@@ -15,7 +15,7 @@
 
 ## 🚀 Overview
 
-**dl-driver** is a tool for testing AI/ML workloads.  For training workloads it supports running data generation, data loading and checkpoint tests that provide **format compatibility** with standard Python libraries. Built in Rust for performance and reliability, it serves as a drop-in replacement for [DLIO benchmarks](https://github.com/argonne-lcf/dlio_benchmark) while delivering enterprise-grade capabilities through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
+**dl-driver** is a tool for testing storage performance during AI/ML workloads.  For training workloads it supports running data generation, data loading and checkpoint tests that provide **format compatibility** with standard Python libraries. Built in Rust for performance and reliability, it serves as a drop-in replacement for [DLIO benchmarks](https://github.com/argonne-lcf/dlio_benchmark) while delivering enterprise-grade capabilities through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
