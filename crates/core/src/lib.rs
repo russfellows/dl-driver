@@ -6,6 +6,9 @@
 // Main DLIO compatibility module with train/metric support
 pub mod dlio_compat;
 
+// Multi-rank coordination using shared memory and atomics
+pub mod coordination;
+
 // Legacy config module for backward compatibility  
 pub mod config;
 // Temporarily disabled - needs update for new config system

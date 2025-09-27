@@ -5,15 +5,17 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use dl_driver_core::DlioConfig;
 use dl_driver_core::plugins::PluginManager;
-use tracing::{info, error};
+use tracing::{info, error, debug, warn};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 /// dl-driver – Unified DLIO execution engine with optional MLPerf compliance mode
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
-    /// Enable verbose logging
-    #[arg(short, long)]
-    verbose: bool,
+    /// Increase verbosity (-v: info, -vv: debug, -vvv: trace)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 
     #[command(subcommand)]
     command: Commands,
@@ -74,6 +76,40 @@ enum Commands {
         /// Enable strict AU mode - fail if AU is below threshold
         #[arg(long)]
         strict_au: bool,
+
+        // === GPU Simulation Options ===
+        /// Number of GPUs to simulate for multi-GPU scaling (default: auto-detect or 1)
+        #[arg(long)]
+        gpus: Option<u32>,
+
+        /// [FUTURE] GPU environment mode - detects GPUs but uses same CPU simulation (for future GPU integration)
+        #[arg(long)]
+        use_real_gpus: bool,
+
+        // === Multi-rank scaling options ===
+        /// Read file list from specified file (one path per line)
+        #[arg(long)]
+        filelist: Option<std::path::PathBuf>,
+
+        /// Rank ID for multi-process execution (0-based)
+        #[arg(long)]
+        rank: Option<u32>,
+
+        /// Total number of ranks in world
+        #[arg(long)]
+        world_size: Option<u32>,
+
+        /// Unix timestamp to start execution (for synchronized multi-rank)
+        #[arg(long)]
+        start_at_epoch: Option<u64>,
+
+        /// Sharding strategy: interleaved, contiguous, or hash
+        #[arg(long, default_value = "interleaved")]
+        shard_strategy: String,
+
+        /// Output JSON results to specified file
+        #[arg(long)]
+        results: Option<std::path::PathBuf>,
     },
     /// Validate a DLIO config without running it
     Validate {
@@ -99,6 +135,24 @@ enum Commands {
         #[arg(long)]
         skip_existing: bool,
     },
+    /// Aggregate results from multiple rank JSON files
+    Aggregate {
+        /// Pattern or paths to rank result files (e.g., "/results/rank*.json")
+        #[arg(short, long)]
+        inputs: String,
+
+        /// Output aggregated results to file
+        #[arg(short, long)]
+        output: std::path::PathBuf,
+
+        /// Enable strict AU mode - fail if global AU is below threshold
+        #[arg(long)]
+        strict_au: bool,
+
+        /// Expected metric AU threshold (default from first rank config)
+        #[arg(long)]
+        au_threshold: Option<f64>,
+    },
 }#[tokio::main]
 async fn main() -> Result<()> {
     // Load environment variables from .env file early for S3/Azure credentials
@@ -106,10 +160,17 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // Initialize logging
-    let log_level = if args.verbose { "info" } else { "warn" };
+    // Initialize logging with verbosity levels
+    let (dl_driver_level, s3dlio_level) = match args.verbose {
+        0 => ("warn", "warn"),    // Default: warnings only
+        1 => ("info", "warn"),    // -v: dl-driver info, s3dlio warnings
+        2 => ("debug", "info"),   // -vv: dl-driver debug, s3dlio info
+        _ => ("trace", "debug"),  // -vvv+: dl-driver trace, s3dlio debug
+    };
+    
     tracing_subscriber::fmt()
-        .with_env_filter(format!("dl_driver={}", log_level))
+        .with_env_filter(format!("dl_driver_core={},dl_driver={},s3dlio={}", 
+                                dl_driver_level, dl_driver_level, s3dlio_level))
         .init();
 
     info!("dl-driver v{} starting", env!("CARGO_PKG_VERSION"));
@@ -129,6 +190,14 @@ async fn main() -> Result<()> {
             timeout,
             accelerators,
             strict_au,
+            gpus,
+            use_real_gpus,
+            filelist,
+            rank,
+            world_size,
+            start_at_epoch,
+            shard_strategy,
+            results,
         } => run_unified_dlio(
             &config, 
             pretty, 
@@ -143,6 +212,14 @@ async fn main() -> Result<()> {
             timeout,
             Some(accelerators),
             strict_au,
+            gpus,
+            use_real_gpus,
+            filelist.as_deref(),
+            rank,
+            world_size,
+            start_at_epoch,
+            &shard_strategy,
+            results.as_deref(),
         ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
         Commands::Generate {
@@ -150,6 +227,12 @@ async fn main() -> Result<()> {
             verbose,
             skip_existing,
         } => run_generate_only(&config, verbose, skip_existing).await,
+        Commands::Aggregate {
+            inputs,
+            output,
+            strict_au,
+            au_threshold,
+        } => aggregate_rank_results(&inputs, &output, strict_au, au_threshold).await,
     }
 }
 
@@ -168,12 +251,71 @@ async fn run_unified_dlio(
     _timeout: u64,
     accelerators: Option<u32>,
     strict_au: bool,
+    gpus: Option<u32>,
+    use_real_gpus: bool,
+    filelist: Option<&std::path::Path>,
+    rank: Option<u32>,
+    world_size: Option<u32>,
+    start_at_epoch: Option<u64>,
+    shard_strategy: &str,
+    results_path: Option<&std::path::Path>,
 ) -> Result<()> {
     info!("Loading DLIO config from: {:?}", config_path);
+
+    // Multi-rank validation and setup
+    let (current_rank, total_ranks) = match (rank, world_size) {
+        (Some(r), Some(w)) => {
+            if r >= w {
+                return Err(anyhow::anyhow!("Rank {} must be less than world_size {}", r, w));
+            }
+            info!("Multi-rank mode: rank={}/{}, strategy={}", r, w, shard_strategy);
+            (r, w)
+        }
+        (None, None) => (0, 1), // Single-process mode
+        _ => return Err(anyhow::anyhow!("Both --rank and --world-size must be specified together")),
+    };
+
+    // Handle start_at_epoch synchronization barrier
+    if let Some(start_time) = start_at_epoch {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        if start_time > now {
+            let wait_duration = start_time - now;
+            info!("Rank {}: Waiting {} seconds until synchronized start at epoch {}", 
+                  current_rank, wait_duration, start_time);
+            tokio::time::sleep(tokio::time::Duration::from_secs(wait_duration)).await;
+        }
+        info!("Rank {}: Starting synchronized execution", current_rank);
+    }
+
+    // Plan A1: Set GPU affinity for multi-GPU scaling on same host
+    if total_ranks > 1 {
+        setup_gpu_affinity(current_rank, total_ranks, gpus, use_real_gpus)?;
+    }
 
     // Load DLIO configuration
     let yaml_content = std::fs::read_to_string(config_path)?;
     let dlio_config = DlioConfig::from_yaml(&yaml_content)?;
+
+    // Handle file list sharding for multi-rank execution
+    let sharded_file_list = if let Some(filelist_path) = filelist {
+        // Load file list from file
+        let content = std::fs::read_to_string(filelist_path)
+            .with_context(|| format!("Failed to read filelist: {:?}", filelist_path))?;
+        let all_files: Vec<String> = content.lines().map(|s| s.trim().to_string()).collect();
+        
+        // Apply sharding strategy
+        let sharded_files = apply_sharding_strategy(&all_files, current_rank, total_ranks, shard_strategy)?;
+        info!("Rank {}: Using {} files from filelist (total: {}, strategy: {})", 
+              current_rank, sharded_files.len(), all_files.len(), shard_strategy);
+        Some(sharded_files)
+    } else if total_ranks > 1 {
+        // Multi-rank mode without explicit filelist - we'll need to implement directory-based sharding
+        info!("Rank {}: Directory-based sharding will be handled in workload execution", current_rank);
+        None
+    } else {
+        None
+    };
 
     if pretty {
         println!("=== Parsed DLIO Configuration ===");
@@ -224,18 +366,137 @@ async fn run_unified_dlio(
         info!("Phase 2: Training workload (MEASURED for AU calculation)");
         
         // Use WorkloadRunner ONLY for training phase measurement (data generation already done)
-        let accelerator_count = accelerators.unwrap_or(1);
+        // Plan A1: Multi-GPU scaling - each rank represents one GPU, so total accelerators = world_size
+        let accelerator_count = if total_ranks > 1 {
+            // Multi-GPU mode: each rank gets 1 GPU, total system has world_size GPUs
+            info!("Plan A1 Multi-GPU: Using {} total GPUs ({} GPUs per rank × {} ranks)", 
+                  total_ranks, 1, total_ranks);
+            total_ranks
+        } else {
+            // Single-GPU mode: use explicit accelerator count
+            accelerators.unwrap_or(1)
+        };
+
+        // Multi-rank coordination setup
+        let coordinator = if total_ranks > 1 {
+            use dl_driver_core::coordination::RankCoordinator;
+            
+            // Use deterministic coordination ID based on config path and world size
+            let config_name = config_path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("dlio");
+            let coord_id = format!("dlio_{}_{}", config_name, total_ranks);
+            let coord = RankCoordinator::new(current_rank, total_ranks, &coord_id)
+                .context("Failed to create rank coordinator")?;
+            
+            info!("🔗 Rank {}: Registering with coordination group", current_rank);
+            coord.register_and_wait().await
+                .context("Failed to register with coordination group")?;
+                
+            info!("🚧 Rank {}: Waiting at execution barrier", current_rank);
+            coord.barrier("execution_start").await
+                .context("Failed to synchronize at execution barrier")?;
+                
+            // Rank 0 marks global start time
+            if current_rank == 0 {
+                coord.mark_global_start()
+                    .context("Failed to mark global start time")?;
+            }
+            
+            Some(coord)
+        } else {
+            None
+        };
+
         let mut workload_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone())
-            .with_accelerator_config(accelerator_count, strict_au);
+            .with_accelerator_config(accelerator_count, strict_au)
+            .with_rank_config(current_rank, total_ranks, sharded_file_list.clone());
+            
         workload_runner.run_training_phase().await
             .context("Training workload failed")?;
+
+        // Multi-rank coordination finish
+        if let Some(ref coord) = coordinator {
+            info!("🏁 Rank {}: Marking execution finished", current_rank);
+            coord.mark_finished_and_wait().await
+                .context("Failed to coordinate execution finish")?;
+                
+            // Only rank 0 displays aggregated results (eliminates temp file aggregation)
+            if current_rank == 0 {
+                match coord.get_aggregated_results() {
+                    Ok(results) => {
+                        println!("\n🎉 Plan A1 Multi-GPU Results (Shared Memory Coordination):");
+                        println!("================================================================");
+                        println!("Total files processed: {}", results.total_files_processed);
+                        println!("Total data read: {:.2} GiB", results.total_bytes_read as f64 / 1_073_741_824.0);
+                        println!("Combined throughput: {:.2} GiB/s", results.total_throughput_gib_s);
+                        println!("Global runtime: {:.3}s", results.global_runtime_seconds);
+                        println!("Number of ranks: {}", results.total_ranks);
+                        println!("\nPer-rank breakdown:");
+                        for detail in &results.rank_details {
+                            println!("  Rank {}: {:.2} GiB/s, {} files, AU: {:.4}%", 
+                                   detail.rank, 
+                                   detail.throughput_gib_s,
+                                   detail.files_processed,
+                                   detail.au_fraction * 100.0);
+                        }
+                        println!("✅ Multi-rank coordination successful - NO TEMP FILES USED");
+                    }
+                    Err(e) => {
+                        warn!("⚠️  Failed to get aggregated results: {}", e);
+                    }
+                }
+            }
+                
+            let stats = coord.get_stats();
+            debug!("📊 Coordination stats: {:?}", stats);
+            
+            // Cleanup coordination resources (rank 0 only)
+            coord.cleanup()
+                .context("Failed to cleanup coordination resources")?;
+        }
         
-        // Get final metrics from WorkloadRunner (simple metrics for now)
-        let _workload_metrics = workload_runner.get_metrics();
-        // TODO: Convert workload_metrics to MlperfMetrics when re-enabling mlperf module
+        // Get final metrics from WorkloadRunner
+        let workload_metrics = workload_runner.get_metrics();
+
+        // Store results in shared memory (eliminates temp files for multi-rank)
+        if let Some(coord) = coordinator.as_ref() {
+            // Get metrics as JSON to extract needed values
+            let metrics_json = workload_metrics.to_json(current_rank, &dlio_config);
+            let metrics_obj = metrics_json["metrics"].as_object().unwrap();
+            
+            let files_processed = metrics_obj["files_processed"].as_u64().unwrap_or(0);
+            let bytes_read = metrics_obj["bytes_read"].as_u64().unwrap_or(0);
+            let throughput_gib_s = metrics_obj["storage_throughput_gib_s"].as_f64().unwrap_or(0.0);
+            let wall_clock_time_ms = metrics_obj["wall_clock_time_ms"].as_u64().unwrap_or(0);
+            let au_fraction = metrics_obj["au_fraction"].as_f64().unwrap_or(0.0);
+            
+            let start_time_ns = (metrics_json["start_time"].as_f64().unwrap_or(0.0) * 1_000_000_000.0) as u64;
+            let end_time_ns = (metrics_json["end_time"].as_f64().unwrap_or(0.0) * 1_000_000_000.0) as u64;
+            
+            coord.store_results(
+                files_processed,
+                bytes_read,
+                throughput_gib_s,
+                wall_clock_time_ms as f64,
+                au_fraction,
+                start_time_ns,
+                end_time_ns
+            ).context("Failed to store results in shared memory")?;
+            
+            info!("📊 Rank {}: Results stored in shared memory", current_rank);
+        } else {
+            // Single rank mode: export to JSON file if requested
+            if let Some(results_file) = results_path {
+                let metrics_json = workload_metrics.to_json(current_rank, &dlio_config);
+                std::fs::write(results_file, serde_json::to_string_pretty(&metrics_json)?)
+                    .with_context(|| format!("Failed to write results to: {:?}", results_file))?;
+                info!("Rank {}: Results saved to {:?}", current_rank, results_file);
+            }
+        }
     }
 
-    info!("✅ DLIO workload completed successfully");
+    println!("✅ DLIO workload completed successfully");
 
     // Output results based on mode
     if mlperf_mode {
@@ -274,7 +535,7 @@ async fn run_unified_dlio(
         */
     } else {
         // Basic DLIO output - using simplified metrics since WorkloadRunner handles detailed tracking
-        info!("📊 DLIO workload execution completed successfully");
+        println!("📊 DLIO workload execution completed successfully");
         info!("📈 Detailed performance metrics available in WorkloadRunner (epochs, throughput, AU calculation)");
     }
 
@@ -553,5 +814,249 @@ async fn run_generate_only(
         .context("Data generation failed")?;
     
     info!("✅ Data generation completed successfully");
+    Ok(())
+}
+
+/// Apply sharding strategy to distribute files across ranks
+fn apply_sharding_strategy(
+    files: &[String],
+    rank: u32,
+    world_size: u32,
+    strategy: &str,
+) -> Result<Vec<String>> {
+    let total_files = files.len();
+    if total_files == 0 {
+        return Ok(Vec::new());
+    }
+
+    let rank = rank as usize;
+    let world_size = world_size as usize;
+
+    let sharded = match strategy {
+        "interleaved" => {
+            // Round-robin distribution: rank 0 gets files 0,N,2N,..., rank 1 gets files 1,N+1,2N+1,...
+            files
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % world_size == rank)
+                .map(|(_, f)| f.clone())
+                .collect()
+        }
+        "contiguous" => {
+            // Contiguous blocks: divide files into equal chunks
+            let chunk_size = total_files / world_size;
+            let remainder = total_files % world_size;
+            
+            let start = rank * chunk_size + std::cmp::min(rank, remainder);
+            let end = start + chunk_size + if rank < remainder { 1 } else { 0 };
+            
+            files[start..end].to_vec()
+        }
+        "hash" => {
+            // Hash-based distribution: consistent but pseudo-random
+            files
+                .iter()
+                .filter(|f| {
+                    let mut hasher = DefaultHasher::new();
+                    f.hash(&mut hasher);
+                    (hasher.finish() % world_size as u64) as usize == rank
+                })
+                .cloned()
+                .collect()
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unknown sharding strategy: '{}'. Valid options: interleaved, contiguous, hash",
+                strategy
+            ));
+        }
+    };
+
+    info!(
+        "Sharding strategy '{}': rank {} gets {}/{} files",
+        strategy, rank, sharded.len(), total_files
+    );
+
+    Ok(sharded)
+}
+
+/// Aggregate results from multiple rank JSON files
+async fn aggregate_rank_results(
+    inputs: &str,
+    output: &std::path::Path,
+    strict_au: bool,
+    au_threshold: Option<f64>,
+) -> Result<()> {
+    use glob::glob;
+    use serde_json::Value;
+    
+    info!("Aggregating results from pattern: {}", inputs);
+    
+    // Find all matching files
+    let paths: Vec<_> = glob(inputs)
+        .with_context(|| format!("Failed to glob pattern: {}", inputs))?
+        .collect::<Result<Vec<_>, _>>()?;
+        
+    if paths.is_empty() {
+        return Err(anyhow::anyhow!("No files found matching pattern: {}", inputs));
+    }
+    
+    info!("Found {} result files to aggregate", paths.len());
+    
+    let mut aggregated = serde_json::json!({
+        "aggregated_results": {
+            "total_ranks": paths.len(),
+            "global_metrics": {},
+            "rank_details": []
+        }
+    });
+    
+    let mut total_throughput = 0.0_f64;
+    let mut total_files_processed = 0u64;
+    let mut total_bytes_read = 0u64;
+    let mut min_start_time = f64::MAX;
+    let mut max_end_time = 0.0_f64;
+    
+    // Process each rank result file
+    for (rank_idx, path) in paths.iter().enumerate() {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read result file: {:?}", path))?;
+        let rank_data: Value = serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse JSON from: {:?}", path))?;
+            
+        // Extract metrics from rank data
+        if let Some(metrics) = rank_data.get("metrics") {
+            if let Some(throughput) = metrics.get("storage_throughput_gib_s").and_then(|v| v.as_f64()) {
+                total_throughput += throughput;
+            }
+            if let Some(files) = metrics.get("files_processed").and_then(|v| v.as_u64()) {
+                total_files_processed += files;
+            }
+            if let Some(bytes) = metrics.get("bytes_read").and_then(|v| v.as_u64()) {
+                total_bytes_read += bytes;
+            }
+        }
+        
+        // Track timing for global AU calculation
+        if let Some(start) = rank_data.get("start_time").and_then(|v| v.as_f64()) {
+            min_start_time = min_start_time.min(start);
+        }
+        if let Some(end) = rank_data.get("end_time").and_then(|v| v.as_f64()) {
+            max_end_time = max_end_time.max(end);
+        }
+        
+        // Add rank details to aggregated results
+        aggregated["aggregated_results"]["rank_details"].as_array_mut().unwrap()
+            .push(serde_json::json!({
+                "rank": rank_idx,
+                "file": path.file_name().unwrap_or_default().to_string_lossy(),
+                "metrics": rank_data.get("metrics").cloned().unwrap_or(Value::Null)
+            }));
+    }
+    
+    // Calculate global metrics
+    let global_runtime = max_end_time - min_start_time;
+    
+    // Plan A1: Multi-GPU AU aggregation - sum compute times and wall clock times across all GPUs
+    let mut total_compute_time = 0.0;
+    let mut total_wall_clock_time = 0.0;
+    let mut gpu_count = 0u32;
+    
+    // Re-read rank files to aggregate AU calculation data
+    for path in &paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(rank_data) = serde_json::from_str::<Value>(&content) {
+                if let Some(metrics) = rank_data.get("metrics") {
+                    // Sum total compute time from all GPUs
+                    if let Some(compute_ms) = metrics.get("total_compute_time_ms").and_then(|v| v.as_f64()) {
+                        total_compute_time += compute_ms / 1000.0; // Convert to seconds
+                    }
+                    // Sum wall clock time from all GPUs
+                    if let Some(wall_ms) = metrics.get("wall_clock_time_ms").and_then(|v| v.as_f64()) {
+                        total_wall_clock_time += wall_ms / 1000.0; // Convert to seconds
+                    }
+                    gpu_count += 1;
+                }
+            }
+        }
+    }
+    
+    // Plan A1: Global AU = Total GPU compute time / (Total wall clock time across all GPUs)
+    let global_au = if total_wall_clock_time > 0.0 && gpu_count > 0 {
+        // Multi-GPU AU: aggregate utilization across all GPUs
+        let average_wall_clock = total_wall_clock_time / gpu_count as f64;
+        (total_compute_time / average_wall_clock).min(1.0) // Cap at 100%
+    } else {
+        0.0
+    };
+    
+    info!("Plan A1 Multi-GPU AU: {:.1}% across {} GPUs (total_compute={:.3}s, avg_wall_clock={:.3}s)", 
+          global_au * 100.0, gpu_count, total_compute_time, total_wall_clock_time / gpu_count.max(1) as f64);
+    
+    aggregated["aggregated_results"]["global_metrics"] = serde_json::json!({
+        "total_throughput_gib_s": total_throughput,
+        "total_files_processed": total_files_processed,
+        "total_bytes_read": total_bytes_read,
+        "global_runtime_seconds": global_runtime,
+        "global_au": global_au,
+        "pass": !strict_au || global_au >= au_threshold.unwrap_or(0.9)
+    });
+    
+    // Write aggregated results
+    std::fs::write(output, serde_json::to_string_pretty(&aggregated)?)
+        .with_context(|| format!("Failed to write aggregated results to: {:?}", output))?;
+        
+    info!("✅ Aggregated results written to: {:?}", output);
+    info!("Global metrics: {:.2} GiB/s throughput, {} files, {:.2}s runtime", 
+          total_throughput, total_files_processed, global_runtime);
+    
+    if strict_au && global_au < au_threshold.unwrap_or(0.9) {
+        return Err(anyhow::anyhow!("Global AU {:.3} below threshold {:.3}", 
+                                  global_au, au_threshold.unwrap_or(0.9)));
+    }
+    
+    Ok(())
+}
+
+/// Plan A1: Set GPU affinity and environment for realistic multi-GPU scaling
+fn setup_gpu_affinity(rank: u32, world_size: u32, simulated_gpus: Option<u32>, use_real_gpus: bool) -> Result<()> {
+    let effective_gpu_count = simulated_gpus.unwrap_or(world_size);
+    
+    if use_real_gpus {
+        info!("🎯 Plan A1: [FUTURE] GPU DETECTION for rank {} of {} (found {} GPUs)", 
+              rank, world_size, effective_gpu_count);
+        
+        // Future: Set CUDA_VISIBLE_DEVICES to bind this rank to a specific GPU
+        let gpu_id = rank % effective_gpu_count;
+        std::env::set_var("CUDA_VISIBLE_DEVICES", gpu_id.to_string());
+        info!("   🔮 [FUTURE] GPU environment: CUDA_VISIBLE_DEVICES={} (Currently: CPU simulation only)", gpu_id);
+        
+        // Set CUDA device order for consistent binding
+        std::env::set_var("CUDA_DEVICE_ORDER", "PCI_BUS_ID");
+        
+        // Set NUMA affinity if possible (on NUMA systems)
+        if let Ok(numa_nodes) = std::env::var("NUMA_NODES") {
+            let numa_count: u32 = numa_nodes.parse().unwrap_or(1);
+            let numa_node = rank % numa_count;
+            info!("   🖥️  NUMA affinity: Rank {} -> NUMA node {}", rank, numa_node);
+        }
+    } else {
+        info!("🎯 Plan A1: Setting up PURE SIMULATION environment for rank {} of {} (simulating {} GPUs)", 
+              rank, world_size, effective_gpu_count);
+        
+        // Simulation mode: set environment variables without requiring real GPUs
+        let simulated_gpu_id = rank % effective_gpu_count;
+        std::env::set_var("SIMULATED_CUDA_VISIBLE_DEVICES", simulated_gpu_id.to_string());
+        std::env::set_var("DL_DRIVER_SIMULATION_MODE", "1");
+        info!("   🎮 PURE SIMULATION: GPU_{} (CPU-based compute simulation)", simulated_gpu_id);
+    }
+    
+    // Set common environment variables for both modes
+    std::env::set_var("LOCAL_RANK", rank.to_string());
+    std::env::set_var("LOCAL_WORLD_SIZE", world_size.to_string());
+    std::env::set_var("DL_DRIVER_GPU_COUNT", effective_gpu_count.to_string());
+    
+    let mode = if use_real_gpus { "GPU ENVIRONMENT [FUTURE]" } else { "PURE SIMULATION" };
+    info!("✅ Plan A1: {} mode configured (All compute is CPU-based simulation)", mode);
     Ok(())
 }

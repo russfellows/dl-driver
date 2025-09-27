@@ -1,6 +1,6 @@
 [package]
 name = "dl_driver_core"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 
 [dependencies]
@@ -23,6 +23,10 @@ futures = "0.3"
 futures-core = "0.3"
 tokio-stream = { version = "0.1", features = ["sync"] }
 async-stream = "0.3"
+
+# Multi-rank coordination dependencies
+memmap2 = "0.9"
+shared_memory = "0.12"
 rand = { version = "0.9", features = ["std", "alloc"] }
 rand_chacha = "0.3"
 rayon = "1.10"
