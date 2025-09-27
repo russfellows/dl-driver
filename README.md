@@ -15,18 +15,18 @@
 
 ## 🚀 Overview
 
-**dl-driver** is a production-ready AI/ML data loading framework that provides **100% format compatibility** with standard Python libraries. Built in Rust for performance and reliability, it serves as a drop-in replacement for [DLIO benchmarks](https://github.com/argonne-lcf/dlio_benchmark) while delivering enterprise-grade capabilities through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
+**dl-driver** is a tool for testing AI/ML workloads.  For training workloads it supports running data generation, data loading and checkpoint tests that provide **format compatibility** with standard Python libraries. Built in Rust for performance and reliability, it serves as a drop-in replacement for [DLIO benchmarks](https://github.com/argonne-lcf/dlio_benchmark) while delivering enterprise-grade capabilities through the powerful [s3dlio](https://github.com/russfellows/s3dlio) library.
 
-**Key Achievement**: Complete validation with numpy, h5py, and TensorFlow ensures seamless integration with existing ML pipelines.
+**Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
 ## 🎯 Current Status (v0.6.3)
 
-**🌟 PLAN A1 MULTI-GPU SCALING**: Enterprise-grade multi-process coordination with shared memory
-**🔥 SHARED MEMORY COORDINATION**: Atomic operations, barriers, zero temp files
+**🌟 MULTI-GPU SCALING**: High-performance multi process coordination using shared memory
+**🔥 SHARED MEMORY COORDINATION**: Atomic operations, barriers via shared mem
 **⚡ DISTRIBUTED EXECUTION**: Multi-rank synchronization with aggregated performance metrics
 **🚀 PRODUCTION READY**: HPC and AI/ML cluster coordination with fault tolerance
 
-### Latest v0.6.3 Release - Plan A1 Multi-Process Coordination 🌟
+### Latest v0.6.3 Release - Added Multi-Process Coordination 🌟
 - **🔥 Shared Memory Coordination**: Complete atomic coordination system replacing temp files
 - **⚡ Plan A1 Multi-GPU**: `--world-size N --rank R` for distributed execution across processes  
 - **🏗️ Enterprise Architecture**: AtomicU32/U64/Bool with barriers, proper cleanup, timeout handling
@@ -35,7 +35,7 @@
 - **🎯 Zero Dependencies**: No MPI/network requirements - pure shared memory coordination
 
 ### Previous Releases
-- **v0.6.2**: TRUE DLIO parallel I/O with corrected throughput calculations and realistic AU metrics
+- **v0.6.2**: Tested for accurate DLIO parallel I/O with throughput calculations and AU metrics
 - **v0.6.1**: Enterprise license compliance (REUSE 3.3) with automated scanning
 - **v0.6.0**: Unified command interface and comprehensive plugin system
 
