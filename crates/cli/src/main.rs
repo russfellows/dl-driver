@@ -110,6 +110,23 @@ enum Commands {
         /// Output JSON results to specified file
         #[arg(long)]
         results: Option<std::path::PathBuf>,
+
+        // === Workstream A: Realistic AI/ML Workloads ===
+        /// Use realistic framework-specific workload profile (torch-like, tf-like, jax-like)
+        #[arg(long)]
+        profile: Option<String>,
+
+        /// Export metrics summary to JSON file
+        #[arg(long)]
+        metrics_json: Option<std::path::PathBuf>,
+
+        /// Export metrics summary to CSV file
+        #[arg(long)]
+        metrics_csv: Option<std::path::PathBuf>,
+
+        /// Validate workload against reference op-log file (.jsonl/.tsv/.csv with optional .zst)
+        #[arg(long)]
+        op_log: Option<std::path::PathBuf>,
     },
     /// Validate a DLIO config without running it
     Validate {
@@ -198,6 +215,10 @@ async fn main() -> Result<()> {
             start_at_epoch,
             shard_strategy,
             results,
+            profile,
+            metrics_json,
+            metrics_csv,
+            op_log,
         } => run_unified_dlio(
             &config, 
             pretty, 
@@ -220,6 +241,10 @@ async fn main() -> Result<()> {
             start_at_epoch,
             &shard_strategy,
             results.as_deref(),
+            profile.as_deref(),
+            metrics_json.as_deref(),
+            metrics_csv.as_deref(),
+            op_log.as_deref(),
         ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
         Commands::Generate {
@@ -259,6 +284,11 @@ async fn run_unified_dlio(
     start_at_epoch: Option<u64>,
     shard_strategy: &str,
     results_path: Option<&std::path::Path>,
+    // Workstream A: Realistic AI/ML Workloads
+    profile: Option<&str>,
+    metrics_json: Option<&std::path::Path>,
+    metrics_csv: Option<&std::path::Path>,
+    op_log: Option<&std::path::Path>,
 ) -> Result<()> {
     info!("Loading DLIO config from: {:?}", config_path);
 
@@ -411,6 +441,20 @@ async fn run_unified_dlio(
         let mut workload_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone())
             .with_accelerator_config(accelerator_count, strict_au)
             .with_rank_config(current_rank, total_ranks, sharded_file_list.clone());
+
+        // Workstream A: Apply realistic framework profile if specified
+        if let Some(profile_name) = profile {
+            info!("🎯 Applying {} workload profile", profile_name);
+            workload_runner = workload_runner.with_profile(profile_name)
+                .context("Failed to apply workload profile")?;
+        }
+
+        // Workstream A: Enable op-log validation if specified
+        if let Some(op_log_path) = op_log {
+            info!("📊 Enabling op-log validation against: {:?}", op_log_path);
+            workload_runner = workload_runner.with_op_log_validation(op_log_path)
+                .context("Failed to configure op-log validation")?;
+        }
             
         workload_runner.run_training_phase().await
             .context("Training workload failed")?;
@@ -458,6 +502,19 @@ async fn run_unified_dlio(
         
         // Get final metrics from WorkloadRunner
         let workload_metrics = workload_runner.get_metrics();
+
+        // Workstream A: Export metrics if requested
+        if let Some(json_path) = metrics_json {
+            info!("📄 Exporting metrics to JSON: {:?}", json_path);
+            workload_metrics.export_json(json_path, "workload")
+                .context("Failed to export metrics to JSON")?;
+        }
+
+        if let Some(csv_path) = metrics_csv {
+            info!("📊 Exporting metrics to CSV: {:?}", csv_path);
+            workload_metrics.export_csv(csv_path, "workload")
+                .context("Failed to export metrics to CSV")?;
+        }
 
         // Store results in shared memory (eliminates temp files for multi-rank)
         if let Some(coord) = coordinator.as_ref() {

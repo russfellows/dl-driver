@@ -1,6 +1,6 @@
 [package]
 name = "real_dlio_formats"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 
 [dependencies]
@@ -15,7 +15,7 @@ tempfile = "3.0"
 crc32fast = "1.3"
 crc32c = "0.6"
 zip = "2.4"
-s3dlio = { path = "../../../s3dlio" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
 
 [dev-dependencies]
 tempfile = "3.20.0"

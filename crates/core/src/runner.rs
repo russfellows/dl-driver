@@ -4,7 +4,7 @@
 use anyhow::Result;
 use std::time::Instant;
 
-use crate::config::DlioConfig;
+use crate::dlio_compat::DlioConfig;
 use crate::metrics::Metrics;
 
 /// Placeholder runner for milestone M1

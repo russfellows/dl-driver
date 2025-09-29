@@ -1,6 +1,6 @@
 [package]
 name = "dl_driver_core"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 
 [dependencies]
@@ -35,11 +35,11 @@ ndarray = "0.15"
 ndarray-npy = "0.8"
 tempfile = "3.0"
 
-# s3dlio integration with updated Rust
-s3dlio = { path = "../../../s3dlio" }
+# s3dlio integration with updated Rust - pinned to v0.8.7
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
 
 # Local formats crate
-real_dlio_formats = { path = "../formats" }
+real_dlio_formats = { path = "../formats", version = "0.6.4" }
 
 # Optional compression support for checkpoints
 zstd = "0.13"
