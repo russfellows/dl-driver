@@ -3,7 +3,7 @@
 
 use crate::framework_config::PyTorchConfig;
 use anyhow::Result;
-use dl_driver_core::config::DlioConfig;
+use dl_driver_core::DlioConfig;
 use s3dlio::LoaderOptions;
 
 /// Format types supported by the PyTorch adapter
@@ -118,7 +118,8 @@ impl PyTorchDataLoader {
 
     /// Detect format type from DLIO configuration
     fn detect_format(dlio_config: &DlioConfig) -> Result<FormatType> {
-        match dlio_config.dataset.format.as_str() {
+        let format = dlio_config.dataset.format.as_deref().unwrap_or("npz");
+        match format {
             "npz" => Ok(FormatType::Npz),
             "hdf5" => Ok(FormatType::Hdf5),
             "tfrecord" => Ok(FormatType::TfRecord),

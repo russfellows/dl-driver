@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.6.3-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.6.4-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-21%2F21%20passing-success.svg)](#testing--validation)
@@ -19,20 +19,20 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.6.3)
+## 🎯 Current Status (v0.6.4)
 
-**🌟 MULTI-GPU SCALING**: High-performance multi process coordination using shared memory
-**🔥 SHARED MEMORY COORDINATION**: Atomic operations, barriers via shared mem
-**⚡ DISTRIBUTED EXECUTION**: Multi-rank synchronization with aggregated performance metrics
-**🚀 PRODUCTION READY**: HPC and AI/ML cluster coordination with fault tolerance
+**🧠 WORKSTREAM A**: Realistic AI/ML framework workload simulation and validation
+**� ADVANCED METRICS**: JSON/CSV export with comprehensive performance analytics  
+**🔍 OP-LOG VALIDATION**: Production operation log ingestion and envelope validation
+**🚀 FRAMEWORK PROFILES**: PyTorch, TensorFlow, and JAX-optimized workload patterns
 
-### Latest v0.6.3 Release - Added Multi-Process Coordination 🌟
-- **🔥 Shared Memory Coordination**: Complete atomic coordination system replacing temp files
-- **⚡ Multi-GPU**: `--world-size N --rank R` for distributed execution across processes  
-- **🏗️ Enterprise Architecture**: AtomicU32/U64/Bool with barriers, proper cleanup, timeout handling
-- **📊 Aggregated Results**: Combined throughput and metrics across all ranks with per-rank breakdown
-- **🧪 Coordination Testing**: Isolated test framework validating barriers and synchronization
-- **🎯 Zero Dependencies**: No MPI/network requirements - pure shared memory coordination
+### Latest v0.6.4 Release - Workstream A: Realistic AI/ML Workloads 🌟
+- **🧠 Framework Profiles**: `--profile torch|tf|jax` for realistic AI/ML framework simulation
+- **📊 Advanced Metrics Export**: `--metrics-json` and `--metrics-csv` for CI/CD integration
+- **🔍 Op-Log Validation**: `--op-log reference.csv.zst` for workload validation against reference data
+- **🏗️ Unified Config System**: Resolved all configuration conflicts with single source of truth
+- **🎯 Real-World Testing**: Validated with 2.78M record operation logs from production benchmarks
+- **⚡ Enhanced CLI**: Comprehensive help system with usage examples and best practices
 
 ### Previous Releases
 - **v0.6.2**: Tested for accurate DLIO parallel I/O with throughput calculations and AU metrics
@@ -101,6 +101,64 @@ cargo build --release
 - **📊 Production Ready**: Enterprise license compliance, comprehensive testing, checkpoint system
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
 - **🧪 Comprehensively Validated**: 60+ comprehensive tests with golden reference validation and MLCommons DLIO compatibility
+
+## 🧠 Workstream A: Realistic AI/ML Framework Simulation (v0.6.4)
+
+### Framework-Specific Workload Profiles
+Execute workloads optimized for specific AI/ML frameworks:
+
+```bash
+# PyTorch-optimized workload simulation
+./target/release/dl-driver run --config config.yaml --profile torch
+
+# TensorFlow-optimized configuration  
+./target/release/dl-driver run --config config.yaml --profile tf
+
+# JAX-optimized workload patterns
+./target/release/dl-driver run --config config.yaml --profile jax
+```
+
+### Advanced Metrics Export & CI Integration
+Export comprehensive performance metrics for automated analysis:
+
+```bash
+# Export metrics to JSON for programmatic analysis
+./target/release/dl-driver run --config config.yaml --metrics-json results.json
+
+# Export metrics to CSV for spreadsheet analysis
+./target/release/dl-driver run --config config.yaml --metrics-csv results.csv
+
+# Both formats simultaneously for comprehensive reporting
+./target/release/dl-driver run --config config.yaml --metrics-json metrics.json --metrics-csv metrics.csv
+```
+
+### Operation Log Validation & Benchmarking
+Validate workload performance against reference operation logs:
+
+```bash
+# Validate against compressed operation log (supports .csv.zst, .jsonl.zst)
+./target/release/dl-driver run --config config.yaml --op-log reference-benchmark.csv.zst
+
+# Example with comprehensive validation and metrics export
+./target/release/dl-driver run \
+    --config config.yaml \
+    --profile torch \
+    --metrics-json validation-results.json \
+    --op-log production-reference.csv.zst
+
+# Validation output with CI-friendly exit codes:
+✅ PASS: Workload performance within tolerance (±5.0%)
+📊 Files processed: 1000 (reference: 1000)  
+📊 Throughput: 12.4 GiB/s (reference: 12.1 GiB/s, +2.5%)
+📊 Total runtime: 45.2s (reference: 46.1s, -2.0%)
+```
+
+### Key Workstream A Features
+- **🧠 Intelligent Profiles**: Framework-specific optimizations for PyTorch, TensorFlow, and JAX
+- **📊 Production Metrics**: JSON/CSV export for CI/CD pipelines and performance tracking
+- **🔍 Validation Engine**: Compare against reference operation logs with configurable tolerance
+- **⚡ Real-World Testing**: Validated with 2.78M record operation logs from production systems
+- **🎯 CI Integration**: PASS/FAIL validation with proper exit codes for automated testing
 
 ## 🎯 Technical Specifications
 
@@ -172,6 +230,18 @@ cargo build --release
 # Validate configuration without running
 ./target/release/dl-driver validate --config tests/dlio_configs/bert_config.yaml
 
+# NEW: Framework-specific workload profiles (Workstream A)
+./target/release/dl-driver run --config config.yaml --profile torch
+./target/release/dl-driver run --config config.yaml --profile tf
+./target/release/dl-driver run --config config.yaml --profile jax
+
+# NEW: Metrics export for CI/CD integration (Workstream A)
+./target/release/dl-driver run --config config.yaml --metrics-json results.json
+./target/release/dl-driver run --config config.yaml --metrics-csv results.csv
+
+# NEW: Operation log validation (Workstream A)
+./target/release/dl-driver run --config config.yaml --op-log reference.csv.zst
+
 # Run format validation (requires Python environment)
 python tools/validation/validate_formats.py
 ```
@@ -182,6 +252,12 @@ dl-driver --help                    # Show all available commands
 dl-driver generate --help           # Generate synthetic datasets  
 dl-driver run --help               # Run DLIO workloads (with optional MLPerf mode)
 dl-driver validate --help          # Validate configurations
+
+# Workstream A: Advanced execution options
+dl-driver run --profile [torch|tf|jax]     # Framework-specific optimization profiles
+dl-driver run --metrics-json FILE          # Export metrics in JSON format
+dl-driver run --metrics-csv FILE           # Export metrics in CSV format  
+dl-driver run --op-log FILE                # Validate against reference operation log
 ```
 
 ## 📝 Configuration
@@ -215,11 +291,18 @@ cargo test
 # Test multi-rank coordination
 ./target/release/dl-driver run --config config.yaml --world-size 2 --rank 0 &
 ./target/release/dl-driver run --config config.yaml --world-size 2 --rank 1
+
+# NEW: Test Workstream A features (v0.6.4)
+./target/release/dl-driver run --config config.yaml --profile torch --metrics-json test.json
+./target/release/dl-driver run --config config.yaml --op-log tests/dlio_configs/reference.csv.zst
 ```
 
-### Validation Results
-- ✅ **45/45 Rust integration tests** passing
+### Validation Results (v0.6.4)
+- ✅ **45+ Rust integration tests** passing (including Workstream A features)
 - ✅ **36/36 format validation tests** with Python libraries
+- ✅ **Framework profiles** validated with PyTorch, TensorFlow, and JAX configurations
+- ✅ **Operation log validation** tested with 2.78M record production datasets
+- ✅ **Metrics export** validated in JSON and CSV formats for CI integration
 - ✅ **100% compatibility** with numpy, h5py, tensorflow
 - ✅ **MLCommons DLIO configs** fully validated
 

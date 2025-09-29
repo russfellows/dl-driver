@@ -4,7 +4,11 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::path::Path;
+use std::fs::File;
+use std::io::Write;
 use tokio::sync::RwLock;
+use serde::{Serialize, Deserialize};
 use crate::dlio_compat::DlioConfig;
 
 /// Performance metrics collection with interior mutability for Arc compatibility
@@ -33,6 +37,64 @@ pub struct AuResult {
     pub au_fraction: f64,   // 0..1
     pub au_percent: f64,    // 0..100
     pub pass: Option<bool>, // None if no threshold in config
+}
+
+/// Serializable metrics summary for JSON/CSV export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsSummary {
+    pub mode: String, // "generate", "train", "replay"
+    pub totals: TotalMetrics,
+    pub performance: PerformanceMetrics,
+    pub timing: TimingMetrics,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accelerator_utilization: Option<AuMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TotalMetrics {
+    pub files_processed: u64,
+    pub batches_processed: u64,
+    pub bytes_read: u64,
+    pub bytes_written: u64,
+    pub bytes_read_mb: f64,
+    pub bytes_written_mb: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceMetrics {
+    pub read_throughput_mbps: f64,
+    pub write_throughput_mbps: f64,
+    pub read_throughput_gibps: f64,
+    pub write_throughput_gibps: f64,
+    pub average_read_time_ms: f64,
+    pub average_write_time_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimingMetrics {
+    pub total_time_secs: f64,
+    pub total_epoch_time_secs: f64,
+    pub total_compute_time_secs: f64,
+    pub average_batch_time_ms: f64,
+    pub average_epoch_time_secs: f64,
+    pub num_epochs: usize,
+    pub latency_ms_p95: Option<f64>, // Will be calculated if we have enough samples
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuMetrics {
+    pub au_fraction: f64,
+    pub au_percent: f64,
+    pub pass: Option<bool>,
+    pub threshold: Option<f64>,
+}
+
+/// CSV row for simple tabular export
+#[derive(Debug, Clone, Serialize)]
+pub struct CsvMetric {
+    pub metric: String,
+    pub value: String,
+    pub unit: String,
 }
 
 impl Metrics {
@@ -373,6 +435,156 @@ impl Metrics {
             .map(|threshold| au_fraction >= threshold);
             
         AuResult { au_fraction, au_percent, pass }
+    }
+
+    /// Export metrics summary to JSON file
+    pub fn export_json(&self, path: &Path, mode: &str) -> anyhow::Result<()> {
+        let summary = self.create_summary(mode);
+        let json = serde_json::to_string_pretty(&summary)?;
+        let mut file = File::create(path)?;
+        file.write_all(json.as_bytes())?;
+        Ok(())
+    }
+
+    /// Export metrics to CSV file
+    pub fn export_csv(&self, path: &Path, mode: &str) -> anyhow::Result<()> {
+        let summary = self.create_summary(mode);
+        let metrics = self.summary_to_csv_rows(&summary);
+        
+        let mut file = File::create(path)?;
+        writeln!(file, "metric,value,unit")?;
+        
+        for metric in metrics {
+            writeln!(file, "{},{},{}", metric.metric, metric.value, metric.unit)?;
+        }
+        
+        Ok(())
+    }
+
+    /// Create a comprehensive summary of all metrics
+    pub fn create_summary(&self, mode: &str) -> MetricsSummary {
+        let data = self.data.lock().unwrap();
+        
+        // Calculate derived metrics
+        let bytes_read_mb = data.bytes_read as f64 / (1024.0 * 1024.0);
+        let bytes_written_mb = data.bytes_written as f64 / (1024.0 * 1024.0);
+        
+        // Calculate wall-clock time for throughput
+        let wall_clock_time = if !data.epoch_times.is_empty() {
+            data.epoch_times.iter().sum::<Duration>()
+        } else {
+            data.total_time.unwrap_or(Duration::from_secs(1))
+        };
+        
+        let wall_clock_secs = wall_clock_time.as_secs_f64();
+        let read_throughput_mbps = if wall_clock_secs > 0.0 { bytes_read_mb / wall_clock_secs } else { 0.0 };
+        let write_throughput_mbps = if wall_clock_secs > 0.0 { bytes_written_mb / wall_clock_secs } else { 0.0 };
+        
+        // Average timings
+        let avg_read_time_ms = if !data.read_times.is_empty() {
+            data.read_times.iter().sum::<Duration>().as_secs_f64() * 1000.0 / data.read_times.len() as f64
+        } else { 0.0 };
+        
+        let avg_write_time_ms = if !data.write_times.is_empty() {
+            data.write_times.iter().sum::<Duration>().as_secs_f64() * 1000.0 / data.write_times.len() as f64
+        } else { 0.0 };
+        
+        let avg_batch_time_ms = if !data.batch_times.is_empty() {
+            data.batch_times.iter().sum::<Duration>().as_secs_f64() * 1000.0 / data.batch_times.len() as f64
+        } else { 0.0 };
+        
+        let avg_epoch_time_secs = if !data.epoch_times.is_empty() {
+            data.epoch_times.iter().sum::<Duration>().as_secs_f64() / data.epoch_times.len() as f64
+        } else { 0.0 };
+        
+        // Calculate p95 latency if we have enough read samples
+        let latency_ms_p95 = if data.read_times.len() >= 20 {
+            let mut sorted_times: Vec<f64> = data.read_times.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
+            sorted_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let p95_idx = (sorted_times.len() as f64 * 0.95) as usize;
+            Some(sorted_times[p95_idx.min(sorted_times.len() - 1)])
+        } else { None };
+        
+        MetricsSummary {
+            mode: mode.to_string(),
+            totals: TotalMetrics {
+                files_processed: data.files_processed,
+                batches_processed: data.batches_processed,
+                bytes_read: data.bytes_read,
+                bytes_written: data.bytes_written,
+                bytes_read_mb,
+                bytes_written_mb,
+            },
+            performance: PerformanceMetrics {
+                read_throughput_mbps,
+                write_throughput_mbps,
+                read_throughput_gibps: read_throughput_mbps / 1024.0,
+                write_throughput_gibps: write_throughput_mbps / 1024.0,
+                average_read_time_ms: avg_read_time_ms,
+                average_write_time_ms: avg_write_time_ms,
+            },
+            timing: TimingMetrics {
+                total_time_secs: data.total_time.map(|d| d.as_secs_f64()).unwrap_or(0.0),
+                total_epoch_time_secs: data.epoch_times.iter().sum::<Duration>().as_secs_f64(),
+                total_compute_time_secs: data.compute_times.iter().sum::<Duration>().as_secs_f64(),
+                average_batch_time_ms: avg_batch_time_ms,
+                average_epoch_time_secs: avg_epoch_time_secs,
+                num_epochs: data.epoch_times.len(),
+                latency_ms_p95,
+            },
+            accelerator_utilization: None, // Will be filled separately if AU is calculated
+        }
+    }
+
+    /// Convert summary to CSV rows
+    fn summary_to_csv_rows(&self, summary: &MetricsSummary) -> Vec<CsvMetric> {
+        let mut rows = Vec::new();
+        
+        // Totals
+        rows.push(CsvMetric { metric: "files_processed".to_string(), value: summary.totals.files_processed.to_string(), unit: "count".to_string() });
+        rows.push(CsvMetric { metric: "batches_processed".to_string(), value: summary.totals.batches_processed.to_string(), unit: "count".to_string() });
+        rows.push(CsvMetric { metric: "bytes_read".to_string(), value: summary.totals.bytes_read.to_string(), unit: "bytes".to_string() });
+        rows.push(CsvMetric { metric: "bytes_written".to_string(), value: summary.totals.bytes_written.to_string(), unit: "bytes".to_string() });
+        rows.push(CsvMetric { metric: "bytes_read_mb".to_string(), value: format!("{:.2}", summary.totals.bytes_read_mb), unit: "MB".to_string() });
+        rows.push(CsvMetric { metric: "bytes_written_mb".to_string(), value: format!("{:.2}", summary.totals.bytes_written_mb), unit: "MB".to_string() });
+        
+        // Performance
+        rows.push(CsvMetric { metric: "read_throughput_mbps".to_string(), value: format!("{:.2}", summary.performance.read_throughput_mbps), unit: "MB/s".to_string() });
+        rows.push(CsvMetric { metric: "write_throughput_mbps".to_string(), value: format!("{:.2}", summary.performance.write_throughput_mbps), unit: "MB/s".to_string() });
+        rows.push(CsvMetric { metric: "read_throughput_gibps".to_string(), value: format!("{:.3}", summary.performance.read_throughput_gibps), unit: "GiB/s".to_string() });
+        rows.push(CsvMetric { metric: "write_throughput_gibps".to_string(), value: format!("{:.3}", summary.performance.write_throughput_gibps), unit: "GiB/s".to_string() });
+        rows.push(CsvMetric { metric: "average_read_time_ms".to_string(), value: format!("{:.2}", summary.performance.average_read_time_ms), unit: "ms".to_string() });
+        rows.push(CsvMetric { metric: "average_write_time_ms".to_string(), value: format!("{:.2}", summary.performance.average_write_time_ms), unit: "ms".to_string() });
+        
+        // Timing
+        rows.push(CsvMetric { metric: "total_time_secs".to_string(), value: format!("{:.2}", summary.timing.total_time_secs), unit: "seconds".to_string() });
+        rows.push(CsvMetric { metric: "average_batch_time_ms".to_string(), value: format!("{:.2}", summary.timing.average_batch_time_ms), unit: "ms".to_string() });
+        rows.push(CsvMetric { metric: "num_epochs".to_string(), value: summary.timing.num_epochs.to_string(), unit: "count".to_string() });
+        
+        if let Some(p95) = summary.timing.latency_ms_p95 {
+            rows.push(CsvMetric { metric: "latency_ms_p95".to_string(), value: format!("{:.2}", p95), unit: "ms".to_string() });
+        }
+        
+        // AU metrics if present
+        if let Some(au) = &summary.accelerator_utilization {
+            rows.push(CsvMetric { metric: "au_fraction".to_string(), value: format!("{:.3}", au.au_fraction), unit: "fraction".to_string() });
+            rows.push(CsvMetric { metric: "au_percent".to_string(), value: format!("{:.1}", au.au_percent), unit: "percent".to_string() });
+            if let Some(pass) = au.pass {
+                rows.push(CsvMetric { metric: "au_pass".to_string(), value: pass.to_string(), unit: "bool".to_string() });
+            }
+        }
+        
+        rows
+    }
+
+    /// Set AU result in the summary (used when AU is calculated)
+    pub fn set_au_result(&self, summary: &mut MetricsSummary, au_result: &AuResult, threshold: Option<f64>) {
+        summary.accelerator_utilization = Some(AuMetrics {
+            au_fraction: au_result.au_fraction,
+            au_percent: au_result.au_percent,
+            pass: au_result.pass,
+            threshold,
+        });
     }
 }
 

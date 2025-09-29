@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use anyhow::Result;
-use dl_driver_core::config::DlioConfig;
+use dl_driver_core::DlioConfig;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for framework integrations

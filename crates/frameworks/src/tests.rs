@@ -32,6 +32,8 @@ fn create_test_dlio_config() -> DlioConfig {
             file_access_type: None,
             seed: Some(42),
         },
+        train: None,
+        metric: None,
         checkpointing: None,
         profiling: None,
         pytorch_config: None,

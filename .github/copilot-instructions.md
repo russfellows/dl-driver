@@ -1,162 +1,71 @@
 # dl-driver AI Coding Instructions
 
-This is a **high-performance AI/ML data loading framework** built in Rust that provides unified access to multiple storage backends (File, S3, Azure, DirectIO) through the s3dlio library. The project is designed as a drop-in replacement for DLIO benchmarks with enterprise-grade performance and **full MLCommons DLIO compatibility**.
+This project is a high-performance, MLCommons DLIO-compatible data loading framework in Rust, designed for unified access to multiple storage backends (File, S3, Azure, DirectIO) via the s3dlio library. It is structured for drop-in replacement of DLIO benchmarks and enterprise-scale workloads.
 
-## Available Development Tools
+## s3dlio Dependency
 
-When working with this codebase, the following search and analysis tools are available:
-- **ripgrep (`rg`)**: Fast text search across files with regex support
-- **fd**: Fast alternative to `find` for locating files
-- **Standard Rust toolchain**: cargo, rustc, clippy, rustfmt
+This project **heavily leverages the s3dlio project**, which is located in a parallel directory at `/home/eval/Documents/Code/s3dlio`. The s3dlio library provides the core ObjectStore abstraction and backend implementations that dl-driver builds upon. When debugging storage-related issues or understanding the data flow, you may need to reference or modify code in the s3dlio project as well.
 
-Use these tools for efficient code exploration and debugging.
+## Key Architecture & Patterns
 
-## 🚨 CRITICAL: Large Data Directory Guidelines
+- **Workspace:** 5 Rust crates in `crates/`:
+    - `core/`: config parsing, workload orchestration, metrics
+    - `storage/`: legacy POSIX backend (use s3dlio's ObjectStore for new code)
+    - `formats/`: data format handlers (NPZ, HDF5, etc.)
+    - `cli/`: main binary, CLI parsing
+    - `py_api/`: Python bindings (PyO3)
+- **Primary data path:** All storage I/O uses s3dlio's `ObjectStore` trait. Always construct object stores via s3dlio, not the legacy storage crate.
+- **Config system:** Supports both MLCommons DLIO YAML and legacy configs. Use `DlioConfig::from_yaml_file()` for DLIO, `Config::from_yaml_file()` for legacy. CLI: `dl-driver dlio|legacy --config ...`.
+- **Backend detection:** Storage backend is auto-detected from the `data_folder` URI scheme (e.g., `s3://`, `az://`, `direct://`, `file://`).
+- **Workload execution:** Orchestrated by `WorkloadRunner` (`core/src/workload.rs`), which manages async I/O, metrics, and three-phase workflow (data gen, train, checkpoint).
+- **DLIO integration:** All DLIO config fields mapped in `core/src/dlio_compat.rs`. Automatic conversion to s3dlio LoaderOptions/PoolConfig.
+- **Testing:** All tests are config-driven (YAML in `tests/configs/`). S3/Azure tests skip if credentials are missing. MLCommons config validation in `tests/mlcommons_dlio_validation.rs`.
 
-**NEVER use `/tmp/` for test data larger than 1 GB!**
+## Critical Workflows & Commands
 
-When creating test datasets or running data generation commands that will produce more than 1 GB of data, **ALWAYS** use one of these high-capacity directories:
-- `/mnt/vast1/` - Primary large data directory
-- `/mnt/vast2/` - Secondary large data directory  
-- `/mnt/vast3/` - Tertiary large data directory
+- **Build:** `cargo build --release`
+- **Test:** `cargo test` (some tests require S3/Azure credentials)
+- **Run workload:**
+    - Legacy: `./target/release/dl-driver legacy --config tests/configs/test_file_config.yaml`
+    - DLIO: `./target/release/dl-driver dlio --config tests/dlio_configs/minimal_config.yaml`
+- **Validate config:** `./target/release/dl-driver validate --config tests/dlio_configs/unet3d_config.yaml`
+- **MLCommons validation:** `cargo test --test mlcommons_dlio_validation`
 
-**Examples:**
-- ❌ **WRONG**: `data_folder: file:///tmp/dlio_data` (for large datasets)
-- ✅ **CORRECT**: `data_folder: file:///mnt/vast1/dlio_data`
-- ❌ **WRONG**: Test directory `/tmp/format_validation` (if generating >1GB)
-- ✅ **CORRECT**: Test directory `/mnt/vast1/dl_driver_format_validation`
+## Project-Specific Conventions
 
-**Update all test configs and validation scripts to use `/mnt/vast1`, `/mnt/vast2`, or `/mnt/vast3` when appropriate.**
+- **Large data:** Never use `/tmp/` for >1GB data. Use `/mnt/test/` for large test data and update configs accordingly.
+- **Error handling:** Use `anyhow::Result` and `.context()` for error chains. Storage errors bubble up from s3dlio.
+- **Async:** All main execution is async (`#[tokio::main]`), all I/O via s3dlio is async. Tests use `#[tokio::test]`.
+- **Naming:** Configs: `test_[backend]_config.yaml`. Generated files: `train_file_{:06}.{format}`. Metrics: files_processed, bytes_read/written, execution times.
+- **Performance:** Use s3dlio's PoolConfig for concurrent I/O. Prefer streaming to loading whole files. Use DirectIO for HPC, async pools for cloud.
 
-## Architecture Overview
+## Integration & Troubleshooting
 
-**Workspace Structure**: 5-crate workspace architecture
-- `crates/core/` - Configuration parsing, workload orchestration, metrics
-- `crates/storage/` - Storage backend abstractions (POSIX-focused)
-- `crates/formats/` - Data format handlers (NPZ, HDF5, etc.)
-- `crates/cli/` - Command-line interface and main binary
-- `crates/py_api/` - Python bindings via PyO3
+- **Credentials:** S3 via `.env` (dotenvy), Azure via `AZURE_BLOB_ACCOUNT`/`AZURE_BLOB_CONTAINER` env vars. Credential loading is in `WorkloadRunner`.
+- **Path resolution:** Always use full URIs, handle trailing slashes.
+- **s3dlio dependency:** Do not reimplement storage logic; always use s3dlio for new storage code.
+- **Format support:** NPZ is primary; HDF5 is planned but not fully implemented.
+- **Test skipping:** Tests skip (not fail) if credentials are missing.
 
-**Key Pattern**: All storage operations use **s3dlio's ObjectStore** trait, not the local storage crate. The `storage/` crate is legacy/fallback.
+## Examples
 
-## Core Abstractions
-
-### Configuration System
-- **MLCommons DLIO compatibility**: Full support for DLIO benchmark YAML configurations via `DlioConfig::from_yaml_file()`
-- **Legacy dl-driver configs**: Backward compatibility via `Config::from_yaml_file()`
-- **Dual CLI interface**: `dl-driver legacy` (old format) and `dl-driver dlio` (MLCommons format)
-- **URI-based backend detection**: Auto-detects storage backend from `data_folder` URI scheme
-- **YAML↔JSON conversion**: Seamless translation between DLIO YAML and s3dlio JSON formats
-
+**Storage backend pattern:**
 ```rust
-// Pattern: Always check storage backend type via config
 match config.storage_backend() {
-    StorageBackend::S3 => // Use S3 credentials
-    StorageBackend::Azure => // Use Azure environment vars
-    StorageBackend::DirectIO => // Use O_DIRECT optimizations
-    StorageBackend::File => // Use standard filesystem
+        StorageBackend::S3 => /* S3 credentials */
+        StorageBackend::Azure => /* Azure env vars */
+        StorageBackend::DirectIO => /* O_DIRECT optimizations */
+        StorageBackend::File => /* Standard filesystem */
 }
 ```
 
-### DLIO Integration Layer
-- **Complete DLIO schema support**: All MLCommons DLIO configuration fields in `core/src/dlio_compat.rs`
-- **Automatic conversion**: DLIO configs → s3dlio LoaderOptions and PoolConfig
-- **Comprehensive validation**: 9 test suites validate parsing of real MLCommons benchmark configs
-- **Backend URI mapping**: `data_folder` URIs automatically map to appropriate s3dlio backends
-
-### Workload Execution Engine
-- **Primary class**: `WorkloadRunner` in `core/src/workload.rs`
-- **Async execution**: All I/O operations are async using s3dlio's `AsyncPoolDataLoader`
-- **Three-phase workflow**: Data generation → Training → Checkpointing
-- **Performance metrics**: Comprehensive tracking via `Metrics` struct
-
-## Critical Integration Points
-
-### s3dlio Library Integration
-**Primary data path**: Uses s3dlio's `AsyncPoolDataLoader` with `MultiBackendDataset`
+**s3dlio object store usage:**
 ```rust
-// Pattern: Always create object store through s3dlio
 let store = store_for_uri(&config.storage_uri()).await?;
 let loader = AsyncPoolDataLoader::new(dataset, pool_config).await?;
 ```
 
-### Credential Management
-- **S3**: Uses `.env` file loading via `dotenvy::dotenv()` in WorkloadRunner
-- **Azure**: Environment variables `AZURE_BLOB_ACCOUNT`, `AZURE_BLOB_CONTAINER`
-- **Pattern**: Credential loading happens in WorkloadRunner constructor
+**Test config location:** See `tests/dlio_configs/` for MLCommons configs (e.g., `minimal_config.yaml`, `unet3d_config.yaml`).
 
-### Testing Patterns
-- **Conditional tests**: S3/Azure tests skip if credentials missing
-- **Environment checks**: `env::var("S3_ENDPOINT").is_err()` pattern for conditional execution
-- **Config-driven**: All tests use YAML configs from `tests/configs/`
-- **MLCommons validation**: Comprehensive DLIO config tests in `tests/mlcommons_dlio_validation.rs`
-- **Real benchmark configs**: Test suite includes actual UNet3D, BERT, ResNet, CosmoFlow configurations
-
-## Development Workflows
-
-### Build & Test Commands
-```bash
-# Build entire workspace
-cargo build --release
-
-# Run all tests (some require credentials)
-cargo test
-
-# Test specific backend with credentials
-AZURE_BLOB_ACCOUNT=myaccount cargo test test_azure_backend
-S3_ENDPOINT=http://localhost:9000 cargo test test_s3_backend
-
-# Run workload with legacy config
-./target/release/dl-driver legacy --config tests/configs/test_file_config.yaml
-
-# Run workload with MLCommons DLIO config
-./target/release/dl-driver dlio --config tests/dlio_configs/minimal_config.yaml
-
-# Validate DLIO config without running
-./target/release/dl-driver validate --config tests/dlio_configs/unet3d_config.yaml
-
-# Run MLCommons validation tests
-cargo test --test mlcommons_dlio_validation
-```
-
-### Configuration Examples
-**File backend**: `data_folder: file:///tmp/workload/`
-**S3 backend**: `data_folder: s3://bucket/path/` (needs AWS credentials)
-**Azure backend**: `data_folder: az://account/container/path/` (needs AZURE_BLOB_ACCOUNT)
-**DirectIO**: `data_folder: direct:///tmp/high-perf/` (O_DIRECT for HPC)
-
-### DLIO Config Examples
-**Minimal workload**: See `tests/dlio_configs/minimal_config.yaml`
-**UNet3D benchmark**: See `tests/dlio_configs/unet3d_config.yaml` 
-**BERT benchmark**: See `tests/dlio_configs/bert_config.yaml`
-**ResNet benchmark**: See `tests/dlio_configs/resnet_config.yaml`
-**CosmoFlow benchmark**: See `tests/dlio_configs/cosmoflow_config.yaml`
-
-## Project-Specific Conventions
-
-### Error Handling
-- Use `anyhow::Result` everywhere, with `.context()` for error chains
-- Storage errors bubble up from s3dlio ObjectStore operations
-- Pattern: `store.put(&path, &data).await.with_context(|| format!("Failed to write {}", path))?`
-
-### Async Patterns
-- **Runtime**: All main execution uses `#[tokio::main]` 
-- **Storage I/O**: Always async through s3dlio ObjectStore
-- **Test functions**: Use `#[tokio::test]` for integration tests
-
-### Naming Conventions
-- **Configs**: `test_[backend]_config.yaml` pattern
-- **File generation**: `train_file_{:06}.{format}` numbering
-- **Metrics**: Track files_processed, bytes_read/written, execution times
-
-### Performance Considerations
-- **Batch operations**: Use s3dlio's PoolConfig for concurrent I/O tuning
-- **Memory efficiency**: Stream processing preferred over loading entire files
-- **Backend optimization**: DirectIO for HPC, async pools for cloud storage
-
-## Common Troubleshooting
-
-**Missing credentials**: Tests will skip rather than fail
-**Path resolution**: Always use full URIs, handle trailing slash inconsistencies
-**s3dlio dependency**: Core functionality depends on external s3dlio crate - don't reimplement storage logic
-**Format support**: Currently NPZ-focused, HDF5 planned but not fully implemented
+---
+If any section is unclear or missing, please provide feedback for further refinement.

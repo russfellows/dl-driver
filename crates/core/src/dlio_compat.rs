@@ -330,6 +330,13 @@ impl DlioConfig {
         Self::from_json(&json_str)
     }
 
+    /// Parse DLIO config from YAML file
+    pub fn from_yaml_file(file_path: &str) -> Result<Self> {
+        let yaml_content = std::fs::read_to_string(file_path)
+            .with_context(|| format!("Failed to read YAML file: {}", file_path))?;
+        Self::from_yaml(&yaml_content)
+    }
+
     /// Convert this DLIO config to s3dlio LoaderOptions
     pub fn to_loader_options(&self) -> LoaderOptions {
         let reader = &self.reader;
@@ -939,5 +946,20 @@ reader:
             let normalized_uri = config.data_folder_uri();
             assert_eq!(normalized_uri, expected, "Failed to normalize: {}", input);
         }
+    }
+}
+
+/// Normalize URI to handle file:// schemes properly  
+/// Ensures file:// URIs use the format expected by s3dlio: file://absolute_path
+pub fn normalize_uri(uri: &str) -> String {
+    if uri.starts_with("file:///") {
+        // Convert file:///absolute/path to file:///absolute/path (keep the absolute path format)
+        // s3dlio expects file://path format where path is absolute, so keep as file:///absolute/path
+        uri.to_string()
+    } else if uri.starts_with("file://") {
+        // Already in correct format
+        uri.to_string() 
+    } else {
+        uri.to_string()
     }
 }

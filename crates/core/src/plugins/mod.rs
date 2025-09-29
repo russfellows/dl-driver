@@ -4,7 +4,7 @@
 // crates/core/src/plugins/mod.rs
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::config::DlioConfig;
+use crate::dlio_compat::DlioConfig;
 
 #[async_trait]
 pub trait Plugin: Send + Sync {

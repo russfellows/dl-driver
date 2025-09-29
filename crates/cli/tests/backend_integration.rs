@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use anyhow::Result;
-use dl_driver_core::{config::Config, workload::WorkloadRunner};
+use dl_driver_core::{dlio_compat::DlioConfig, workload::WorkloadRunner};
 use std::env;
 
 /// Integration test for file backend (always available)
 #[tokio::test]
 async fn test_file_backend() -> Result<()> {
-    let config = Config::from_yaml_file("tests/configs/test_file_config.yaml")?;
+    let config = DlioConfig::from_yaml_file("tests/configs/test_file_config.yaml")?;
     let mut runner = WorkloadRunner::new(config);
     runner.run().await?;
 
@@ -29,7 +29,7 @@ async fn test_file_backend() -> Result<()> {
 /// Integration test for DirectIO backend (always available)
 #[tokio::test]
 async fn test_directio_backend() -> Result<()> {
-    let config = Config::from_yaml_file("tests/configs/test_directio_config.yaml")?;
+    let config = DlioConfig::from_yaml_file("tests/configs/test_directio_config.yaml")?;
     let mut runner = WorkloadRunner::new(config);
     runner.run().await?;
 
@@ -55,7 +55,7 @@ async fn test_s3_backend_conditional() -> Result<()> {
         return Ok(());
     }
 
-    let config = Config::from_yaml_file("tests/configs/test_s3_large_config.yaml")?;
+    let config = DlioConfig::from_yaml_file("tests/configs/test_s3_large_config.yaml")?;
     let mut runner = WorkloadRunner::new(config);
 
     match runner.run().await {
@@ -88,7 +88,7 @@ async fn test_azure_backend_conditional() -> Result<()> {
         return Ok(());
     }
 
-    let config = Config::from_yaml_file("tests/configs/test_azure_config.yaml")?;
+    let config = DlioConfig::from_yaml_file("tests/configs/test_azure_config.yaml")?;
     let mut runner = WorkloadRunner::new(config);
 
     match runner.run().await {
