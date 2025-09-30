@@ -6,6 +6,7 @@ members = [
     "crates/frameworks",
     "crates/py_api",
     "crates/cli",
+    # "crates/replay-complex-reference", # Saved for reference
 ]
 resolver = "2"
 
