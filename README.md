@@ -3,10 +3,10 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.6.4-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.6.5-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-21%2F21%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-61%2F61%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
 [![REUSE status](https://api.reuse.software/badge/github.com/russfellows/dl-driver)](https://api.reuse.software/info/github.com/russfellows/dl-driver)
@@ -19,25 +19,79 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.6.4)
+## 🎯 Current Status (v0.6.5)
 
-**🧠 WORKSTREAM A**: Realistic AI/ML framework workload simulation and validation
-**� ADVANCED METRICS**: JSON/CSV export with comprehensive performance analytics  
-**🔍 OP-LOG VALIDATION**: Production operation log ingestion and envelope validation
-**🚀 FRAMEWORK PROFILES**: PyTorch, TensorFlow, and JAX-optimized workload patterns
+**🔄 WORKSTREAM B**: Operation log replay engine with timing control and path remapping
+**🧪 ENHANCED TESTING**: 61/61 tests passing with robust MLPerf compatibility  
+**� REPLAY METRICS**: Comprehensive replay statistics and progress tracking
+**🚀 CLI INTEGRATION**: New `dl-driver replay` subcommand with full feature set
 
-### Latest v0.6.4 Release - Workstream A: Realistic AI/ML Workloads 🌟
-- **🧠 Framework Profiles**: `--profile torch|tf|jax` for realistic AI/ML framework simulation
-- **📊 Advanced Metrics Export**: `--metrics-json` and `--metrics-csv` for CI/CD integration
-- **🔍 Op-Log Validation**: `--op-log reference.csv.zst` for workload validation against reference data
-- **🏗️ Unified Config System**: Resolved all configuration conflicts with single source of truth
-- **🎯 Real-World Testing**: Validated with 2.78M record operation logs from production benchmarks
-- **⚡ Enhanced CLI**: Comprehensive help system with usage examples and best practices
+### Latest v0.6.5 Release - Workstream B: Operation Log Replay & Enhanced Testing 🌟
+- **🔄 Complete Replay Engine**: Full operation log replay with timing control and path remapping
+- **⚡ Fast Mode**: `--fast` flag for immediate execution without delays for development workflows
+- **🗺️ Path Remapping**: JSON-based cross-environment path translation for deployment flexibility
+- **🔄 Concurrent Execution**: Configurable worker pools with timeout support for scalable operations
+- **🧪 Enhanced Test Suite**: All 61 tests passing with robust MLPerf compatibility and fallback handling
+- **� Replay Analytics**: Comprehensive metrics including timing accuracy and throughput analysis
 
 ### Previous Releases
+- **v0.6.4**: Realistic AI/ML framework workload simulation with PyTorch/TensorFlow/JAX profiles
 - **v0.6.2**: Tested for accurate DLIO parallel I/O with throughput calculations and AU metrics
 - **v0.6.1**: Enterprise license compliance (REUSE 3.3) with automated scanning
 - **v0.6.0**: Unified command interface and comprehensive plugin system
+
+## 🔄 Operation Log Replay (v0.6.5)
+
+### Basic Replay Execution
+Execute operation logs with timing control and path remapping:
+
+```bash
+# Replay with preserved timing (realistic simulation)
+./target/release/dl-driver replay --log-file operations.csv
+
+# Fast replay for development (immediate execution)
+./target/release/dl-driver replay --log-file operations.csv --fast
+
+# Replay with path remapping for cross-environment deployment
+./target/release/dl-driver replay --log-file operations.csv --remap-config paths.json
+
+# Concurrent replay with custom worker pool
+./target/release/dl-driver replay --log-file operations.csv --workers 8 --timeout 300
+```
+
+### Path Remapping Configuration
+Create a JSON file for environment-specific path translation:
+
+```json
+{
+  "/original/data/path": "/new/deployment/path",
+  "s3://source-bucket": "s3://target-bucket",
+  "/mnt/old": "/mnt/new"
+}
+```
+
+### Example Replay Output
+```bash
+🔄 Operation Log Replay Starting...
+📂 Loading operation log: operations.csv
+🗺️ Applied path remapping: 3 mappings loaded
+⚙️ Workers: 4, Timeout: 60s, Preserve timing: true
+
+📊 Replay Progress:
+✅ Operations processed: 1,247/1,247 (100%)
+📈 Throughput: 2.3 GiB/s
+⏱️ Total time: 45.2s
+🎯 Success rate: 99.8% (3 timeouts)
+
+🎉 Replay completed successfully!
+```
+
+### Key Replay Features
+- **⏱️ Timing Control**: Preserve inter-arrival delays or execute immediately with `--fast`
+- **🗺️ Path Remapping**: JSON-based path translation for cross-environment deployment
+- **🔄 Concurrent Execution**: Configurable worker pools with timeout support
+- **📊 Progress Tracking**: Real-time progress with operation counts and throughput metrics
+- **🛡️ Error Handling**: Robust timeout handling and detailed error reporting
 
 ## 🌟 Multi-Process Scaling Usage (v0.6.3)
 

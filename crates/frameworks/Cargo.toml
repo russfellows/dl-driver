@@ -1,13 +1,13 @@
 [package]
 name = "dl_driver_frameworks"
-version = "0.6.4"
+version = "0.6.5"
 edition = "2021"
 description = "Framework integrations for dl-driver (PyTorch, TensorFlow)"
 license = "MIT"
 
 [dependencies]
-dl_driver_core = { path = "../core", version = "0.6.4" }
-real_dlio_formats = { path = "../formats", version = "0.6.4" }
+dl_driver_core = { path = "../core", version = "0.6.5" }
+real_dlio_formats = { path = "../formats", version = "0.6.5" }
 s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
 anyhow = "1.0"
 tokio = { version = "1.0", features = ["full"] }

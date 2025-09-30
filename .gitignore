@@ -17,6 +17,9 @@ scancode-report.html
 scancode-report_files/
 scancode-results.json
 
+# Reference implementations (kept for future development)
+crates/replay-complex-reference/
+
 # Rust build artifacts
 /target
 
