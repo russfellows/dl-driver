@@ -1,5 +1,5 @@
 dataset:
-  data_folder: "file:///mnt/vast1/dlio_data_generated"
+  data_folder: "file:///tmp/dlio_data_generated"
   format: "npz"
   num_files_train: 10
   record_length_bytes: 1048576  # 1 MB per file

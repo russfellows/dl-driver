@@ -12,7 +12,7 @@ workflow:
   checkpoint: false
 
 dataset:
-  data_folder: file:///mnt/vast1/dlio_test_train_metric
+  data_folder: file:///tmp/dlio_test_train_metric
   format: npz
   num_files_train: 10
   num_samples_per_file: 1

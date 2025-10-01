@@ -1,6 +1,6 @@
 [package]
 name    = "dl-driver"          # ← the binary you will run
-version = "0.6.6"
+version = "0.6.7"
 edition = "2021"
 
 [dependencies]
@@ -12,11 +12,13 @@ glob        = "0.3"
 tokio       = { version = "1.0", features = ["full"] }
 tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-log = "0.2"  # Bridge to capture log crate messages (used by s3dlio)
 futures-util = "0.3"
 dotenvy     = "0.15"
-dl-driver-core          = { path = "../core", version = "0.6.6" }
-dl-driver-formats = { path = "../formats", version = "0.6.6" }
-dl-driver-storage = { path = "../storage", version = "0.6.6" }
+indicatif = "0.17"
+dl-driver-core          = { path = "../core", version = "0.6.7" }
+dl-driver-formats = { path = "../formats", version = "0.6.7" }
+dl-driver-storage = { path = "../storage", version = "0.6.7" }
 s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }   # ← pinned to v0.8.7
 
 [dev-dependencies]

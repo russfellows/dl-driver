@@ -38,5 +38,5 @@ checkpointing:
 
 profiling:
   profiler: pytorch_profiler  
-  profile_folder: /mnt/vast1/resnet_profiles
+  profile_folder: /tmp/resnet_profiles
   iostat: false

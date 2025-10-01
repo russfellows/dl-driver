@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, trace};
 
 use crate::dlio_compat::DlioConfig;
 use crate::metrics::Metrics;
@@ -70,7 +70,7 @@ impl WorkloadRunner {
         // Only measure the training phase - data generation is separate
         let training_start = Instant::now();
         
-        info!("Phase: Training (MEASURED for AU calculation)");
+        println!("📊 Phase: Training (MEASURED for AU calculation)");
         self.run_training().await?;
         
         let training_time = training_start.elapsed();
@@ -84,7 +84,7 @@ impl WorkloadRunner {
         debug!("Checking for metric configuration");
         if let Some(metric_config) = &self.config.metric {
             debug!("Metric config found: {:?}", metric_config);
-            println!("=== Accelerator Utilization (AU) Analysis ===");
+            println!("\n=== Accelerator Utilization (AU) Analysis ===");
             debug!("Train config: {:?}", self.config.train);
             debug!("Calling compute_au with training_time={:?}, accelerators={}", training_time, self.accelerators);
             if let Some(au_result) = (*self.metrics).compute_au(&self.config, training_time, self.accelerators) {
@@ -204,6 +204,8 @@ impl WorkloadRunner {
     /// Training phase using DLIO-style parallel I/O with background workers
     /// TRUE DLIO PARALLEL I/O MODEL - Background workers + instant batch retrieval
     async fn run_training(&mut self) -> Result<()> {
+        use indicatif::{ProgressBar, ProgressStyle};
+        
         let epochs = self.config.train.as_ref().and_then(|t| t.epochs).unwrap_or(1);
         let batch_size = self.config.reader.batch_size.unwrap_or(16);
         let read_threads = self.config.reader.read_threads.unwrap_or(8) as usize;
@@ -217,11 +219,27 @@ impl WorkloadRunner {
         let dataset = self.create_multi_backend_dataset(data_folder).await?;
         let total_files = dataset.len();
         
-        info!("📂 Dataset: {} files, ~{} batches per epoch", total_files, (total_files + batch_size - 1) / batch_size);
+        let estimated_batches_per_epoch = (total_files + batch_size - 1) / batch_size;
+        info!("📂 Dataset: {} files, ~{} batches per epoch", total_files, estimated_batches_per_epoch);
+        debug!("Dataset configuration: total_files={}, batch_size={}, estimated_batches={}", 
+               total_files, batch_size, estimated_batches_per_epoch);
+        trace!("Full dataset path: {}", data_folder);
 
         for epoch in 0..epochs {
             let epoch_start = Instant::now();
-            info!("🏃 Epoch {}/{} - Starting TRUE parallel I/O + compute", epoch + 1, epochs);
+            println!("🏃 Epoch {}/{} starting...", epoch + 1, epochs);
+            info!("Epoch {}/{} - Starting TRUE parallel I/O + compute", epoch + 1, epochs);
+            debug!("Epoch {} configuration: read_threads={}, prefetch_size={}", epoch + 1, read_threads, prefetch_size);
+            trace!("Epoch {} detailed timing started at {:?}", epoch + 1, epoch_start);
+
+            // Create progress bar for this epoch
+            let progress = ProgressBar::new(estimated_batches_per_epoch as u64);
+            progress.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} batches ({percent}%) {per_sec}")
+                    .expect("Failed to set progress bar template")
+                    .progress_chars("#>-")
+            );
 
             let mut batch_count = 0;
             let mut total_samples = 0;
@@ -319,7 +337,10 @@ impl WorkloadRunner {
                         total_samples += batch_size_actual;
                         total_bytes += batch_bytes;
 
-                        // Show parallel processing effectiveness
+                        // Update progress bar
+                        progress.inc(1);
+
+                        // Show parallel processing effectiveness (less frequently with progress bar)
                         if batch_count % 5 == 0 || batch_count < 5 {
                             let io_ms = io_time.as_secs_f64() * 1000.0;
                             let compute_ms = compute_time.as_secs_f64() * 1000.0;
@@ -330,6 +351,7 @@ impl WorkloadRunner {
                         }
                     }
                     Err(e) => {
+                        progress.finish_with_message("❌ Failed");
                         error!("Background I/O error: {}", e);
                         return Err(e.into());
                     }
@@ -341,6 +363,8 @@ impl WorkloadRunner {
                 warn!("Background I/O task error: {:?}", e);
             }
             
+            progress.finish();
+            
             // === EPOCH ANALYSIS ===
             let epoch_total_time = epoch_start.elapsed();
             self.metrics.record_epoch_time(epoch_total_time);
@@ -351,8 +375,15 @@ impl WorkloadRunner {
                 0.0
             };
 
+            // User-facing epoch summary
+            println!(
+                "✅ Epoch {}/{} complete: {} batches, {} samples, {:.1}MB in {:.2}s",
+                epoch + 1, epochs, batch_count, total_samples, 
+                total_bytes as f64 / 1_000_000.0, epoch_total_time.as_secs_f64()
+            );
+            
             info!(
-                "✅ Epoch {} COMPLETE | {} batches, {} samples, {:.1}MB in {:?}",
+                "Epoch {} COMPLETE | {} batches, {} samples, {:.1}MB in {:?}",
                 epoch + 1, batch_count, total_samples, total_bytes as f64 / 1_000_000.0, epoch_total_time
             );
             

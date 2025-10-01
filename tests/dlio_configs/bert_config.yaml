@@ -41,5 +41,5 @@ checkpointing:
 
 profiling:
   profiler: tensorflow_profiler
-  profile_folder: /mnt/vast1/bert_profiles
+  profile_folder: /tmp/bert_profiles
   iostat: true

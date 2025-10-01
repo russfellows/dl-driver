@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use dl_driver_core::{DlioConfig, SimpleReplayEngine, ReplayConfig};
 use dl_driver_core::plugins::PluginManager;
-use tracing::{info, error, debug, warn};
+use tracing::{info, error, debug, warn, trace};
 use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
-    /// Increase verbosity (-v: info, -vv: debug, -vvv: trace)
+    /// Increase verbosity (default: warnings only, -v: info, -vv: debug, -vvv: trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
@@ -208,19 +208,36 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logging with verbosity levels
-    let (dl_driver_level, s3dlio_level) = match args.verbose {
-        0 => ("warn", "warn"),    // Default: warnings only
-        1 => ("info", "warn"),    // -v: dl-driver info, s3dlio warnings
-        2 => ("debug", "info"),   // -vv: dl-driver debug, s3dlio info
-        _ => ("trace", "debug"),  // -vvv+: dl-driver trace, s3dlio debug
+    // Note: s3dlio uses the 'log' crate, so we need to bridge it to tracing
+    let dl_driver_level = match args.verbose {
+        0 => "warn",    // Default: warnings only, use println! for user messages
+        1 => "info",    // -v: info level with detailed progress
+        2 => "debug",   // -vv: debug level with internal details
+        _ => "trace",   // -vvv+: trace level with maximum verbosity
     };
     
+    // Map to log crate level for s3dlio (which uses the log crate)
+    let s3dlio_log_level = match args.verbose {
+        0 => "warn",
+        1 => "warn",    // Still suppress s3dlio at -v
+        2 => "info",    // Show s3dlio info at -vv
+        _ => "debug",   // Show s3dlio debug at -vvv
+    };
+    
+    // Initialize the log-to-tracing bridge so s3dlio's log messages appear in our tracing output
+    tracing_log::LogTracer::init().ok();
+    
+    // Set up logging for all dl-driver crates and s3dlio (via log bridge)
     tracing_subscriber::fmt()
-        .with_env_filter(format!("dl_driver_core={},dl_driver={},s3dlio={}", 
-                                dl_driver_level, dl_driver_level, s3dlio_level))
+        .with_env_filter(format!(
+            "dl_driver_core={},dl_driver_storage={},dl_driver_formats={},dl_driver_frameworks={},dl_driver={},s3dlio={}", 
+            dl_driver_level, dl_driver_level, dl_driver_level, dl_driver_level, dl_driver_level, s3dlio_log_level
+        ))
         .init();
 
     info!("dl-driver v{} starting", env!("CARGO_PKG_VERSION"));
+    debug!("Logging initialized at {} level (s3dlio at {} level)", dl_driver_level, s3dlio_log_level);
+    trace!("Trace logging is active (only visible with -vvv)");
 
     match args.command {
         Commands::Run {
@@ -425,6 +442,7 @@ async fn run_unified_dlio(
 
     // Phase 1: Data Generation (if enabled)
     if dlio_config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
+        println!("\n📁 Phase 1: Data Generation");
         info!("Phase 1: Generating data");
         run_data_generation(&dlio_config).await
             .context("Data generation failed")?;
@@ -432,6 +450,7 @@ async fn run_unified_dlio(
 
     // Phase 2: Training workload using WorkloadRunner for DLIO compliance measurement
     if dlio_config.workflow.as_ref().map_or(true, |w| w.train.unwrap_or(true)) {
+        println!("\n🚀 Phase 2: Training");
         info!("Phase 2: Training workload (MEASURED for AU calculation)");
         
         // Use WorkloadRunner ONLY for training phase measurement (data generation already done)
@@ -642,6 +661,7 @@ async fn run_unified_dlio(
 async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     use s3dlio::object_store::store_for_uri;
     use std::sync::Arc;
+    use indicatif::{ProgressBar, ProgressStyle};
     
     let start_time = std::time::Instant::now();
     info!("Starting PARALLEL data generation phase");
@@ -657,8 +677,9 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     let file_size_mb = (samples_per_file * record_size) as f64 / 1024.0 / 1024.0;
     let total_size_gb = (num_files as f64 * file_size_mb) / 1024.0;
 
+    println!("📦 Generating {} files ({:.2} GB total)...", num_files, total_size_gb);
     info!(
-        "🚀 Generating {} files with {} samples each ({:.1}MB per file, {:.2}GB total)",
+        "Generating {} files with {} samples each ({:.1}MB per file, {:.2}GB total)",
         num_files, samples_per_file, file_size_mb, total_size_gb
     );
 
@@ -680,6 +701,15 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     info!("⚡ AGGRESSIVE PARALLELISM: Using {} concurrent workers (available cores: {}, total files: {})", 
           concurrency, available_cores, num_files);
 
+    // Create progress bar for visual feedback
+    let progress = ProgressBar::new(num_files as u64);
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({percent}%) {msg}")
+            .expect("Failed to set progress bar template")
+            .progress_chars("#>-")
+    );
+
     // Create semaphore to limit concurrent operations
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let data_folder = config.dataset.data_folder.clone();
@@ -693,6 +723,7 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
         let semaphore_clone = Arc::clone(&semaphore);
         let data_folder_clone = data_folder.clone();
         let format_str = format.to_string();
+        let progress_clone = progress.clone();
 
         let handle = tokio::spawn(async move {
             // Acquire semaphore permit for rate limiting
@@ -713,8 +744,13 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
                 .with_context(|| format!("Failed to write file {}", full_path));
             let write_time = write_start.elapsed();
 
-            // Return result with timing info
-            result.map(|_| (file_idx, full_path, data_clone.len(), write_time))
+            // Update progress bar
+            progress_clone.inc(1);
+
+            // Return result with timing info, including file_idx for error reporting
+            result
+                .map(|_| (file_idx, full_path, data_clone.len(), write_time))
+                .with_context(|| format!("Failed to generate file index {}", file_idx))
         });
         
         handles.push(handle);
@@ -734,26 +770,42 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
                 fastest_write = fastest_write.min(write_time);
                 slowest_write = slowest_write.max(write_time);
                 
-                if completed % 50 == 0 || completed == num_files {
-                    let progress = (completed as f64 / num_files as f64) * 100.0;
-                    info!(
-                        "⏳ Progress: {}/{} files ({:.1}%) - Latest: file_{:06} ({:.1}MB in {:?})",
-                        completed, num_files, progress, file_idx,
-                        bytes as f64 / 1024.0 / 1024.0, write_time
-                    );
-                }
+                // Update progress bar message with throughput info
+                let throughput = bytes as f64 / 1024.0 / 1024.0 / write_time.as_secs_f64();
+                progress.set_message(format!("{:.1} MB/s", throughput));
+                
+                // Debug logging for troubleshooting - show which specific files complete
+                debug!(
+                    "File {:06} generated: {:.1}MB in {:?} ({:.1} MB/s)",
+                    file_idx,
+                    bytes as f64 / 1024.0 / 1024.0,
+                    write_time,
+                    throughput
+                );
             }
             Err(e) => {
+                progress.finish_with_message("❌ Failed");
                 error!("❌ File generation failed: {}", e);
                 return Err(e);
             }
         }
     }
 
+    progress.finish();
+
     let generation_time = start_time.elapsed();
     let throughput_mbps = (total_bytes as f64 / 1024.0 / 1024.0) / generation_time.as_secs_f64();
     
-    info!("✅ PARALLEL data generation completed!");
+    // User-facing summary
+    println!(
+        "✅ Generated {} files ({:.2} GB) in {:.2}s @ {:.1} MB/s",
+        completed, 
+        total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
+        generation_time.as_secs_f64(),
+        throughput_mbps
+    );
+    
+    info!("PARALLEL data generation completed!");
     info!("📊 Performance Summary:");
     info!("   • Files: {} generated", completed);
     info!("   • Data: {:.2} GB written", total_bytes as f64 / 1024.0 / 1024.0 / 1024.0);

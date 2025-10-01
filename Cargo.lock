@@ -1399,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1411,6 +1411,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-util",
  "glob",
+ "indicatif",
  "rand 0.9.2",
  "s3dlio",
  "serde_json",
@@ -1419,6 +1420,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "tracing-test",
  "walkdir",
@@ -1426,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-core"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1438,6 +1440,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-core",
  "futures-util",
+ "indicatif",
  "io-bench",
  "memmap2",
  "ndarray 0.15.6",
@@ -1462,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-formats"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1480,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-frameworks"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1493,11 +1496,12 @@ dependencies = [
  "serde_yaml",
  "tch",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
 name = "dl-driver-py-api"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1509,7 +1513,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-storage"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "tempfile",
 ]

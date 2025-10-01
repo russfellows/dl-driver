@@ -9,7 +9,7 @@ workflow:
   checkpoint: true
 
 dataset:
-  data_folder: "file:///mnt/vast1/dl_driver_checkpoint_test"
+  data_folder: "file:///tmp/dl_driver_checkpoint_test"
   format: "npz"
   num_files_train: 5
   num_samples_per_file: 10

@@ -3,7 +3,7 @@ model:
   framework: "tensorflow"
 
 dataset:
-  data_folder: "file:///mnt/vast1/dl_driver_large_threading_test"  # Use existing data
+  data_folder: "file:///tmp/dl_driver_large_threading_test"  # Use existing data
   format: "npz"
   num_files_train: 2000 
   record_length_bytes: 1048576
