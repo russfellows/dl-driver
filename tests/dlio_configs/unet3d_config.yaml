@@ -13,7 +13,7 @@ workflow:
   checkpoint: false
 
 dataset:
-  data_folder: file:///mnt/vast1/dlio_unet3d_data
+  data_folder: file:///tmp/dlio_unet3d_data
   format: npz
   num_files_train: 100
   record_length_bytes: 1048576

@@ -12,7 +12,7 @@ workflow:
   checkpoint: false
 
 dataset:
-  data_folder: file:///mnt/vast1/dlio_threading_test
+  data_folder: file:///tmp/dlio_threading_test
   format: npz
   num_files_train: 20
   record_length_bytes: 1048576

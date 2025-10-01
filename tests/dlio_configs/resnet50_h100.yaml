@@ -13,7 +13,7 @@ dataset:
  num_samples_per_file: 1251
  record_length_bytes: 114660
  record_length_bytes_resize: 150528
- data_folder: direct:///mnt/vast1/resnet50
+ data_folder: direct:///tmp/resnet50
  format: tfrecord
 
 train: 

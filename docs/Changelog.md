@@ -5,6 +5,52 @@ All notable changes to the dl-driver project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2025-09-30 ✨ **UX IMPROVEMENTS - LOGGING & PROGRESS INDICATORS**
+
+### **✨ User Experience Enhancements**
+
+#### **📊 Visual Progress Indicators** 🆕
+- ✅ **Progress Bars**: Added `indicatif` library for visual feedback during long operations
+  - Data generation phase shows real-time progress with file count and throughput
+  - Training epochs display batch progress with per-second metrics
+  - Clean, professional terminal output with spinner and progress percentage
+- ✅ **User-Facing Messages**: Strategic use of `println!` for phase indicators and summaries
+  - "📁 Phase 1: Data Generation" 
+  - "🚀 Phase 2: Training"
+  - Clean summaries with emoji indicators for better readability
+
+#### **🔍 Improved Logging System** 🆕
+- ✅ **Refined Verbosity Levels**:
+  - Default (no `-v`): Clean output with progress bars only, warnings logged
+  - `-v`: Info level with detailed progress information
+  - `-vv`: Debug level with internal system details
+  - `-vvv`: Trace level with maximum verbosity
+- ✅ **Cross-Crate Compatibility**: Added `tracing-log` bridge for s3dlio logging integration
+  - Captures logs from s3dlio (which uses `log` crate) into our `tracing` system
+  - Unified logging experience across all dependencies
+- ✅ **Debug/Trace Support**: Added comprehensive debug and trace logging throughout codebase
+  - Dataset configuration details at debug level
+  - Full path and timing information at trace level
+  - Better troubleshooting capabilities
+
+#### **🛠️ Configuration Updates**
+- ✅ **Path Standardization**: Updated 14 DLIO config files from `/mnt/vast1/*` to `/tmp/*`
+  - Ensures tests work on any system without special mount points
+  - Configs: minimal, threading_test, large_scale_threading_test, multi_rank_test, 
+    test_checkpoint, test_data_generation, test_train_metric, throughput_validation,
+    unet3d, resnet50_h100, bert, resnet, resnet_s3-h100
+
+### **🔧 Technical Improvements**
+- ✅ **Better Default Output**: Warn-level logging by default, user messages via println!
+- ✅ **Progress Bar Styling**: Custom templates with elapsed time, percentage, and throughput
+- ✅ **Epoch Summaries**: Clean, informative epoch completion messages with key metrics
+
+### **📦 Dependencies Added**
+- `indicatif = "0.17"` - Terminal progress bars and spinners
+- `tracing-log = "0.2"` - Bridge for log-to-tracing compatibility
+
+---
+
 ## [0.6.6] - 2025-01-19 🏗️ **NAMING CONSISTENCY & BASE URI INTEGRATION**
 
 ### **🏗️ Package Organization & Critical Bug Fixes**
