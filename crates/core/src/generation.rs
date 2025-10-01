@@ -8,7 +8,7 @@
 use crate::plan::RunPlan;
 use crate::metrics::Metrics;
 use anyhow::{Context, Result};
-use real_dlio_formats::{Format, FormatFactory};
+use dl_driver_formats::{Format, FormatFactory};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::{debug, info};

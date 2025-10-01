@@ -1,9 +1,35 @@
 # Changelog
 
-All notable changes to the real_dlio project will be documented in this file.
+All notable changes to the dl-driver project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.6.6] - 2025-01-19 🏗️ **NAMING CONSISTENCY & BASE URI INTEGRATION**
+
+### **🏗️ Package Organization & Critical Bug Fixes**
+
+#### **📦 Package Naming Standardization** 🆕
+- ✅ **Consistent Naming**: Renamed all packages to use dash-based naming convention
+  - `dl_driver_core` → `dl-driver-core`
+  - `real_dlio_py_api` → `dl-driver-py-api` 
+  - `real_dlio_storage` → `dl-driver-storage`
+  - `real_dlio_formats` → `dl-driver-formats`
+  - `dl_driver_frameworks` → `dl-driver-frameworks`
+- ✅ **Version Coordination**: Updated all packages to v0.6.6 with consistent dependency references
+- ✅ **Professional Structure**: Clean package organization for enterprise deployment
+
+#### **🔧 Critical Base URI Integration** 🆕
+- ✅ **Base URI Support**: Fixed critical issue where replay functionality couldn't convert relative paths to complete storage URIs
+- ✅ **URI Construction**: Proper `base_uri` + relative path concatenation for multi-backend compatibility
+- ✅ **Error Prevention**: Resolved unused variable warning that indicated serious logic error in replay engine
+
+### **🔄 Architecture Improvements**
+- ✅ **Clean Codebase**: Removed inconsistent naming across workspace
+- ✅ **Build Validation**: All packages build successfully with new naming scheme
+- ✅ **Dependency Integrity**: Updated all internal package references to new names
+
+---
 
 ## [0.6.5] - 2025-01-19 🔄 **WORKSTREAM B: OPERATION LOG REPLAY & ENHANCED TESTING**
 

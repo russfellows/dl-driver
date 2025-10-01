@@ -19,6 +19,8 @@ use crate::oplog_ingest::{OpLogReader, OpLogRec};
 pub struct ReplayConfig {
     /// Path to operation log file
     pub op_log_path: String,
+    /// Base URI for storage operations (e.g., file:///tmp/test, s3://bucket, direct:///mnt/data)
+    pub base_uri: String,
     /// Maximum concurrent operations (default: 10)
     pub concurrency: usize,
     /// Skip timing delays and run as fast as possible
@@ -35,6 +37,7 @@ impl Default for ReplayConfig {
     fn default() -> Self {
         Self {
             op_log_path: String::new(),
+            base_uri: String::new(),
             concurrency: 10,
             fast_mode: false,
             timeout_seconds: 30,
@@ -54,7 +57,7 @@ pub struct ReplayOperation {
 }
 
 impl ReplayOperation {
-    /// Convert OpLogRec to ReplayOperation with remapping
+    /// Convert OpLogRec to ReplayOperation with remapping and base URI
     pub fn from_op_log_rec(rec: &OpLogRec, config: &ReplayConfig, prev_timestamp_ns: Option<u64>) -> Self {
         // Calculate delay from previous operation
         let delay_ms = if config.fast_mode {
@@ -81,12 +84,35 @@ impl ReplayOperation {
             }
         }
 
+        // Construct complete URI from base_uri + relative path
+        let complete_path = Self::construct_complete_uri(&config.base_uri, &path);
+
         ReplayOperation {
             operation_type: rec.operation.clone(),
-            path,
+            path: complete_path,
             bytes: rec.bytes,
             delay_ms,
         }
+    }
+
+    /// Construct complete URI from base URI + relative path
+    fn construct_complete_uri(base_uri: &str, relative_path: &str) -> String {
+        // If path is already an absolute URI, return as-is
+        if relative_path.contains("://") {
+            return relative_path.to_string();
+        }
+        
+        // Remove leading slash from relative path to avoid double slashes
+        let clean_path = relative_path.strip_prefix('/').unwrap_or(relative_path);
+        
+        // Ensure base URI ends with slash for proper joining
+        let base = if base_uri.ends_with('/') {
+            base_uri.to_string()
+        } else {
+            format!("{}/", base_uri)
+        };
+        
+        format!("{}{}", base, clean_path)
     }
 }
 
@@ -334,6 +360,7 @@ mod tests {
 
         let config = ReplayConfig {
             op_log_path: log_path.to_str().unwrap().to_string(),
+            base_uri: "file:///tmp/test".to_string(),
             concurrency: 2,
             fast_mode: false,
             timeout_seconds: 30,

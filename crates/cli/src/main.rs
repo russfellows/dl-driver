@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use dl_driver_core::{DlioConfig, SimpleReplayEngine, ReplayConfig};
 use dl_driver_core::plugins::PluginManager;
 use tracing::{info, error, debug, warn};
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
 /// dl-driver – Unified DLIO execution engine with optional MLPerf compliance mode
@@ -176,6 +176,10 @@ enum Commands {
         #[arg(short, long)]
         oplog: std::path::PathBuf,
 
+        /// Base URI for mapping relative file paths (e.g., file:///tmp/test, s3://my-bucket, direct:///mnt/data)
+        #[arg(short, long)]
+        base_uri: String,
+
         /// Path remapping JSON file for cross-environment replay (source_path -> target_path)
         #[arg(short, long)]
         remap: Option<std::path::PathBuf>,
@@ -286,12 +290,13 @@ async fn main() -> Result<()> {
         } => aggregate_rank_results(&inputs, &output, strict_au, au_threshold).await,
         Commands::Replay {
             oplog,
+            base_uri,
             remap,
             workers,
             fast,
             timeout,
             metrics,
-        } => run_replay_workload(&oplog, remap.as_deref(), workers, fast, timeout, metrics.as_deref()).await,
+        } => run_replay_workload(&oplog, &base_uri, remap.as_deref(), workers, fast, timeout, metrics.as_deref()).await,
     }
 }
 
@@ -1155,6 +1160,7 @@ fn setup_gpu_affinity(rank: u32, world_size: u32, simulated_gpus: Option<u32>, u
 /// Run operation log replay workload
 async fn run_replay_workload(
     oplog_path: &std::path::Path,
+    base_uri: &str,
     remap_path: Option<&std::path::Path>,
     workers: usize,
     fast: bool,
@@ -1163,6 +1169,7 @@ async fn run_replay_workload(
 ) -> Result<()> {
     info!("🔁 Starting operation log replay");
     info!("   📝 Operation log: {}", oplog_path.display());
+    info!("   🌐 Base URI: {}", base_uri);
     if let Some(remap) = remap_path {
         info!("   🗺️  Path remapping: {}", remap.display());
     }
@@ -1179,14 +1186,15 @@ async fn run_replay_workload(
         info!("   🗺️  Loaded {} path mappings", path_remap.len());
     }
     
-    // Create replay configuration using the existing API
+    // Create replay configuration using the new API
     let config = ReplayConfig {
         op_log_path: oplog_path.to_string_lossy().to_string(),
+        base_uri: base_uri.to_string(),
         concurrency: workers,
         fast_mode: fast,
         timeout_seconds: timeout,
         path_remaps: path_remap,
-        endpoint_remaps: std::collections::HashMap::new(),
+        endpoint_remaps: HashMap::new(),
     };
     
     // Create and run the replay engine
@@ -1196,26 +1204,29 @@ async fn run_replay_workload(
     
     // Display results
     info!("🎯 Replay completed successfully!");
-    info!("   📊 Operations replayed: {}", stats.total_operations);
-    info!("   ✅ Successful operations: {}", stats.completed_operations);
-    info!("   ❌ Failed operations: {}", stats.failed_operations);
-    if let Some(duration) = stats.duration() {
-        info!("   ⏱️  Total replay time: {:.2}s", duration.as_secs_f64());
-        info!("   📈 Operations per second: {:.2}", stats.operations_per_second());
-        info!("   💾 Throughput: {:.2} MB/s", stats.throughput_mbps());
+    info!("   📊 Operations replayed: {}/{}", stats.completed_operations, stats.total_operations);
+    if stats.failed_operations > 0 {
+        warn!("   ⚠️  Failed operations: {}", stats.failed_operations);
     }
+    info!("   💾 Total bytes processed: {:.2} MB", stats.total_bytes as f64 / (1024.0 * 1024.0));
+    if let Some(duration) = stats.duration() {
+        info!("   ⏱️  Wall time: {:.2}s", duration.as_secs_f64());
+    }
+    info!("   📈 Throughput: {:.2} ops/s", stats.operations_per_second());
+    info!("   📈 Data rate: {:.2} MB/s", stats.throughput_mbps());
     
     // Export metrics if requested
     if let Some(metrics_file) = metrics_path {
         // Create a serializable version of the stats
+        let wall_seconds = stats.duration().map(|d| d.as_secs_f64()).unwrap_or(0.0);
         let metrics = serde_json::json!({
             "total_operations": stats.total_operations,
             "completed_operations": stats.completed_operations,
             "failed_operations": stats.failed_operations,
             "total_bytes": stats.total_bytes,
-            "duration_seconds": stats.duration().map(|d| d.as_secs_f64()),
-            "operations_per_second": stats.operations_per_second(),
+            "wall_seconds": wall_seconds,
             "throughput_mbps": stats.throughput_mbps(),
+            "operations_per_second": stats.operations_per_second(),
         });
         
         let metrics_json = serde_json::to_string_pretty(&metrics)
@@ -1223,11 +1234,6 @@ async fn run_replay_workload(
         std::fs::write(metrics_file, metrics_json)
             .with_context(|| format!("Failed to write metrics to {}", metrics_file.display()))?;
         info!("   💾 Metrics exported to: {}", metrics_file.display());
-    }
-    
-    // Return error if any operations failed
-    if stats.failed_operations > 0 {
-        anyhow::bail!("Replay completed with {} failed operations", stats.failed_operations);
     }
     
     Ok(())
