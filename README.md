@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.6.5-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.6.6-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-61%2F61%20passing-success.svg)](#testing--validation)
@@ -19,15 +19,16 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.6.5)
+## 🎯 Current Status (v0.6.6)
 
-**🔄 WORKSTREAM B**: Operation log replay engine with timing control and path remapping
-**🧪 ENHANCED TESTING**: 61/61 tests passing with robust MLPerf compatibility  
-**� REPLAY METRICS**: Comprehensive replay statistics and progress tracking
-**🚀 CLI INTEGRATION**: New `dl-driver replay` subcommand with full feature set
+**🏗️ NAMING CONSISTENCY**: Professional package naming with dash-based conventions
+**🔧 BASE URI INTEGRATION**: Critical replay bug fix for URI construction  
+**🧪 ENHANCED TESTING**: 61/61 tests passing with robust MLPerf compatibility
+**🔄 REPLAY READY**: Complete operation log replay with timing control and path remapping
 
-### Latest v0.6.5 Release - Workstream B: Operation Log Replay & Enhanced Testing 🌟
-- **🔄 Complete Replay Engine**: Full operation log replay with timing control and path remapping
+### Latest v0.6.6 Release - Naming Consistency & Base URI Integration 🏗️
+- **📦 Package Standardization**: Consistent dash-based naming across all workspace packages
+- **� Critical Base URI Fix**: Proper URI construction for replay functionality with relative paths
 - **⚡ Fast Mode**: `--fast` flag for immediate execution without delays for development workflows
 - **🗺️ Path Remapping**: JSON-based cross-environment path translation for deployment flexibility
 - **🔄 Concurrent Execution**: Configurable worker pools with timeout support for scalable operations

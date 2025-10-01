@@ -1,6 +1,6 @@
 [package]
-name = "dl_driver_core"
-version = "0.6.5"
+name = "dl-driver-core"
+version = "0.6.6"
 edition = "2021"
 
 [dependencies]
@@ -38,8 +38,11 @@ tempfile = "3.0"
 # s3dlio integration with updated Rust - pinned to v0.8.7
 s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
 
+# io-bench integration for replay functionality (formerly s3-bench)
+io-bench = { git = "https://github.com/russfellows/s3-bench.git" }
+
 # Local formats crate
-real_dlio_formats = { path = "../formats", version = "0.6.4" }
+dl-driver-formats = { path = "../formats", version = "0.6.6" }
 
 # Optional compression support for checkpoints
 zstd = "0.13"

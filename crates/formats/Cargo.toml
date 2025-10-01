@@ -1,6 +1,6 @@
 [package]
-name = "real_dlio_formats"
-version = "0.6.5"
+name = "dl-driver-formats"
+version = "0.6.6"
 edition = "2021"
 
 [dependencies]

@@ -39,7 +39,7 @@ pub use plan::RunPlan;
 pub use metrics::Metrics;
 pub use oplog_ingest::{OpLogRec, OpLogReader, Envelope, summarize_ops};
 pub use profiles::{Profile, ProfileConfig, get_profile, list_profiles};
-pub use replay::{SimpleReplayEngine, ReplayConfig, ReplayStats, ReplayOperation};
+pub use replay::{SimpleReplayEngine, ReplayConfig, ReplayStats};
 pub use runner::Runner;
 pub use validate::{ValidationConfig, ValidationResult, ValidationSummary, validate_against_reference, print_validation_results, validate_and_exit, create_validation_config};
 pub use workload::WorkloadRunner;
