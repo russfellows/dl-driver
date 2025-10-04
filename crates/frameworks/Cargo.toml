@@ -1,7 +1,7 @@
 [package]
 name = "dl-driver-frameworks"
-version = "0.6.7"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Framework integrations for dl-driver (PyTorch, TensorFlow)"
 license = "MIT"
 
@@ -10,10 +10,10 @@ tracing = "0.1"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "0a578c3" }
 
-dl-driver-core = { path = "../core", version = "0.6.7" }
-dl-driver-formats = { path = "../formats", version = "0.6.7" }
+dl-driver-core = { path = "../core", version = "0.7.0" }
+dl-driver-formats = { path = "../formats", version = "0.7.0" }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }

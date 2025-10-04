@@ -208,7 +208,10 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logging with verbosity levels
-    // Note: s3dlio uses the 'log' crate, so we need to bridge it to tracing
+    // Multi-level logging strategy:
+    // -v   (1): dl-driver=INFO,  s3dlio=INFO   (detailed progress)
+    // -vv  (2): dl-driver=DEBUG, s3dlio=INFO   (internal details, s3dlio at info)
+    // -vvv (3): dl-driver=TRACE, s3dlio=DEBUG  (maximum verbosity)
     let dl_driver_level = match args.verbose {
         0 => "warn",    // Default: warnings only, use println! for user messages
         1 => "info",    // -v: info level with detailed progress
@@ -216,24 +219,24 @@ async fn main() -> Result<()> {
         _ => "trace",   // -vvv+: trace level with maximum verbosity
     };
     
-    // Map to log crate level for s3dlio (which uses the log crate)
+    // Map to log crate level for s3dlio (updated to match new s3dlio logging)
     let s3dlio_log_level = match args.verbose {
-        0 => "warn",
-        1 => "warn",    // Still suppress s3dlio at -v
-        2 => "info",    // Show s3dlio info at -vv
-        _ => "debug",   // Show s3dlio debug at -vvv
+        0 => "warn",    // Default: warnings only
+        1 => "info",    // -v: s3dlio info messages (NEW - show s3dlio progress)
+        2 => "info",    // -vv: s3dlio still at info (dl-driver at debug)
+        _ => "debug",   // -vvv: s3dlio debug messages (maximum detail)
     };
     
     // Initialize the log-to-tracing bridge so s3dlio's log messages appear in our tracing output
-    tracing_log::LogTracer::init().ok();
+    let _ = tracing_log::LogTracer::init();
     
     // Set up logging for all dl-driver crates and s3dlio (via log bridge)
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(format!(
             "dl_driver_core={},dl_driver_storage={},dl_driver_formats={},dl_driver_frameworks={},dl_driver={},s3dlio={}", 
             dl_driver_level, dl_driver_level, dl_driver_level, dl_driver_level, dl_driver_level, s3dlio_log_level
         ))
-        .init();
+        .try_init();
 
     info!("dl-driver v{} starting", env!("CARGO_PKG_VERSION"));
     debug!("Logging initialized at {} level (s3dlio at {} level)", dl_driver_level, s3dlio_log_level);
