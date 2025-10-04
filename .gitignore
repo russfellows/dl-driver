@@ -43,3 +43,6 @@ __pycache__/
 
 # Logs
 *.log
+test-env
+tests/replay_tests/oplogs/*.tsv
+tests/replay_tests/oplogs/*.zst

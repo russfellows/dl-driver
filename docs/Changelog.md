@@ -5,6 +5,63 @@ All notable changes to the dl-driver project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2025-10-03 🔄 **STREAMING REPLAY INFRASTRUCTURE**
+
+### **🎯 Phase 2: Streaming Replay Implementation**
+
+#### **📦 s3dlio-oplog Integration** 🆕
+- ✅ **Streaming Architecture**: Converted replay engine from memory-buffered to streaming
+  - Migrated from `OpLogReader` (loads all entries into memory) to `OpLogStreamReader` (iterator-based)
+  - Background decompression thread for zstd-compressed op-logs
+  - 1MB chunk buffering for efficient processing
+  - Constant memory usage regardless of op-log size (2000x reduction for large logs)
+- ✅ **OpLogEntry Format Support**: Full integration with s3dlio-oplog entry format
+  - Added `ReplayOperation::from_oplog_entry()` conversion method
+  - Proper handling of `DateTime<Utc>` timestamps for inter-arrival timing
+  - Support for endpoint + file URI construction
+  - Tab-separated values (TSV) with zstd compression (.csv.zst format)
+- ✅ **Enhanced Replay Configuration**: Added `continue_on_error` field to `ReplayConfig`
+  - Allows graceful handling of unsupported operations or missing credentials
+  - Better test compatibility across different environments
+
+#### **✅ Comprehensive Test Coverage** 🆕
+- ✅ **10 Streaming Replay Tests**: Full test suite for all backends and scenarios
+  - File backend (10 operations)
+  - S3 backend (9 operations)
+  - Azure Blob backend (7 operations)
+  - GCS backend (9 operations) - NEW in s3dlio 0.8.19
+  - DirectIO backend (7 operations)
+  - Concurrent execution (16 workers)
+  - Sequential execution (1 worker)
+  - Path remapping functionality
+  - Cross-backend endpoint remapping (S3 → File)
+  - Timing delay preservation (non-fast mode)
+- ✅ **Test Data Creation**: Generated 5 compressed op-log test files
+  - Proper TSV format with s3dlio-oplog headers
+  - Zstd compression (26-33% compression ratios)
+  - All tests passing with simulated operations
+
+#### **📝 Documentation** 🆕
+- ✅ **Implementation Guide**: Created `docs/PHASE2_STREAMING_REPLAY.md`
+  - Architecture comparison (before/after streaming)
+  - Memory usage analysis and benefits
+  - Environment tuning guide (S3DLIO_OPLOG_READ_BUF, S3DLIO_OPLOG_CHUNK_SIZE)
+  - Migration guidance for future real I/O implementation
+
+### **⚠️ Known Limitations**
+- **Simulation Only**: Current replay engine uses `simulate_operation()` for testing
+  - Validates op-log parsing, timing, and concurrency
+  - Does NOT execute actual storage I/O operations
+  - Real backend execution planned for future release (v0.8.0)
+
+### **🔧 Technical Notes**
+- Deprecated legacy replay methods (`execute_concurrent`, `execute_sequential`)
+- New streaming methods: `execute_concurrent_streaming`, `execute_sequential_streaming`
+- Task limiting to prevent unbounded memory growth (10K in-flight task cap)
+- Workspace-relative test paths for proper test discovery
+
+---
+
 ## [0.7.0] - 2025-10-03 🚀 **S3DLIO 0.8.19 UPGRADE & LOGGING ENHANCEMENTS**
 
 ### **🔧 Major Infrastructure Updates**

@@ -1250,6 +1250,7 @@ async fn run_replay_workload(
         timeout_seconds: timeout,
         path_remaps: path_remap,
         endpoint_remaps: HashMap::new(),
+        continue_on_error: true,  // Continue replay even if some operations fail
     };
     
     // Create and run the replay engine
