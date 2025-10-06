@@ -1,14 +1,30 @@
-//! Streaming operation log replay functionality
+//! Streaming operation log replay infrastructure (STUB - NOT OPERATIONAL)
 //!
-//! This module provides efficient replay of operation logs with:
-//! - **Streaming reads**: Constant memory usage via s3dlio-oplog iterator
-//! - **Background decompression**: Parallel zstd decompression in separate thread
-//! - **Timing control**: Maintain inter-arrival delays by default
-//! - **Path remapping**: Cross-environment URI translation
-//! - **Concurrent execution**: Configurable I/O parallelism
+//! ⚠️ **IMPORTANT**: This module provides the **infrastructure** for operation log replay
+//! but does NOT execute real storage I/O operations. All operations are currently **simulated**.
 //!
+//! ## Current Status (v0.7.1)
+//! - ✅ Op-log parsing and streaming (via s3dlio-oplog)
+//! - ✅ Timing and concurrency control
+//! - ✅ URI remapping and transformation
+//! - ❌ **Real I/O execution** (uses `simulate_operation()` only)
+//!
+//! ## For Real I/O Replay
+//! Use **sai3-bench** (https://github.com/russfellows/sai3-bench) which provides:
+//! - Full real I/O execution via s3dlio ObjectStore
+//! - Advanced remapping (1:1, 1→N, N→1, regex)
+//! - Microsecond timing precision
+//! - Production-grade metrics with HDR histograms
+//! - Distributed load generation
+//!
+//! ## Future Integration
+//! This module provides stubs for potential future integration with sai3-bench's
+//! replay engine. See `docs/REPLAY_ANALYSIS.md` for the full rationale.
+//!
+//! ## Current Functionality
 //! The streaming architecture processes large op-logs (multi-GB) with constant memory
 //! by leveraging s3dlio-oplog's 1MB chunk buffering and background decompression.
+//! All operations are simulated with minimal delays for testing the infrastructure.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -19,9 +35,8 @@ use tracing::{debug, info, warn};
 // Import s3dlio-oplog for streaming reads
 use s3dlio_oplog::{OpLogStreamReader, OpLogEntry};
 
-// Keep legacy OpLogReader for backward compatibility (deprecated)
-#[allow(deprecated)]
-use crate::oplog_ingest::{OpLogReader, OpLogRec};
+// Legacy OpLogRec still used for ReplayOperation conversion
+use crate::oplog_ingest::OpLogRec;
 
 /// Streaming replay configuration
 #[derive(Debug, Clone)]
@@ -279,54 +294,6 @@ impl SimpleReplayEngine {
         Ok(self.stats.clone())
     }
 
-    /// Legacy replay using OpLogReader (loads entire file into memory)
-    /// 
-    /// DEPRECATED: Use run_replay() instead which uses streaming.
-    /// This method is kept for backward compatibility only.
-    #[deprecated(since = "0.7.0", note = "Use run_replay() with streaming instead")]
-    #[allow(dead_code)]
-    pub async fn run_replay_legacy(&mut self) -> Result<ReplayStats> {
-        info!("Starting legacy (non-streaming) replay of {}", self.config.op_log_path);
-        self.stats.start_time = Some(Instant::now());
-
-        // Parse the operation log using existing functionality
-        let reader = OpLogReader::from_file(&self.config.op_log_path)
-            .context("Failed to parse operation log")?;
-        let parsed_log = reader.records();
-
-        self.stats.total_operations = parsed_log.len();
-        info!("Parsed {} operations from log (loaded entire file into memory)", self.stats.total_operations);
-
-        // Convert to replay operations with timing and remapping
-        let mut replay_ops = Vec::new();
-        let mut prev_timestamp_ns = None;
-
-        for rec in parsed_log {
-            let replay_op = ReplayOperation::from_op_log_rec(rec, &self.config, prev_timestamp_ns);
-            replay_ops.push(replay_op);
-            prev_timestamp_ns = rec.t_start_ns;
-        }
-
-        // Execute operations with concurrency
-        if self.config.concurrency > 1 {
-            self.execute_concurrent(replay_ops).await?;
-        } else {
-            self.execute_sequential(replay_ops).await?;
-        }
-
-        self.stats.end_time = Some(Instant::now());
-
-        info!(
-            "Replay completed: {}/{} operations, {:.2} ops/sec, {:.2} MB/s",
-            self.stats.completed_operations,
-            self.stats.total_operations,
-            self.stats.operations_per_second(),
-            self.stats.throughput_mbps()
-        );
-
-        Ok(self.stats.clone())
-    }
-
     /// Execute operations sequentially from streaming iterator (constant memory)
     async fn execute_sequential_streaming(
         &mut self,
@@ -475,93 +442,6 @@ impl SimpleReplayEngine {
         Ok(())
     }
 
-    /// Legacy sequential execution (loads operations into memory)
-    #[deprecated(since = "0.7.0", note = "Use execute_sequential_streaming() instead")]
-    #[allow(dead_code)]
-    async fn execute_sequential(&mut self, operations: Vec<ReplayOperation>) -> Result<()> {
-        for op in operations {
-            // Apply timing delay
-            if let Some(delay_ms) = op.delay_ms {
-                if delay_ms > 0 {
-                    sleep(Duration::from_millis(delay_ms)).await;
-                }
-            }
-
-            // Execute the operation
-            self.execute_operation(&op).await?;
-        }
-        Ok(())
-    }
-
-    /// Legacy concurrent execution (loads operations into memory)
-    #[deprecated(since = "0.7.0", note = "Use execute_concurrent_streaming() instead")]
-    #[allow(dead_code)]
-    async fn execute_concurrent(&mut self, operations: Vec<ReplayOperation>) -> Result<()> {
-        use tokio::sync::Semaphore;
-        use std::sync::Arc;
-
-        let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
-        let stats = Arc::new(tokio::sync::Mutex::new(ReplayStats::default()));
-        let timeout_duration = Duration::from_secs(self.config.timeout_seconds);
-
-        let mut tasks = Vec::new();
-
-        for op in operations {
-            let sem = semaphore.clone();
-            let stats_ref = stats.clone();
-            
-            let task = tokio::spawn(async move {
-                // Apply timing delay before acquiring semaphore
-                if let Some(delay_ms) = op.delay_ms {
-                    if delay_ms > 0 {
-                        sleep(Duration::from_millis(delay_ms)).await;
-                    }
-                }
-
-                // Acquire concurrency permit
-                let _permit = sem.acquire().await.unwrap();
-
-                // Execute operation with timeout
-                let result = tokio::time::timeout(timeout_duration, Self::simulate_operation(&op)).await;
-                
-                // Update stats
-                {
-                    let mut stats_guard = stats_ref.lock().await;
-                    match result {
-                        Ok(Ok(())) => {
-                            stats_guard.completed_operations += 1;
-                            stats_guard.total_bytes += op.bytes.unwrap_or(0);
-                        }
-                        Ok(Err(_)) | Err(_) => {
-                            stats_guard.failed_operations += 1;
-                        }
-                    }
-                }
-
-                // Convert timeout error to anyhow error
-                match result {
-                    Ok(r) => r,
-                    Err(_) => anyhow::bail!("Operation timed out"),
-                }
-            });
-
-            tasks.push(task);
-        }
-
-        // Wait for all tasks to complete
-        for task in tasks {
-            let _ = task.await?;
-        }
-
-        // Copy final stats back to self
-        let final_stats = stats.lock().await;
-        self.stats.completed_operations = final_stats.completed_operations;
-        self.stats.failed_operations = final_stats.failed_operations;
-        self.stats.total_bytes = final_stats.total_bytes;
-
-        Ok(())
-    }
-
     async fn execute_operation(&mut self, op: &ReplayOperation) -> Result<()> {
         // For now, simulate the operation with timeout support
         // In a full implementation, this would use s3dlio to execute the actual operation
@@ -586,10 +466,22 @@ impl SimpleReplayEngine {
     }
 
     async fn simulate_operation(op: &ReplayOperation) -> Result<()> {
-        // Simulate work with a small delay
+        // ⚠️ STUB FUNCTION - NOT OPERATIONAL
+        // This is a placeholder for potential future integration with sai3-bench's real I/O engine.
+        // Currently only simulates operation timing with a minimal delay.
+        //
+        // For real I/O replay, use sai3-bench (https://github.com/russfellows/sai3-bench)
+        // which executes actual ObjectStore operations via s3dlio.
+        //
+        // A full implementation would:
+        // 1. Construct appropriate ObjectStore from op.path URI scheme
+        // 2. Call store.get(uri), store.put(uri, data), etc. based on op.operation_type
+        // 3. Handle errors and retries per config
+        // 4. Measure actual I/O latency
+        
         sleep(Duration::from_millis(1)).await;
         
-        debug!("Executed {} on {} ({} bytes)", 
+        debug!("SIMULATED {} on {} ({} bytes)", 
                op.operation_type, 
                op.path, 
                op.bytes.unwrap_or(0));

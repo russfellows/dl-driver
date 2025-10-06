@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.6.6-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.7.2-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-61%2F61%20passing-success.svg)](#testing--validation)
@@ -19,20 +19,25 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.6.6)
+## 🎯 Current Status (v0.7.2)
 
-**🏗️ NAMING CONSISTENCY**: Professional package naming with dash-based conventions
-**🔧 BASE URI INTEGRATION**: Critical replay bug fix for URI construction  
-**🧪 ENHANCED TESTING**: 61/61 tests passing with robust MLPerf compatibility
-**🔄 REPLAY READY**: Complete operation log replay with timing control and path remapping
+**📝 DOCUMENTATION CLARITY**: Clear separation of ML/AI simulation vs storage I/O replay
+**🧹 CODE CLEANUP**: Removed non-operational replay tests, clarified stub functions
+**📦 S3DLIO 0.8.20**: Latest s3dlio release with tagged dependencies
+**🔄 INFRASTRUCTURE ONLY**: Streaming replay architecture for future integration
 
-### Latest v0.6.6 Release - Naming Consistency & Base URI Integration 🏗️
-- **📦 Package Standardization**: Consistent dash-based naming across all workspace packages
-- **� Critical Base URI Fix**: Proper URI construction for replay functionality with relative paths
-- **⚡ Fast Mode**: `--fast` flag for immediate execution without delays for development workflows
-- **🗺️ Path Remapping**: JSON-based cross-environment path translation for deployment flexibility
-- **🔄 Concurrent Execution**: Configurable worker pools with timeout support for scalable operations
-- **🧪 Enhanced Test Suite**: All 61 tests passing with robust MLPerf compatibility and fallback handling
+### Latest v0.7.2 Release - Documentation & Code Clarity 📝
+- **� Replay Clarification**: Updated all documentation to clarify replay is infrastructure/simulation only
+- **🔗 sai3-bench Reference**: Added clear guidance to use sai3-bench for real I/O replay needs
+- **🧹 Code Cleanup**: Removed streaming_replay_tests.rs (simulation-only tests)
+- **� Stub Documentation**: Marked simulate_operation() and related functions as stubs for future integration
+- **📦 s3dlio 0.8.20**: Upgraded to latest tagged release (from 0.8.19)
+- **� Analysis Document**: Created comprehensive REPLAY_ANALYSIS.md comparing dl-driver vs sai3-bench
+
+### Previous Releases
+- **v0.7.1**: Streaming replay infrastructure with s3dlio-oplog integration (simulation only)
+- **v0.6.6**: Naming consistency and base URI integration for replay functionality
+- **v0.6.4**: Realistic AI/ML framework workload simulation with PyTorch/TensorFlow/JAX profiles
 - **� Replay Analytics**: Comprehensive metrics including timing accuracy and throughput analysis
 
 ### Previous Releases
@@ -41,23 +46,24 @@
 - **v0.6.1**: Enterprise license compliance (REUSE 3.3) with automated scanning
 - **v0.6.0**: Unified command interface and comprehensive plugin system
 
-## 🔄 Operation Log Replay (v0.6.5)
+## 🔄 Operation Log Replay
 
-### Basic Replay Execution
-Execute operation logs with timing control and path remapping:
+> ⚠️ **Note**: dl-driver's replay functionality is **infrastructure only** and uses simulated operations.
+> For **real I/O replay** with actual storage operations, use **[sai3-bench](https://github.com/russfellows/sai3-bench)**
+> which provides production-grade replay with:
+> - Real ObjectStore I/O execution via s3dlio
+> - Advanced remapping (1:1, 1→N, N→1, regex patterns)
+> - Microsecond timing precision with HDR histograms
+> - Distributed load generation with gRPC coordination
+>
+> See `docs/REPLAY_ANALYSIS.md` for detailed comparison and use case guidance.
+
+### Simulated Replay (Infrastructure Testing)
+dl-driver provides operation log parsing and streaming infrastructure for testing purposes:
 
 ```bash
-# Replay with preserved timing (realistic simulation)
-./target/release/dl-driver replay --log-file operations.csv
-
-# Fast replay for development (immediate execution)
+# Simulated replay (no real I/O - for testing infrastructure only)
 ./target/release/dl-driver replay --log-file operations.csv --fast
-
-# Replay with path remapping for cross-environment deployment
-./target/release/dl-driver replay --log-file operations.csv --remap-config paths.json
-
-# Concurrent replay with custom worker pool
-./target/release/dl-driver replay --log-file operations.csv --workers 8 --timeout 300
 ```
 
 ### Path Remapping Configuration
@@ -87,12 +93,13 @@ Create a JSON file for environment-specific path translation:
 🎉 Replay completed successfully!
 ```
 
-### Key Replay Features
-- **⏱️ Timing Control**: Preserve inter-arrival delays or execute immediately with `--fast`
-- **🗺️ Path Remapping**: JSON-based path translation for cross-environment deployment
-- **🔄 Concurrent Execution**: Configurable worker pools with timeout support
-- **📊 Progress Tracking**: Real-time progress with operation counts and throughput metrics
-- **🛡️ Error Handling**: Robust timeout handling and detailed error reporting
+### Infrastructure Features (Simulation Only)
+- **⏱️ Timing Control**: Parse and validate inter-arrival timing from op-logs
+- **🗺️ Path Remapping**: JSON-based path translation validation
+- **🔄 Streaming Architecture**: Constant-memory op-log processing via s3dlio-oplog
+- **📊 Progress Tracking**: Operation counting and timing metrics (simulated)
+
+**For actual storage I/O replay**, use [sai3-bench](https://github.com/russfellows/sai3-bench) instead.
 
 ## 🌟 Multi-Process Scaling Usage (v0.6.3)
 
