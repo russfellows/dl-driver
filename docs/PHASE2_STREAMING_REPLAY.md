@@ -1,17 +1,33 @@
-# Phase 2: Streaming Replay with s3dlio-oplog Integration
+# Phase 2: Streaming Replay Infrastructure (COMPLETED - SIMULATION ONLY)
+
+> ⚠️ **IMPORTANT NOTE**: This infrastructure is **NOT OPERATIONAL** for real I/O execution.
+> All replay operations are currently **simulated** via `simulate_operation()` which only adds
+> minimal delays without executing actual storage operations.
+>
+> **For real I/O replay**, use **sai3-bench** (https://github.com/russfellows/sai3-bench)
+> which provides production-grade replay with actual ObjectStore operations, advanced remapping,
+> microsecond timing precision, and comprehensive metrics.
+>
+> This module serves as a **stub infrastructure** for potential future integration with
+> sai3-bench's replay engine. See `docs/REPLAY_ANALYSIS.md` for full rationale.
 
 **Date:** October 3, 2025  
-**Status:** Planning  
-**Goal:** Leverage s3dlio-oplog's streaming capabilities for constant-memory replay
+**Status:** Completed (Infrastructure Only)  
+**Goal:** Streaming architecture for operation log processing (foundation for future real I/O)
 
 ## 🎯 Overview
 
-Current `SimpleReplayEngine` loads the **entire operation log into memory** before replaying, which is inefficient for large files (multi-GB op-logs). We need to migrate to s3dlio-oplog's `OpLogStreamReader` which provides:
+This document describes the streaming replay **infrastructure** implemented in v0.7.1.
+The implementation successfully provides:
 
-1. **Streaming reads** - Iterator-based, constant memory usage
+1. **Streaming reads** - Iterator-based, constant memory usage via s3dlio-oplog
 2. **Background decompression** - Separate thread for zstd decompression
 3. **1MB chunk buffering** - Efficient I/O with configurable chunks
 4. **Multi-format support** - JSONL and TSV with automatic detection
+5. **Timing control** - Maintain inter-arrival delays or fast mode
+6. **URI remapping** - Cross-environment path translation
+
+However, **all operations are simulated** - no actual I/O is executed.
 
 ## 🔍 Current Problems
 

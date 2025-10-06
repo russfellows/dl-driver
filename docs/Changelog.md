@@ -5,7 +5,101 @@ All notable changes to the dl-driver project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+---
+
+## [0.7.2] - 2025-10-05 � **DOCUMENTATION & CODE CLARITY**
+
+### **🎯 Replay Infrastructure Clarification**
+
+#### **📝 Documentation Updates** 🆕
+- ✅ **Module Documentation**: Updated `crates/core/src/replay.rs` with prominent warnings
+  - Clear notice: replay is infrastructure/simulation only, NOT operational for real I/O
+  - Marked `simulate_operation()` as stub for potential future sai3-bench integration
+  - Added detailed comments explaining what a full implementation would require
+  - Removed misleading claims about real I/O execution
+- ✅ **Phase 2 Documentation**: Updated `docs/PHASE2_STREAMING_REPLAY.md`
+  - Changed status from "Planning" to "Completed (Infrastructure Only)"
+  - Added prominent warning about simulation-only functionality
+  - Clarified this is foundation for potential future integration
+- ✅ **Comprehensive Analysis**: Created `docs/REPLAY_ANALYSIS.md`
+  - Full comparison of dl-driver vs sai3-bench capabilities (2,700+ lines)
+  - Decision tree for choosing appropriate tool
+  - Detailed feature comparison and use case recommendations
+  - Rationale for keeping projects separate
+- ✅ **README Updates**: Clarified replay section with sai3-bench reference
+  - Prominent warning that dl-driver replay is simulation only
+  - Clear guidance to use sai3-bench for real I/O replay
+  - Listed sai3-bench's production-grade features
+- ✅ **Documentation Cleanup**: Removed obsolete planning documents
+  - Deleted `REPLAY_ARCHITECTURE_PROPOSAL.md` (510 lines) - proposal we decided against
+  - Deleted `s3bench-integration.md` (142 lines) - integration never implemented
+  - Deleted `replay-architecture.md` (110 lines) - feature completed in v0.6.5
+  - Archived `M4_FRAMEWORK_PROFILES_PLAN.md` - completed milestone
+  - Created `docs/archive/planning/` for historical documents
+  - Net reduction: -762 lines of confusing/obsolete documentation
+
+#### **🧹 Code Cleanup** 🆕
+- ✅ **Removed Non-Operational Tests**: Deleted `crates/cli/tests/streaming_replay_tests.rs`
+  - 387 lines of simulation-only tests removed
+  - Tests validated infrastructure but not real functionality
+  - Kept `real_backend_integration_tests.rs` for actual backend testing
+- ✅ **Removed Deprecated Legacy Code**: Cleaned up `crates/core/src/replay.rs`
+  - Removed 108 lines of deprecated legacy methods (run_replay_legacy, execute_sequential, execute_concurrent)
+  - Eliminated unused OpLogReader import
+  - No build warnings - clean compilation
+  - Kept only streaming infrastructure and stub functions
+- ✅ **Stub Function Documentation**: Clearly marked all replay stubs
+  - `simulate_operation()` now has extensive documentation
+  - Explains purpose: placeholder for potential sai3-bench integration
+  - Notes what a real implementation would do
+
+#### **🔗 Separation of Concerns** 🆕
+- ✅ **Clear Project Boundaries**: Documented tool responsibilities
+  - **dl-driver**: ML/AI workload simulation, DLIO compatibility, data generation
+  - **sai3-bench**: Storage I/O benchmarking, real I/O replay, performance analysis
+  - Shared foundation: s3dlio ObjectStore, s3dlio-oplog parsing
+- ✅ **User Guidance**: Decision tree for tool selection
+  - Need real I/O replay? → Use sai3-bench
+  - Need ML/AI workload simulation? → Use dl-driver
+  - Need DLIO compatibility? → Use dl-driver
+
+### **📦 Dependencies**
+
+#### **s3dlio Upgrade to v0.8.20** 🆕
+- ✅ **Version Update**: Upgraded from v0.8.19 to v0.8.20
+  - Changed from git rev to tagged release (tag = "v0.8.20")
+  - Cleaner dependency specification
+  - Updated across all 4 crates (core, cli, formats, frameworks)
+- ✅ **Validation**: All tests passing with new version
+  - Clean build with no warnings
+  - All 61+ tests passing
+  - No breaking changes from 0.8.19
+
+### **📊 Impact Summary**
+- **Code Removed**: -495 lines (387 test file + 108 deprecated methods)
+- **Documentation Removed**: -762 lines (3 obsolete replay docs)
+- **Documentation Added**: +229 lines (REPLAY_ANALYSIS.md)
+- **Net Change**: -1,028 lines of unnecessary/confusing content
+- **Build Status**: Clean compilation with zero warnings
+- **Clarity**: Significantly improved - clear separation of concerns
+- **User Experience**: Authoritative guidance via REPLAY_ANALYSIS.md
+- **Maintenance**: Reduced complexity by removing deprecated code and obsolete planning docs
+
+### **🔧 Technical Notes**
+- All replay infrastructure remains in place as documented stubs
+- Future integration with sai3-bench is still possible
+- No functional changes to operational code
+- Focus on documentation and code clarity only
+
+---
+
 ## [0.7.1] - 2025-10-03 🔄 **STREAMING REPLAY INFRASTRUCTURE**
+
+> ⚠️ **IMPORTANT**: This release implements streaming replay **infrastructure only**.
+> All operations are **simulated** - no real I/O is executed. For real I/O replay,
+> use **sai3-bench** (https://github.com/russfellows/sai3-bench).
 
 ### **🎯 Phase 2: Streaming Replay Implementation**
 
