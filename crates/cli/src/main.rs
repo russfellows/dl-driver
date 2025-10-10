@@ -208,8 +208,8 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logging with verbosity levels
-    // Multi-level logging strategy:
-    // -v   (1): dl-driver=INFO,  s3dlio=INFO   (detailed progress)
+    // Multi-level logging strategy (s3dlio always one level less than dl-driver):
+    // -v   (1): dl-driver=INFO,  s3dlio=WARN   (detailed progress)
     // -vv  (2): dl-driver=DEBUG, s3dlio=INFO   (internal details, s3dlio at info)
     // -vvv (3): dl-driver=TRACE, s3dlio=DEBUG  (maximum verbosity)
     let dl_driver_level = match args.verbose {
@@ -219,12 +219,12 @@ async fn main() -> Result<()> {
         _ => "trace",   // -vvv+: trace level with maximum verbosity
     };
     
-    // Map to log crate level for s3dlio (updated to match new s3dlio logging)
+    // Map to log crate level for s3dlio (always one level less than dl-driver)
     let s3dlio_log_level = match args.verbose {
         0 => "warn",    // Default: warnings only
-        1 => "info",    // -v: s3dlio info messages (NEW - show s3dlio progress)
-        2 => "info",    // -vv: s3dlio still at info (dl-driver at debug)
-        _ => "debug",   // -vvv: s3dlio debug messages (maximum detail)
+        1 => "warn",    // -v: s3dlio at warn (dl-driver at info)
+        2 => "info",    // -vv: s3dlio at info (dl-driver at debug)
+        _ => "debug",   // -vvv: s3dlio at debug (dl-driver at trace)
     };
     
     // Initialize the log-to-tracing bridge so s3dlio's log messages appear in our tracing output

@@ -37,10 +37,10 @@ async fn test_minimal_dlio_config_parsing() -> Result<()> {
     assert!(dlio_config.should_train());
     assert!(!dlio_config.should_checkpoint());
 
-    // Validate dataset configuration (updated to use proper large data directory)
+    // Validate dataset configuration (updated to match actual config file)
     assert_eq!(
         dlio_config.dataset.data_folder,
-        "file:///mnt/vast1/dlio_minimal_data"
+        "file:///tmp/dlio_minimal_data"
     );
     assert_eq!(dlio_config.dataset.format.as_deref(), Some("npz"));
     assert_eq!(dlio_config.dataset.num_files_train, Some(100));

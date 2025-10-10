@@ -3,10 +3,10 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.7.2-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.7.3-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-61%2F61%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-80%2F80%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
 [![REUSE status](https://api.reuse.software/badge/github.com/russfellows/dl-driver)](https://api.reuse.software/info/github.com/russfellows/dl-driver)
@@ -19,14 +19,14 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.7.2)
+## 🎯 Current Status (v0.7.3)
 
 **📝 DOCUMENTATION CLARITY**: Clear separation of ML/AI simulation vs storage I/O replay
 **🧹 CODE CLEANUP**: Removed non-operational replay tests, clarified stub functions
 **📦 S3DLIO 0.8.20**: Latest s3dlio release with tagged dependencies
 **🔄 INFRASTRUCTURE ONLY**: Streaming replay architecture for future integration
 
-### Latest v0.7.2 Release - Documentation & Code Clarity 📝
+### Latest v0.7.3 Release - s3dlio v0.9.5 Upgrade - Documentation & Code Clarity 📝
 - **� Replay Clarification**: Updated all documentation to clarify replay is infrastructure/simulation only
 - **🔗 sai3-bench Reference**: Added clear guidance to use sai3-bench for real I/O replay needs
 - **🧹 Code Cleanup**: Removed streaming_replay_tests.rs (simulation-only tests)
