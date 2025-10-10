@@ -32,7 +32,7 @@ This project **integrates with s3-bench** (https://github.com/russfellows/s3-ben
 
 ## Critical Workflows & Commands
 
-- **Build:** `cargo build --release`
+- **Build:** `cargo build --release` (NEVER pipe to head/tail - always show full output)
 - **Test:** `cargo test` (some tests require S3/Azure credentials)
 - **Run workload:**
     - Legacy: `./target/release/dl-driver legacy --config tests/configs/test_file_config.yaml`
@@ -40,6 +40,12 @@ This project **integrates with s3-bench** (https://github.com/russfellows/s3-ben
 - **Validate config:** `./target/release/dl-driver validate --config tests/dlio_configs/unet3d_config.yaml`
 - **Replay operations:** `./target/release/dl-driver replay --oplog path/to/log.jsonl --workers 8 --timeout 300`
 - **MLCommons validation:** `cargo test --test mlcommons_dlio_validation`
+
+### Important Notes:
+- **ALWAYS show full cargo build output** - don't use `| head` or `| tail`
+- Use `2>&1` to capture both stdout and stderr when needed
+- For long test output, it's OK to use `| tail -50` or similar to see results
+- When there are compilation errors or warnings, full context is critical
 
 ## Project-Specific Conventions
 
