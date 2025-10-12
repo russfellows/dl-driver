@@ -18,6 +18,11 @@ object_store = "0.10"
 async-trait = "0.1"
 futures-util = "0.3"
 
+# gRPC dependencies for distributed execution
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
 # Additional dependencies from s3dlio for advanced features
 futures = "0.3"
 futures-core = "0.3"
@@ -46,6 +51,9 @@ dl-driver-formats = { path = "../formats" }
 
 # Optional compression support for checkpoints
 zstd = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [dev-dependencies]
 tempfile = "3.0"

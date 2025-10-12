@@ -9,9 +9,11 @@ pub mod dlio_compat;
 // Multi-rank coordination using shared memory and atomics
 pub mod coordination;
 
-// Legacy config module for backward compatibility - COMMENTED OUT to resolve conflicts
-// There are two DlioConfig types causing issues. The dlio_compat version is the primary one.
-// pub mod config;
+// Internal config module (not publicly exported to avoid conflicts)
+mod config;
+
+// Distributed execution for multi-host workloads
+pub mod dist;
 // Temporarily disabled - needs update for new config system
 // pub mod dataset;
 pub mod plan;

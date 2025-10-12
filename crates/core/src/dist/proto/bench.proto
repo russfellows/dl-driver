@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package dl_driver.dist;
+
+// Request to run a DLIO workload on an agent
+message RunWorkloadRequest {
+  // YAML configuration content for DLIO workload
+  string config_yaml = 1;
+  
+  // Agent identifier (e.g., "host1:50051" or "agent-0")
+  string agent_id = 2;
+  
+  // Path prefix for local storage isolation (e.g., "agent-{id}/")
+  string path_prefix = 3;
+  
+  // Unix timestamp (milliseconds) when all agents should start
+  // Enables coordinated execution across multiple hosts
+  int64 start_unix_ms = 4;
+}
+
+// Summary metrics returned after workload completion
+message WorkloadSummary {
+  // Agent identifier
+  string agent_id = 1;
+  
+  // Throughput metrics
+  double ops_per_s = 2;
+  double mib_per_s = 3;
+  
+  // Latency percentiles (milliseconds)
+  double p50_ms = 4;
+  double p90_ms = 5;
+  double p95_ms = 6;
+  double p99_ms = 7;
+  
+  // Error tracking
+  uint32 errors = 8;
+  
+  // Volume metrics
+  uint64 total_ops = 9;
+  double duration_s = 10;
+}
+
+// Health check response
+message HealthCheckResponse {
+  string status = 1;  // "healthy" or error message
+  string version = 2;  // dl-driver version
+}
+
+// Empty request for health check
+message HealthCheckRequest {}
+
+// Distributed agent service
+service DistAgent {
+  // Execute a DLIO workload and return metrics
+  rpc RunWorkload(RunWorkloadRequest) returns (WorkloadSummary);
+  
+  // Health check to verify agent is responsive
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
