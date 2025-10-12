@@ -483,29 +483,6 @@ impl WorkloadRunner {
         Ok(self)
     }
 
-    /// Enable op-log validation against reference workload (Workstream A) 
-    pub fn with_op_log_validation(self, op_log_path: &std::path::Path) -> Result<Self> {
-        use crate::oplog_ingest::OpLogReader;
-        
-        info!("Configuring op-log validation against: {:?}", op_log_path);
-        
-        // Validate that the op-log file exists and can be parsed
-        if !op_log_path.exists() {
-            return Err(anyhow::anyhow!("Op-log file not found: {:?}", op_log_path));
-        }
-        
-        // Pre-validate the file can be read
-        let _reader = OpLogReader::from_file(op_log_path)
-            .with_context(|| format!("Failed to parse op-log file: {:?}", op_log_path))?;
-            
-        info!("Op-log file validated successfully: {} records found", _reader.len());
-        
-        // Store the op-log path for later validation during/after workload execution
-        // TODO: Add op_log_path field to WorkloadRunner struct and implement validation
-        
-        Ok(self)
-    }
-
     /// Create MultiBackendDataset for unified access across all storage backends
     async fn create_multi_backend_dataset(&self, data_folder: &str) -> Result<MultiBackendDataset> {
         info!("Creating MultiBackendDataset for folder: {}", data_folder);

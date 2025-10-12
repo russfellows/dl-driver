@@ -41,9 +41,6 @@ tempfile = "3.0"
 # s3dlio integration - updated to v0.9.6
 s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.6" }
 
-# s3dlio-oplog for shared operation log parsing/replay
-s3dlio-oplog = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.6" }
-
 # Local formats crate
 dl-driver-formats = { path = "../formats" }
 
