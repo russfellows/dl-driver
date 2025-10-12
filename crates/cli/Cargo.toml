@@ -19,7 +19,7 @@ indicatif = "0.17"
 dl-driver-core    = { path = "../core" }
 dl-driver-formats = { path = "../formats" }
 dl-driver-storage = { path = "../storage" }
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.5" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.6" }
 
 [dev-dependencies]
 tempfile = "3.0"

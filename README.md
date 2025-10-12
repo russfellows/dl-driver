@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.7.3-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.7.4-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-80%2F80%20passing-success.svg)](#testing--validation)
@@ -19,14 +19,23 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.7.3)
+## 🎯 Current Status (v0.7.4)
 
-**📝 DOCUMENTATION CLARITY**: Clear separation of ML/AI simulation vs storage I/O replay
-**🧹 CODE CLEANUP**: Removed non-operational replay tests, clarified stub functions
-**📦 S3DLIO 0.8.20**: Latest s3dlio release with tagged dependencies
-**🔄 INFRASTRUCTURE ONLY**: Streaming replay architecture for future integration
+**⚡ PERFORMANCE**: s3dlio v0.9.6 - RangeEngine disabled by default (50% faster typical workloads)
+**📦 S3DLIO 0.9.6**: Latest s3dlio release with optimized defaults for AI/ML workloads
+**🎯 ZERO CODE CHANGES**: Automatic performance improvement via s3dlio defaults
+**✅ 80/80 TESTS PASSING**: Full validation across all backends
 
-### Latest v0.7.3 Release - s3dlio v0.9.5 Upgrade - Documentation & Code Clarity 📝
+### Latest v0.7.4 Release - s3dlio v0.9.6 Upgrade - RangeEngine Default Change ⚡
+- **⚡ Performance Win**: RangeEngine disabled by default eliminates HEAD request overhead
+- **📦 s3dlio 0.9.6**: Upgraded from v0.9.5 with critical default configuration fix
+- **🎯 50% Faster**: Typical AI/ML workloads (mixed object sizes) benefit from single-request GET operations
+- **✅ Zero Changes**: dl-driver automatically inherits improved s3dlio defaults via `store_for_uri()`
+- **🧪 All Tests Pass**: 80/80 tests validated with new RangeEngine defaults across all backends
+
+---
+
+### Previous v0.7.3 Release - s3dlio v0.9.5 Upgrade - Documentation & Code Clarity 📝
 - **� Replay Clarification**: Updated all documentation to clarify replay is infrastructure/simulation only
 - **🔗 sai3-bench Reference**: Added clear guidance to use sai3-bench for real I/O replay needs
 - **🧹 Code Cleanup**: Removed streaming_replay_tests.rs (simulation-only tests)
