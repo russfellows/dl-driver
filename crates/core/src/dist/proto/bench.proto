@@ -23,9 +23,10 @@ message WorkloadSummary {
   // Agent identifier
   string agent_id = 1;
   
+  // === STORAGE METRICS ===
   // Throughput metrics
-  double ops_per_s = 2;
-  double mib_per_s = 3;
+  double ops_per_s = 2;        // Files/objects per second (IOPS)
+  double mib_per_s = 3;        // Raw bandwidth (MiB/s)
   
   // Latency percentiles (milliseconds)
   double p50_ms = 4;
@@ -33,12 +34,30 @@ message WorkloadSummary {
   double p95_ms = 6;
   double p99_ms = 7;
   
-  // Error tracking
+  // Error tracking and totals
   uint32 errors = 8;
-  
-  // Volume metrics
-  uint64 total_ops = 9;
+  uint64 total_ops = 9;        // Total files/objects processed
   double duration_s = 10;
+  
+  // === AI/ML TRAINING METRICS ===
+  // Sample-level metrics
+  double samples_per_second = 11;  // Core training throughput metric
+  uint64 total_samples = 12;       // Total samples processed
+  uint64 samples_per_batch = 13;   // Batch size used
+  
+  // Batch-level metrics  
+  double batches_per_second = 14;  // Training iteration rate
+  uint64 total_batches = 15;       // Total batches completed
+  double avg_batch_time_ms = 16;   // Average batch processing time
+  
+  // Epoch-level metrics (optional)
+  uint32 epochs_completed = 17;    // Number of epochs run
+  double avg_epoch_time_s = 18;    // Average time per epoch
+  
+  // Pipeline breakdown (optional)
+  double data_loading_time_s = 19; // Time spent in data loading
+  double compute_time_s = 20;      // Time spent in compute (if simulated)
+  double pipeline_efficiency = 21; // Efficiency ratio (0-1)
 }
 
 // Health check response

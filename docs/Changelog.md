@@ -9,6 +9,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.5] - 2025-10-12 🚀 **Phase 2: Agent Implementation - Dual Metrics System**
+
+### **🎯 Major Features**
+
+#### **Distributed Agent Service**
+- ✅ **gRPC Agent Server**: Implements `DistAgent` service for distributed DLIO workload execution
+- ✅ **Coordinated Start Timing**: Agents can synchronize workload start across multiple hosts
+- ✅ **Path Prefix Isolation**: Automatic agent-specific path prefixes for local storage isolation
+- ✅ **Standalone Binary**: `dl_driver_agent` with CLI for deployment (`--port`, `--bind-addr`, `--agent-id`)
+
+#### **Dual Metrics System** 🎨
+Revolutionary metrics approach serving both storage engineers and ML engineers:
+
+**Storage Metrics TSV** (`to_storage_tsv()`):
+- ops/s, MiB/s, latency percentiles (p50/p90/p95/p99)
+- Total operations, errors, duration
+- Traditional I/O performance perspective
+
+**AI/ML Training Metrics TSV** (`to_aiml_tsv()`):
+- samples/s, batches/s, total samples/batches
+- Epoch metrics, batch timing, pipeline efficiency
+- Training velocity perspective for ML engineers
+
+See `docs/DUAL_METRICS_REPORTING.md` for complete specification.
+
+### **🔧 Technical Implementation**
+
+#### **Agent Service** (`crates/core/src/dist/agent.rs`)
+- `RunWorkload` RPC with full DLIO config parsing
+- `HealthCheck` RPC for service monitoring
+- Integrates with existing `WorkloadRunner`
+- Comprehensive metrics collection (21 fields)
+
+#### **Agent Binary** (`crates/cli/src/bin/dl_driver_agent.rs`)
+- CLI argument parsing (port, bind address, agent ID, log level)
+- Graceful shutdown handling (SIGTERM/SIGINT)
+- Hostname resolution and logging
+- Usage: `dl_driver_agent --port 50051 --bind-addr 0.0.0.0 --agent-id agent-0`
+
+#### **Enhanced Protobuf** (`bench.proto`)
+- `WorkloadSummary` expanded from 10 to 21 fields
+- Added AI/ML training metric fields:
+  - `samples_per_second`, `total_samples`, `samples_per_batch`
+  - `batches_per_second`, `total_batches`, `avg_batch_time_ms`
+  - `epochs_completed`, `avg_epoch_time_s`
+  - `data_loading_time_s`, `compute_time_s`, `pipeline_efficiency`
+- Backward compatible with existing storage metrics
+
+#### **Type System** (`dist/types.rs`)
+- `WorkloadResult` struct with all 21 metrics
+- `AggregateResults` with dual aggregation logic
+- Separate TSV formatters: `to_storage_tsv()` and `to_aiml_tsv()`
+- `to_tsv()` maintained as legacy alias for backward compatibility
+
+#### **Metrics Enhancements** (`core/src/metrics.rs`)
+- Added `batches_processed()` getter
+- Added `total_read_time()` getter
+- Added `total_compute_time()` getter
+- Added `batch_times()` getter
+- Added `epoch_times()` getter
+
+### **📚 Documentation**
+
+- **New**: `docs/AIML_METRICS_REQUIREMENTS.md` - Comprehensive metrics analysis
+- **New**: `docs/DUAL_METRICS_REPORTING.md` - Complete dual TSV specification
+- **New**: `docs/PHASE2_AGENT_IMPLEMENTATION.md` - Phase 2 implementation plan and progress
+
+### **✅ Testing**
+
+- 4 agent unit tests passing (service creation, coordinated start timing)
+- 2 types TSV output tests passing (storage + AI/ML)
+- All existing 51 tests still passing
+- No breaking changes to existing functionality
+
+### **🎓 Key Design Decisions**
+
+1. **Separation of Concerns**: Storage and AI/ML metrics serve different audiences
+2. **Clarity**: Each TSV file focuses on one domain without mixing unrelated metrics
+3. **Completeness**: All relevant metrics for each perspective included
+4. **Backward Compatibility**: Legacy `to_tsv()` preserved for existing tools
+
+### **🚀 What's Next**
+
+Phase 3 will implement the controller that orchestrates multiple agents and aggregates results.
+
+---
+
 ## [0.7.4] - 2025-10-12 🚀 **S3DLIO v0.9.6 UPGRADE - RangeEngine Disabled by Default**
 
 ### **📦 Major Dependency Upgrade**
