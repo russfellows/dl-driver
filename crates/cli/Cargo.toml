@@ -16,10 +16,15 @@ tracing-log = "0.2"  # Bridge to capture log crate messages (used by s3dlio)
 futures-util = "0.3"
 dotenvy     = "0.15"
 indicatif = "0.17"
+
+# gRPC dependencies for distributed execution
+tonic = "0.12"
+prost = "0.13"
+
 dl-driver-core    = { path = "../core" }
 dl-driver-formats = { path = "../formats" }
 dl-driver-storage = { path = "../storage" }
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.5" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.6" }
 
 [dev-dependencies]
 tempfile = "3.0"

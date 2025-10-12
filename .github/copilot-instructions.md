@@ -32,8 +32,8 @@ This project **integrates with s3-bench** (https://github.com/russfellows/s3-ben
 
 ## Critical Workflows & Commands
 
-- **Build:** `cargo build --release` (NEVER pipe to head/tail - always show full output)
-- **Test:** `cargo test` (some tests require S3/Azure credentials)
+- **Build:** `cargo build --release` (ALWAYS show full output - NEVER pipe to head/tail/grep unless specifically searching for strings)
+- **Test:** `cargo test` (ALWAYS show full output - NEVER pipe to head/tail unless specifically searching for strings)
 - **Run workload:**
     - Legacy: `./target/release/dl-driver legacy --config tests/configs/test_file_config.yaml`
     - DLIO: `./target/release/dl-driver dlio --config tests/dlio_configs/minimal_config.yaml`
@@ -41,10 +41,12 @@ This project **integrates with s3-bench** (https://github.com/russfellows/s3-ben
 - **Replay operations:** `./target/release/dl-driver replay --oplog path/to/log.jsonl --workers 8 --timeout 300`
 - **MLCommons validation:** `cargo test --test mlcommons_dlio_validation`
 
-### Important Notes:
+### Important Notes on Command Output:
 - **ALWAYS show full cargo build output** - don't use `| head` or `| tail`
+- **ALWAYS show full cargo test output** - don't use `| head` or `| tail`
+- **Exception**: When specifically searching for patterns, `| grep` is acceptable (e.g., `cargo test 2>&1 | grep "test result:"`)
+- **Rationale**: We may miss critical warnings, errors, or context if output is truncated
 - Use `2>&1` to capture both stdout and stderr when needed
-- For long test output, it's OK to use `| tail -50` or similar to see results
 - When there are compilation errors or warnings, full context is critical
 
 ## Project-Specific Conventions

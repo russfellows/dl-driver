@@ -18,6 +18,11 @@ object_store = "0.10"
 async-trait = "0.1"
 futures-util = "0.3"
 
+# gRPC dependencies for distributed execution
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
 # Additional dependencies from s3dlio for advanced features
 futures = "0.3"
 futures-core = "0.3"
@@ -38,17 +43,17 @@ ndarray = "0.15"
 ndarray-npy = "0.8"
 tempfile = "3.0"
 
-# s3dlio integration - updated to v0.8.20
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.5" }
-
-# s3dlio-oplog for shared operation log parsing/replay
-s3dlio-oplog = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.5" }
+# s3dlio integration - updated to v0.9.6
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.6" }
 
 # Local formats crate
 dl-driver-formats = { path = "../formats" }
 
 # Optional compression support for checkpoints
 zstd = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [dev-dependencies]
 tempfile = "3.0"

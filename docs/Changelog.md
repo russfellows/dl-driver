@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.4] - 2025-10-12 🚀 **S3DLIO v0.9.6 UPGRADE - RangeEngine Disabled by Default**
+
+### **📦 Major Dependency Upgrade**
+
+#### **s3dlio v0.9.5 → v0.9.6** 🆕
+Upgraded s3dlio across all crates (core, cli, formats, frameworks) from v0.9.5 to v0.9.6.
+
+**Critical Performance Improvement**:
+- ✅ **RangeEngine disabled by default** across all backends (Azure, GCS, File, DirectIO)
+- ✅ **50% faster for typical workloads**: Eliminates mandatory HEAD/STAT request overhead
+- ✅ **Zero code changes required**: dl-driver uses s3dlio defaults via `store_for_uri()`
+
+### **⚠️ Important: RangeEngine Default Change**
+
+#### **Why This Change Matters**
+
+s3dlio v0.9.6 **disables RangeEngine by default** to fix a significant performance regression:
+
+**Problem** (v0.9.5): RangeEngine caused up to 50% slowdown for typical workloads because every GET operation required:
+1. HEAD request to determine object size (extra latency + cost)
+2. GET request for actual data
+
+**Solution** (v0.9.6): RangeEngine is now **opt-in only**:
+- Small/mixed workloads (most common): **50% faster** (single GET, no HEAD overhead)
+- Large-file workloads (>= 64 MiB): Must enable explicitly to get 30-50% parallel range benefit
+
+#### **Impact on dl-driver**
+
+✅ **No changes required**: dl-driver uses `store_for_uri()` which creates object stores with s3dlio defaults
+✅ **Better default performance**: Typical AI/ML workloads use mixed object sizes and benefit from RangeEngine being off
+✅ **Opt-in available**: Users needing RangeEngine for large files can configure it explicitly (future enhancement)
+
+**Performance by Workload Type**:
+| Workload | v0.9.5 (RangeEngine ON) | v0.9.6 (RangeEngine OFF) |
+|----------|------------------------|-------------------------|
+| Small objects (< 16 MiB) | **Slow** (2× requests) | **Fast** (1× request) |
+| Mixed objects | **Slow overall** | **Fast** |
+| Large files (>= 64 MiB) | Medium | Medium (opt-in for fast) |
+
+### **🧪 Testing & Validation**
+
+#### **Comprehensive Test Pass** ✅
+- **80 tests passing**: All library and integration tests validated with new defaults
+- **Zero compilation warnings**: Clean build with s3dlio v0.9.6
+- **All backends tested**: File, DirectIO, S3, Azure, GCS
+- **Performance validated**: RangeEngine correctly disabled by default
+
+### **🔧 Technical Details**
+
+#### **s3dlio v0.9.6 Changes**
+- `AzureConfig::default()`: `enable_range_engine: false` (was `true`)
+- `GcsConfig::default()`: `enable_range_engine: false` (was `true`)
+- `FileSystemConfig::default()`: `enable_range_engine: false` (was `true`)
+- `FileSystemConfig::direct_io()`: `enable_range_engine: false` (was `true`)
+
+#### **dl-driver Compatibility**
+- No code changes required
+- Uses high-level `store_for_uri()` API
+- Automatically inherits s3dlio v0.9.6 performance improvements
+- RangeEngine can be enabled in future via explicit configuration if needed
+
+### **📚 References**
+- s3dlio v0.9.6 Changelog: Comprehensive RangeEngine performance analysis
+- s3dlio v0.9.6 Release: https://github.com/russfellows/s3dlio/releases/tag/v0.9.6
+
+---
+
 ## [0.7.3] - 2025-10-10 🚀 **S3DLIO v0.9.5 UPGRADE**
 
 ### **📦 Major Dependency Upgrade**

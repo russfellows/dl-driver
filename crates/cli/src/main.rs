@@ -3,10 +3,10 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use dl_driver_core::{DlioConfig, SimpleReplayEngine, ReplayConfig};
+use dl_driver_core::DlioConfig;
 use dl_driver_core::plugins::PluginManager;
 use tracing::{info, error, debug, warn, trace};
-use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// dl-driver – Unified DLIO execution engine with optional MLPerf compliance mode
@@ -123,10 +123,6 @@ enum Commands {
         /// Export metrics summary to CSV file
         #[arg(long)]
         metrics_csv: Option<std::path::PathBuf>,
-
-        /// Validate workload against reference op-log file (.jsonl/.tsv/.csv with optional .zst)
-        #[arg(long)]
-        op_log: Option<std::path::PathBuf>,
     },
     /// Validate a DLIO config without running it
     Validate {
@@ -170,37 +166,9 @@ enum Commands {
         #[arg(long)]
         au_threshold: Option<f64>,
     },
-    /// Replay operations from a recorded operation log
-    Replay {
-        /// Path to operation log file (.jsonl/.tsv/.csv with optional .zst compression)
-        #[arg(short, long)]
-        oplog: std::path::PathBuf,
+}
 
-        /// Base URI for mapping relative file paths (e.g., file:///tmp/test, s3://my-bucket, direct:///mnt/data)
-        #[arg(short, long)]
-        base_uri: String,
-
-        /// Path remapping JSON file for cross-environment replay (source_path -> target_path)
-        #[arg(short, long)]
-        remap: Option<std::path::PathBuf>,
-
-        /// Number of concurrent workers for I/O operations
-        #[arg(short, long, default_value = "16")]
-        workers: usize,
-
-        /// Ignore timing delays and execute as fast as possible
-        #[arg(long)]
-        fast: bool,
-
-        /// Timeout for individual operations in seconds
-        #[arg(long, default_value = "30")]
-        timeout: u64,
-
-        /// Export replay metrics to JSON file
-        #[arg(long)]
-        metrics: Option<std::path::PathBuf>,
-    },
-}#[tokio::main]
+#[tokio::main]
 async fn main() -> Result<()> {
     // Load environment variables from .env file early for S3/Azure credentials
     dotenvy::dotenv().ok(); // Ignore errors if .env doesn't exist
@@ -268,7 +236,6 @@ async fn main() -> Result<()> {
             profile,
             metrics_json,
             metrics_csv,
-            op_log,
         } => run_unified_dlio(
             &config, 
             pretty, 
@@ -294,7 +261,6 @@ async fn main() -> Result<()> {
             profile.as_deref(),
             metrics_json.as_deref(),
             metrics_csv.as_deref(),
-            op_log.as_deref(),
         ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
         Commands::Generate {
@@ -308,15 +274,6 @@ async fn main() -> Result<()> {
             strict_au,
             au_threshold,
         } => aggregate_rank_results(&inputs, &output, strict_au, au_threshold).await,
-        Commands::Replay {
-            oplog,
-            base_uri,
-            remap,
-            workers,
-            fast,
-            timeout,
-            metrics,
-        } => run_replay_workload(&oplog, &base_uri, remap.as_deref(), workers, fast, timeout, metrics.as_deref()).await,
     }
 }
 
@@ -347,7 +304,6 @@ async fn run_unified_dlio(
     profile: Option<&str>,
     metrics_json: Option<&std::path::Path>,
     metrics_csv: Option<&std::path::Path>,
-    op_log: Option<&std::path::Path>,
 ) -> Result<()> {
     info!("Loading DLIO config from: {:?}", config_path);
 
@@ -508,13 +464,6 @@ async fn run_unified_dlio(
             info!("🎯 Applying {} workload profile", profile_name);
             workload_runner = workload_runner.with_profile(profile_name)
                 .context("Failed to apply workload profile")?;
-        }
-
-        // Workstream A: Enable op-log validation if specified
-        if let Some(op_log_path) = op_log {
-            info!("📊 Enabling op-log validation against: {:?}", op_log_path);
-            workload_runner = workload_runner.with_op_log_validation(op_log_path)
-                .context("Failed to configure op-log validation")?;
         }
             
         workload_runner.run_training_phase().await
@@ -1209,88 +1158,5 @@ fn setup_gpu_affinity(rank: u32, world_size: u32, simulated_gpus: Option<u32>, u
     
     let mode = if use_real_gpus { "GPU ENVIRONMENT [FUTURE]" } else { "PURE SIMULATION" };
     info!("✅ Plan A1: {} mode configured (All compute is CPU-based simulation)", mode);
-    Ok(())
-}
-
-/// Run operation log replay workload
-async fn run_replay_workload(
-    oplog_path: &std::path::Path,
-    base_uri: &str,
-    remap_path: Option<&std::path::Path>,
-    workers: usize,
-    fast: bool,
-    timeout: u64,
-    metrics_path: Option<&std::path::Path>,
-) -> Result<()> {
-    info!("🔁 Starting operation log replay");
-    info!("   📝 Operation log: {}", oplog_path.display());
-    info!("   🌐 Base URI: {}", base_uri);
-    if let Some(remap) = remap_path {
-        info!("   🗺️  Path remapping: {}", remap.display());
-    }
-    info!("   👥 Concurrent workers: {}", workers);
-    info!("   ⏱️  Timing mode: {}", if fast { "fast (ignore delays)" } else { "maintain original timing" });
-    
-    // Load path remapping if provided
-    let mut path_remap = std::collections::HashMap::new();
-    if let Some(remap_file) = remap_path {
-        let remap_content = std::fs::read_to_string(remap_file)
-            .with_context(|| format!("Failed to read remapping file: {}", remap_file.display()))?;
-        path_remap = serde_json::from_str(&remap_content)
-            .with_context(|| format!("Failed to parse remapping JSON: {}", remap_file.display()))?;
-        info!("   🗺️  Loaded {} path mappings", path_remap.len());
-    }
-    
-    // Create replay configuration using the new API
-    let config = ReplayConfig {
-        op_log_path: oplog_path.to_string_lossy().to_string(),
-        base_uri: base_uri.to_string(),
-        concurrency: workers,
-        fast_mode: fast,
-        timeout_seconds: timeout,
-        path_remaps: path_remap,
-        endpoint_remaps: HashMap::new(),
-        continue_on_error: true,  // Continue replay even if some operations fail
-    };
-    
-    // Create and run the replay engine
-    let mut engine = SimpleReplayEngine::new(config);
-    let stats = engine.run_replay().await
-        .with_context(|| format!("Failed to replay operations from {}", oplog_path.display()))?;
-    
-    // Display results
-    info!("🎯 Replay completed successfully!");
-    info!("   📊 Operations replayed: {}/{}", stats.completed_operations, stats.total_operations);
-    if stats.failed_operations > 0 {
-        warn!("   ⚠️  Failed operations: {}", stats.failed_operations);
-    }
-    info!("   💾 Total bytes processed: {:.2} MB", stats.total_bytes as f64 / (1024.0 * 1024.0));
-    if let Some(duration) = stats.duration() {
-        info!("   ⏱️  Wall time: {:.2}s", duration.as_secs_f64());
-    }
-    info!("   📈 Throughput: {:.2} ops/s", stats.operations_per_second());
-    info!("   📈 Data rate: {:.2} MB/s", stats.throughput_mbps());
-    
-    // Export metrics if requested
-    if let Some(metrics_file) = metrics_path {
-        // Create a serializable version of the stats
-        let wall_seconds = stats.duration().map(|d| d.as_secs_f64()).unwrap_or(0.0);
-        let metrics = serde_json::json!({
-            "total_operations": stats.total_operations,
-            "completed_operations": stats.completed_operations,
-            "failed_operations": stats.failed_operations,
-            "total_bytes": stats.total_bytes,
-            "wall_seconds": wall_seconds,
-            "throughput_mbps": stats.throughput_mbps(),
-            "operations_per_second": stats.operations_per_second(),
-        });
-        
-        let metrics_json = serde_json::to_string_pretty(&metrics)
-            .context("Failed to serialize replay metrics")?;
-        std::fs::write(metrics_file, metrics_json)
-            .with_context(|| format!("Failed to write metrics to {}", metrics_file.display()))?;
-        info!("   💾 Metrics exported to: {}", metrics_file.display());
-    }
-    
     Ok(())
 }

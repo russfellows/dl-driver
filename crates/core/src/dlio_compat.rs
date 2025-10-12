@@ -386,6 +386,45 @@ impl DlioConfig {
         }
     }
 
+    /// Apply agent-specific path prefix for distributed execution
+    /// 
+    /// For local storage backends (file://, direct://, or absolute paths),
+    /// this rewrites paths to include the agent prefix for isolation.
+    /// For shared storage (S3, Azure, GCS), paths are unchanged.
+    /// 
+    /// The path_template can include `{id}` which is replaced with agent_id.
+    /// 
+    /// # Example
+    /// ```no_run
+    /// use dl_driver_core::DlioConfig;
+    /// 
+    /// let mut config = DlioConfig::from_yaml_file("config.yaml").unwrap();
+    /// config.apply_agent_prefix("agent-0", "runs/{id}/").unwrap();
+    /// ```
+    pub fn apply_agent_prefix(&mut self, agent_id: &str, path_template: &str) -> Result<()> {
+        use crate::dist::path_utils::apply_path_prefix;
+
+        // Apply prefix to dataset data_folder
+        self.dataset.data_folder = apply_path_prefix(
+            &self.dataset.data_folder,
+            path_template,
+            agent_id,
+        )?;
+
+        // Apply prefix to checkpointing folder if present
+        if let Some(ref mut checkpointing) = self.checkpointing {
+            if let Some(ref checkpoint_folder) = checkpointing.checkpoint_folder {
+                checkpointing.checkpoint_folder = Some(apply_path_prefix(
+                    checkpoint_folder,
+                    path_template,
+                    agent_id,
+                )?);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Convert this DLIO config to a comprehensive RunPlan
     pub fn to_run_plan(&self) -> Result<RunPlan> {
         // Normalize data folder URI
