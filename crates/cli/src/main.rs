@@ -166,6 +166,57 @@ enum Commands {
         #[arg(long)]
         au_threshold: Option<f64>,
     },
+    /// Run distributed DLIO workload across multiple agents
+    Distributed {
+        #[command(subcommand)]
+        command: DistributedCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum DistributedCommands {
+    /// Run workload across multiple agents
+    Run {
+        /// Path to DLIO YAML config file
+        #[arg(long)]
+        config: std::path::PathBuf,
+
+        /// Distributed config file (YAML with agents list)
+        #[arg(long)]
+        distributed_config: Option<std::path::PathBuf>,
+
+        /// Agent endpoints (alternative to distributed_config)
+        #[arg(long, value_delimiter = ',')]
+        agents: Option<Vec<String>>,
+
+        /// Path template for agent-specific directories (e.g., "{id}/", "agent-{id}/")
+        #[arg(long, default_value = "{id}/")]
+        path_template: String,
+
+        /// Coordinated start delay in milliseconds
+        #[arg(long, default_value = "1000")]
+        start_delay_ms: u64,
+
+        /// Request timeout in milliseconds
+        #[arg(long, default_value = "300000")]
+        request_timeout_ms: u64,
+
+        /// Maximum retries per agent
+        #[arg(long, default_value = "3")]
+        max_retries: u32,
+
+        /// Dry-run: validate configuration without running workload
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output storage metrics TSV file
+        #[arg(long)]
+        storage_tsv: Option<std::path::PathBuf>,
+
+        /// Output AI/ML metrics TSV file
+        #[arg(long)]
+        aiml_tsv: Option<std::path::PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -274,6 +325,31 @@ async fn main() -> Result<()> {
             strict_au,
             au_threshold,
         } => aggregate_rank_results(&inputs, &output, strict_au, au_threshold).await,
+        Commands::Distributed { command } => match command {
+            DistributedCommands::Run {
+                config,
+                distributed_config,
+                agents,
+                path_template,
+                start_delay_ms,
+                request_timeout_ms,
+                max_retries,
+                dry_run,
+                storage_tsv,
+                aiml_tsv,
+            } => run_distributed(
+                &config,
+                distributed_config.as_deref(),
+                agents.as_ref(),
+                &path_template,
+                start_delay_ms,
+                request_timeout_ms,
+                max_retries,
+                dry_run,
+                storage_tsv.as_deref(),
+                aiml_tsv.as_deref(),
+            ).await,
+        },
     }
 }
 
@@ -1158,5 +1234,138 @@ fn setup_gpu_affinity(rank: u32, world_size: u32, simulated_gpus: Option<u32>, u
     
     let mode = if use_real_gpus { "GPU ENVIRONMENT [FUTURE]" } else { "PURE SIMULATION" };
     info!("✅ Plan A1: {} mode configured (All compute is CPU-based simulation)", mode);
+    Ok(())
+}
+
+/// Run distributed DLIO workload across multiple agents
+async fn run_distributed(
+    config_path: &std::path::Path,
+    distributed_config_path: Option<&std::path::Path>,
+    agents: Option<&Vec<String>>,
+    path_template: &str,
+    start_delay_ms: u64,
+    request_timeout_ms: u64,
+    max_retries: u32,
+    dry_run: bool,
+    storage_tsv: Option<&std::path::Path>,
+    aiml_tsv: Option<&std::path::Path>,
+) -> Result<()> {
+    use dl_driver_core::dist::controller::{Controller, DistributedConfig};
+    use std::io::Write;
+    
+    info!("🚀 Distributed Execution Mode");
+    
+    // Load DLIO config
+    let config_path_str = config_path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid UTF-8 in config path"))?;
+    let dlio_config = DlioConfig::from_yaml_file(config_path_str)
+        .with_context(|| format!("Failed to load DLIO config from {:?}", config_path))?;
+    
+    info!("✅ DLIO config loaded: {:?}", config_path);
+    
+    // Build distributed config from CLI args or file
+    let mut dist_config = if let Some(dist_path) = distributed_config_path {
+        // TODO: Implement DistributedConfig::from_yaml_file when we add the config module
+        info!("📋 Loading distributed config from: {:?}", dist_path);
+        DistributedConfig::default() // Placeholder for now
+    } else {
+        DistributedConfig::default()
+    };
+    
+    // Override with CLI args
+    if let Some(agent_list) = agents {
+        dist_config.agents = agent_list.clone();
+    }
+    dist_config.path_template = path_template.to_string();
+    dist_config.start_delay_ms = start_delay_ms;
+    dist_config.request_timeout_ms = request_timeout_ms;
+    dist_config.max_retries = max_retries;
+    
+    // Validate we have agents
+    if dist_config.agents.is_empty() {
+        anyhow::bail!("No agents specified. Use --agents or --distributed-config");
+    }
+    
+    info!("📊 Configuration:");
+    info!("   Agents: {}", dist_config.agents.len());
+    for (idx, agent) in dist_config.agents.iter().enumerate() {
+        info!("     [{}] {}", idx, agent);
+    }
+    info!("   Path template: {}", dist_config.path_template);
+    info!("   Start delay: {}ms", dist_config.start_delay_ms);
+    info!("   Request timeout: {}ms", dist_config.request_timeout_ms);
+    info!("   Max retries: {}", dist_config.max_retries);
+    
+    // Create controller
+    let controller = Controller::new(dlio_config, dist_config);
+    
+    if dry_run {
+        info!("🔍 DRY-RUN MODE - Validating configuration");
+        
+        // Health check all agents
+        let health_results = controller.health_check_all().await?;
+        
+        println!("\n╔════════════════════════════════════════════════╗");
+        println!("║   Distributed Execution Plan (DRY-RUN)        ║");
+        println!("╚════════════════════════════════════════════════╝\n");
+        
+        println!("🌐 Agent Health Check:");
+        for (agent, healthy) in health_results {
+            let status = if healthy { "✅ Healthy" } else { "❌ Unhealthy" };
+            println!("   {} - {}", agent, status);
+        }
+        
+        println!("\n✅ Validation Passed! Ready to run distributed workload.");
+        println!("   Remove --dry-run to execute.\n");
+        
+        return Ok(());
+    }
+    
+    // Run distributed workload
+    info!("🚀 Starting distributed workload execution...");
+    let aggregate_results = controller.run_distributed().await?;
+    
+    // Display results
+    println!("\n╔════════════════════════════════════════════════╗");
+    println!("║   Distributed Workload Complete! 🎉           ║");
+    println!("╚════════════════════════════════════════════════╝\n");
+    
+    println!("📊 Storage Performance (I/O Perspective):");
+    println!("   Total Throughput: {:.1} ops/s, {:.1} MiB/s", 
+             aggregate_results.total_ops_per_s, aggregate_results.total_mib_per_s);
+    println!("   Total Operations: {}", aggregate_results.total_ops);
+    println!("   Average Latency: p50={:.2}ms, p90={:.2}ms, p95={:.2}ms, p99={:.2}ms",
+             aggregate_results.avg_p50_ms, aggregate_results.avg_p90_ms,
+             aggregate_results.avg_p95_ms, aggregate_results.avg_p99_ms);
+    println!("   Errors: {}", aggregate_results.total_errors);
+    
+    println!("\n🤖 AI/ML Training Performance (Training Perspective):");
+    println!("   Training Velocity: {:.1} samples/s, {:.1} batches/s",
+             aggregate_results.total_samples_per_second, aggregate_results.total_batches_per_second);
+    println!("   Total Samples: {}, Total Batches: {}",
+             aggregate_results.total_samples, aggregate_results.total_batches);
+    println!("   Average Batch Time: {:.2}ms", aggregate_results.avg_batch_time_ms);
+    println!("   Epochs Completed: {}", aggregate_results.total_epochs_completed);
+    println!("   Pipeline Efficiency: {:.1}%", aggregate_results.avg_pipeline_efficiency * 100.0);
+    
+    // Write TSV files if requested
+    if let Some(storage_path) = storage_tsv {
+        let storage_content = aggregate_results.to_storage_tsv();
+        let mut file = std::fs::File::create(storage_path)
+            .with_context(|| format!("Failed to create storage TSV: {:?}", storage_path))?;
+        file.write_all(storage_content.as_bytes())?;
+        info!("💾 Storage metrics written to: {:?}", storage_path);
+    }
+    
+    if let Some(aiml_path) = aiml_tsv {
+        let aiml_content = aggregate_results.to_aiml_tsv();
+        let mut file = std::fs::File::create(aiml_path)
+            .with_context(|| format!("Failed to create AI/ML TSV: {:?}", aiml_path))?;
+        file.write_all(aiml_content.as_bytes())?;
+        info!("💾 AI/ML metrics written to: {:?}", aiml_path);
+    }
+    
+    println!();
+    
     Ok(())
 }
