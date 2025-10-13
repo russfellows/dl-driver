@@ -83,6 +83,10 @@ The controller will output:
 - **Behavior:** All agents access shared bucket
 - **Example:** All agents read/write to `gs://bucket/distributed-test/`
 - **Use Case:** Real cloud deployment, shared training data
+- **Setup:** 
+  1. Replace `<YOUR-GCS-BUCKET>` in GCS config files with your actual bucket name
+  2. Authenticate: `gcloud auth application-default login`
+  3. Ensure bucket exists and you have read/write permissions
 
 ## Environment Variables
 

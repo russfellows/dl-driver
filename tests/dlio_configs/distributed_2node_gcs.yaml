@@ -21,11 +21,11 @@ workflow:
   checkpoint: false
 
 dataset:
-  # Google Cloud Storage - shared across all agents (no path prefix needed)
-  data_folder: gs://your-dlio-test-bucket/distributed-test
+  # Google Cloud Storage - shared storage across all agents
+  # No path template needed - all agents write to the same bucket/prefix
+  # IMPORTANT: Replace <YOUR-GCS-BUCKET> with your actual GCS bucket name
+  data_folder: gs://<YOUR-GCS-BUCKET>/dl-driver-test/distributed-2node
   format: npz
-  num_files_train: 20
-  record_length_bytes: 1048576  # 1MB per record
 
 reader:
   data_loader: pytorch
