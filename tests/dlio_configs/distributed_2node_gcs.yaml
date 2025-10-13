@@ -1,0 +1,41 @@
+# Distributed DLIO Config - 2 Nodes with Google Cloud Storage
+# 
+# Prerequisites:
+#   - Set GOOGLE_APPLICATION_CREDENTIALS or use gcloud auth
+#   - Bucket must exist: gsutil mb gs://your-dlio-test-bucket
+#
+# Usage:
+#   Terminal 1: dl_driver_agent --agent-id agent-0 --port 50051
+#   Terminal 2: dl_driver_agent --agent-id agent-1 --port 50052
+#   Terminal 3: dl-driver distributed run --config tests/dlio_configs/distributed_2node_gcs.yaml \
+#               --agents http://127.0.0.1:50051,http://127.0.0.1:50052
+
+model:
+  name: distributed_gcs_test
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  # Google Cloud Storage - shared across all agents (no path prefix needed)
+  data_folder: gs://your-dlio-test-bucket/distributed-test
+  format: npz
+  num_files_train: 20
+  record_length_bytes: 1048576  # 1MB per record
+
+reader:
+  data_loader: pytorch
+  batch_size: 8
+  read_threads: 2
+  compute_threads: 1
+  prefetch: 4
+  shuffle: true
+
+train:
+  epochs: 2
+  computation_time: 0.01  # 10ms per batch
+  seed: 42

@@ -1,0 +1,47 @@
+# Distributed DLIO Config - 4 Nodes with Local Storage
+# 
+# Usage:
+#   Terminal 1: dl_driver_agent --agent-id agent-0 --port 50051
+#   Terminal 2: dl_driver_agent --agent-id agent-1 --port 50052
+#   Terminal 3: dl_driver_agent --agent-id agent-2 --port 50053
+#   Terminal 4: dl_driver_agent --agent-id agent-3 --port 50054
+#   Terminal 5: dl-driver distributed run --config tests/dlio_configs/distributed_4node_local.yaml \
+#               --agents http://127.0.0.1:50051,http://127.0.0.1:50052,http://127.0.0.1:50053,http://127.0.0.1:50054 \
+#               --path-template "{id}/"
+
+model:
+  name: distributed_test_4node
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+
+dataset:
+  # Local storage - each agent uses separate subdirectory
+  # Base path will become: /tmp/dl-dist-4n/agent-0/, /tmp/dl-dist-4n/agent-1/, etc.
+  data_folder: file:///tmp/dl-dist-4n
+  format: npz
+  num_files_train: 40
+  record_length_bytes: 2097152  # 2MB per record
+
+reader:
+  data_loader: pytorch
+  batch_size: 16
+  read_threads: 4
+  compute_threads: 2
+  prefetch: 8
+  shuffle: true
+
+train:
+  epochs: 3
+  computation_time: 0.02  # 20ms per batch
+  seed: 42
+
+checkpoint:
+  checkpoint_folder: file:///tmp/dl-dist-4n-checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 50

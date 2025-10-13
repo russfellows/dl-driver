@@ -36,9 +36,9 @@ pub fn is_shared_storage(uri: &str) -> bool {
 
 /// Apply path prefix to a URI for agent isolation
 /// 
-/// For local storage (file://, direct://, or absolute paths), this prepends
-/// the prefix to isolate each agent's data. For shared storage, returns the
-/// original URI unchanged.
+/// For local storage (file://, direct://, or absolute paths), this appends
+/// the prefix to the base path to isolate each agent's data. For shared storage,
+/// returns the original URI unchanged.
 /// 
 /// The prefix can include a template variable `{id}` which will be replaced
 /// with the agent_id.
@@ -47,13 +47,13 @@ pub fn is_shared_storage(uri: &str) -> bool {
 /// ```
 /// use dl_driver_core::dist::path_utils::apply_path_prefix;
 /// 
-/// // Local storage gets prefix
+/// // Local storage gets prefix appended
 /// let result = apply_path_prefix(
 ///     "file:///data/train", 
 ///     "{id}/",
 ///     "agent-0"
 /// ).unwrap();
-/// assert_eq!(result, "file:///agent-0/data/train");
+/// assert_eq!(result, "file:///data/train/agent-0");
 /// 
 /// // Shared storage unchanged
 /// let result = apply_path_prefix(
@@ -74,19 +74,21 @@ pub fn apply_path_prefix(uri: &str, prefix_template: &str, agent_id: &str) -> Re
 
     // Handle different URI formats
     if let Some(rest) = uri.strip_prefix("file://") {
-        // file:// URIs
-        let path = rest.trim_start_matches('/');
-        Ok(format!("file:///{}{}", prefix, path))
+        // file:// URIs - append prefix to path
+        let path = rest.trim_end_matches('/');
+        Ok(format!("file://{}/{}", path, prefix.trim_end_matches('/')))
     } else if let Some(rest) = uri.strip_prefix("direct://") {
-        // direct:// URIs (DirectIO)
-        let path = rest.trim_start_matches('/');
-        Ok(format!("direct:///{}{}", prefix, path))
+        // direct:// URIs (DirectIO) - append prefix to path
+        let path = rest.trim_end_matches('/');
+        Ok(format!("direct://{}/{}", path, prefix.trim_end_matches('/')))
     } else if uri.starts_with('/') {
-        // Absolute filesystem paths
-        Ok(format!("/{}{}", prefix, uri.trim_start_matches('/')))
+        // Absolute filesystem paths - append prefix to path
+        let path = uri.trim_end_matches('/');
+        Ok(format!("{}/{}", path, prefix.trim_end_matches('/')))
     } else {
         // Relative paths (less common but handle gracefully)
-        Ok(format!("{}{}", prefix, uri))
+        let path = uri.trim_end_matches('/');
+        Ok(format!("{}/{}", path, prefix.trim_end_matches('/')))
     }
 }
 
