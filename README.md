@@ -3,11 +3,12 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.7.4-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-80%2F80%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
+[![Distributed](https://img.shields.io/badge/distributed-multi--agent-purple.svg)](#distributed-execution)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
 [![REUSE status](https://api.reuse.software/badge/github.com/russfellows/dl-driver)](https://api.reuse.software/info/github.com/russfellows/dl-driver)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -19,98 +20,105 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
-## 🎯 Current Status (v0.7.4)
+## 🎯 Current Status (v0.8.0)
 
-**⚡ PERFORMANCE**: s3dlio v0.9.6 - RangeEngine disabled by default (50% faster typical workloads)
-**📦 S3DLIO 0.9.6**: Latest s3dlio release with optimized defaults for AI/ML workloads
-**🎯 ZERO CODE CHANGES**: Automatic performance improvement via s3dlio defaults
+**🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
+**🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
+**📊 DUAL METRICS**: Separate storage (ops/s, MiB/s) and AI/ML (samples/s, batches/s) perspectives
 **✅ 80/80 TESTS PASSING**: Full validation across all backends
 
-### Latest v0.7.4 Release - s3dlio v0.9.6 Upgrade - RangeEngine Default Change ⚡
-- **⚡ Performance Win**: RangeEngine disabled by default eliminates HEAD request overhead
-- **📦 s3dlio 0.9.6**: Upgraded from v0.9.5 with critical default configuration fix
-- **🎯 50% Faster**: Typical AI/ML workloads (mixed object sizes) benefit from single-request GET operations
-- **✅ Zero Changes**: dl-driver automatically inherits improved s3dlio defaults via `store_for_uri()`
-- **🧪 All Tests Pass**: 80/80 tests validated with new RangeEngine defaults across all backends
+### Latest v0.8.0 Release - Distributed Controller 🎉
+- **🌐 Multi-Agent Orchestration**: Controller coordinates workloads across multiple agent instances
+- **� Coordinated Start**: Synchronized workload execution with health checking
+- **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents
+- **🗂️ Path Isolation**: Agent-specific path prefixes for local storage isolation
+- **☁️ Shared Storage**: Automatic detection and handling of GCS/S3 shared backends
+- **✅ E2E Validated**: 2-node and 4-node configurations tested (local + GCS)
+- **📈 Performance**: Up to 2.04 GiB/s aggregate throughput (4-node local test)
 
 ---
 
-### Previous v0.7.3 Release - s3dlio v0.9.5 Upgrade - Documentation & Code Clarity 📝
-- **� Replay Clarification**: Updated all documentation to clarify replay is infrastructure/simulation only
-- **🔗 sai3-bench Reference**: Added clear guidance to use sai3-bench for real I/O replay needs
-- **🧹 Code Cleanup**: Removed streaming_replay_tests.rs (simulation-only tests)
-- **� Stub Documentation**: Marked simulate_operation() and related functions as stubs for future integration
-- **📦 s3dlio 0.8.20**: Upgraded to latest tagged release (from 0.8.19)
-- **� Analysis Document**: Created comprehensive REPLAY_ANALYSIS.md comparing dl-driver vs sai3-bench
-
-### Previous Releases
-- **v0.7.1**: Streaming replay infrastructure with s3dlio-oplog integration (simulation only)
-- **v0.6.6**: Naming consistency and base URI integration for replay functionality
-- **v0.6.4**: Realistic AI/ML framework workload simulation with PyTorch/TensorFlow/JAX profiles
-- **� Replay Analytics**: Comprehensive metrics including timing accuracy and throughput analysis
-
-### Previous Releases
-- **v0.6.4**: Realistic AI/ML framework workload simulation with PyTorch/TensorFlow/JAX profiles
-- **v0.6.2**: Tested for accurate DLIO parallel I/O with throughput calculations and AU metrics
-- **v0.6.1**: Enterprise license compliance (REUSE 3.3) with automated scanning
-- **v0.6.0**: Unified command interface and comprehensive plugin system
-
-## 🔄 Operation Log Replay
-
-> ⚠️ **Note**: dl-driver's replay functionality is **infrastructure only** and uses simulated operations.
-> For **real I/O replay** with actual storage operations, use **[sai3-bench](https://github.com/russfellows/sai3-bench)**
-> which provides production-grade replay with:
-> - Real ObjectStore I/O execution via s3dlio
-> - Advanced remapping (1:1, 1→N, N→1, regex patterns)
-> - Microsecond timing precision with HDR histograms
-> - Distributed load generation with gRPC coordination
->
-> See `docs/REPLAY_ANALYSIS.md` for detailed comparison and use case guidance.
-
-### Simulated Replay (Infrastructure Testing)
-dl-driver provides operation log parsing and streaming infrastructure for testing purposes:
-
-```bash
-# Simulated replay (no real I/O - for testing infrastructure only)
-./target/release/dl-driver replay --log-file operations.csv --fast
-```
-
-### Path Remapping Configuration
-Create a JSON file for environment-specific path translation:
-
-```json
-{
-  "/original/data/path": "/new/deployment/path",
-  "s3://source-bucket": "s3://target-bucket",
-  "/mnt/old": "/mnt/new"
-}
-```
-
-### Example Replay Output
-```bash
-🔄 Operation Log Replay Starting...
-📂 Loading operation log: operations.csv
-🗺️ Applied path remapping: 3 mappings loaded
-⚙️ Workers: 4, Timeout: 60s, Preserve timing: true
-
-📊 Replay Progress:
-✅ Operations processed: 1,247/1,247 (100%)
-📈 Throughput: 2.3 GiB/s
-⏱️ Total time: 45.2s
-🎯 Success rate: 99.8% (3 timeouts)
-
-🎉 Replay completed successfully!
-```
-
-### Infrastructure Features (Simulation Only)
-- **⏱️ Timing Control**: Parse and validate inter-arrival timing from op-logs
-- **🗺️ Path Remapping**: JSON-based path translation validation
-- **🔄 Streaming Architecture**: Constant-memory op-log processing via s3dlio-oplog
-- **📊 Progress Tracking**: Operation counting and timing metrics (simulated)
-
 **For actual storage I/O replay**, use [sai3-bench](https://github.com/russfellows/sai3-bench) instead.
 
-## 🌟 Multi-Process Scaling Usage (v0.6.3)
+## 📚 Documentation
+
+**👉 For complete documentation, see [docs/USER_GUIDE.md](docs/USER_GUIDE.md)**
+
+### Quick Links
+
+- **[User Guide](docs/USER_GUIDE.md)** - Comprehensive guide covering all features
+- **[Quick Start](docs/QUICK_START.md)** - Get started in minutes
+- **[Distributed Setup](tests/dlio_configs/DISTRIBUTED_README.md)** - Multi-agent orchestration guide
+- **[Changelog](docs/Changelog.md)** - Version history and release notes
+- **[Dual Metrics](docs/DUAL_METRICS_REPORTING.md)** - Metrics specification
+
+## 🌐 Distributed Execution (v0.8.0)
+
+### Multi-Agent Orchestration
+Execute DLIO workloads across multiple agent instances with centralized controller:
+
+```bash
+# Start agent processes on each host
+# Host 1:
+./target/release/dl_driver_agent --agent-id agent-0 --port 50051 --bind-addr 0.0.0.0 &
+
+# Host 2:
+./target/release/dl_driver_agent --agent-id agent-1 --port 50051 --bind-addr 0.0.0.0 &
+
+# Run distributed workload from controller
+./target/release/dl-driver distributed run \
+  --config tests/dlio_configs/distributed_2node_local.yaml \
+  --agents http://host1:50051,http://host2:50051 \
+  --path-template "{id}/"
+
+# Output shows aggregated results:
+╔════════════════════════════════════════════════╗
+║   Distributed Workload Complete! 🎉           ║
+╚════════════════════════════════════════════════╝
+
+📊 Storage Performance (I/O Perspective):
+   Total Throughput: 687.5 MiB/s
+   Total Operations: 40
+   Errors: 0
+
+🤖 AI/ML Training Performance (Training Perspective):
+   Training Velocity: 297.9 samples/s, 45.8 batches/s
+   Pipeline Efficiency: 37.8%
+```
+
+### Storage Backend Modes
+
+**Local Storage** (requires path template for agent isolation):
+```bash
+# Each agent writes to separate subdirectory
+./target/release/dl-driver distributed run \
+  --config distributed_local.yaml \
+  --agents http://host1:50051,http://host2:50052 \
+  --path-template "{id}/"
+# Creates: /tmp/data/agent-0/, /tmp/data/agent-1/, etc.
+```
+
+**Shared Storage** (no path template needed):
+```bash
+# All agents write to same GCS/S3 bucket
+./target/release/dl-driver distributed run \
+  --config distributed_gcs.yaml \
+  --agents http://host1:50051,http://host2:50052
+# All write to: gs://bucket/distributed-test/
+```
+
+### Key Distributed Features
+- **🌐 Multi-Host Orchestration**: Controller coordinates agents across network
+- **💓 Health Checking**: Automatic agent health verification before execution
+- **🔗 Coordinated Start**: Synchronized workload start across all agents
+- **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents
+- **🗂️ Path Isolation**: Agent-specific subdirectories for local storage
+- **☁️ Shared Storage**: Automatic detection of GCS/S3/Azure shared backends
+- **📈 Dual Metrics**: Separate storage and AI/ML training perspectives
+
+See `tests/dlio_configs/DISTRIBUTED_README.md` for complete usage guide.
+
+## �🌟 Multi-Process Scaling Usage (v0.6.3)
 
 ### Multi-Rank Distributed Execution
 Execute DLIO workloads across multiple processes with shared memory coordination:
@@ -163,15 +171,16 @@ cargo build --release
 
 ### ✨ Key Features
 
-- **🌟 Multi-Process Scaling**: `--world-size N --rank R` distributed execution with shared memory coordination
+- **� Distributed Controller**: Multi-agent orchestration with coordinated start and aggregate metrics
+- **�🌟 Multi-Process Scaling**: `--world-size N --rank R` distributed execution with shared memory coordination
 - **🔥 Enterprise Coordination**: Atomic operations, cross-process barriers, zero temp files  
 - **🚀 TRUE DLIO Parallel I/O**: Background workers with I/O+compute overlap for realistic performance
 - **🎯 Complete Format Compatibility**: NPZ, HDF5, TFRecord validated with numpy, h5py, TensorFlow
 - **🏪 Universal Storage**: File, S3/MinIO, Azure Blob, DirectIO backends with unified interface  
-- **� DLIO Compatible**: Drop-in replacement for existing DLIO benchmark configurations
-- **📊 Production Ready**: Enterprise license compliance, comprehensive testing, checkpoint system
+- **📋 DLIO Compatible**: Drop-in replacement for existing DLIO benchmark configurations
+- **📊 Dual Metrics**: Separate storage (ops/s, MiB/s) and AI/ML (samples/s, batches/s) perspectives
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
-- **🧪 Comprehensively Validated**: 60+ comprehensive tests with golden reference validation and MLCommons DLIO compatibility
+- **🧪 Comprehensively Validated**: 80+ comprehensive tests with golden reference validation and MLCommons DLIO compatibility
 
 ## 🧠 Workstream A: Realistic AI/ML Framework Simulation (v0.6.4)
 
@@ -232,6 +241,10 @@ Validate workload performance against reference operation logs:
 - **🎯 CI Integration**: PASS/FAIL validation with proper exit codes for automated testing
 
 ## 🎯 Technical Specifications
+
+### Binaries
+- **`dl-driver`**: Main CLI for single-process, multi-rank, and distributed controller execution
+- **`dl_driver_agent`**: Standalone agent process for distributed workloads (gRPC service)
 
 ### Storage Backends
 - **File System**: POSIX-compliant file I/O with DirectIO optimization
@@ -301,16 +314,30 @@ cargo build --release
 # Validate configuration without running
 ./target/release/dl-driver validate --config tests/dlio_configs/bert_config.yaml
 
-# NEW: Framework-specific workload profiles (Workstream A)
+# Multi-rank execution (shared memory coordination)
+./target/release/dl-driver run --config config.yaml --world-size 4 --rank 0 &
+./target/release/dl-driver run --config config.yaml --world-size 4 --rank 1 &
+./target/release/dl-driver run --config config.yaml --world-size 4 --rank 2 &
+./target/release/dl-driver run --config config.yaml --world-size 4 --rank 3 &
+
+# Distributed multi-agent execution
+./target/release/dl_driver_agent --agent-id agent-0 --port 50051 &
+./target/release/dl_driver_agent --agent-id agent-1 --port 50052 &
+./target/release/dl-driver distributed run \
+  --config tests/dlio_configs/distributed_2node_local.yaml \
+  --agents http://host1:50051,http://host2:50052 \
+  --path-template "{id}/"
+
+# Framework-specific workload profiles (Workstream A)
 ./target/release/dl-driver run --config config.yaml --profile torch
 ./target/release/dl-driver run --config config.yaml --profile tf
 ./target/release/dl-driver run --config config.yaml --profile jax
 
-# NEW: Metrics export for CI/CD integration (Workstream A)
+# Metrics export for CI/CD integration (Workstream A)
 ./target/release/dl-driver run --config config.yaml --metrics-json results.json
 ./target/release/dl-driver run --config config.yaml --metrics-csv results.csv
 
-# NEW: Operation log validation (Workstream A)
+# Operation log validation (Workstream A)
 ./target/release/dl-driver run --config config.yaml --op-log reference.csv.zst
 
 # Run format validation (requires Python environment)
@@ -323,6 +350,14 @@ dl-driver --help                    # Show all available commands
 dl-driver generate --help           # Generate synthetic datasets  
 dl-driver run --help               # Run DLIO workloads (with optional MLPerf mode)
 dl-driver validate --help          # Validate configurations
+dl-driver distributed --help       # Distributed multi-agent orchestration
+
+# Multi-rank execution
+dl-driver run --world-size N --rank R     # Multi-process shared memory coordination
+
+# Distributed execution
+dl_driver_agent --agent-id ID --port PORT  # Start agent process
+dl-driver distributed run --agents LIST    # Controller for multi-agent workloads
 
 # Workstream A: Advanced execution options
 dl-driver run --profile [torch|tf|jax]     # Framework-specific optimization profiles

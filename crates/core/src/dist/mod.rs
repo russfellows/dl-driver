@@ -3,11 +3,12 @@
 /// This module provides gRPC-based coordination for running DLIO workloads
 /// across multiple hosts. It includes:
 /// - Agent service for executing workloads
-/// - Controller client for coordinating multiple agents
+/// - Controller for coordinating multiple agents
 /// - Path utilities for storage backend detection and URI rewriting
 /// - Types for workload requests and metric summaries
 
 pub mod agent;
+pub mod controller;
 pub mod types;
 pub mod path_utils;
 

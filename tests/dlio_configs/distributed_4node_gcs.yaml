@@ -1,0 +1,51 @@
+# Distributed DLIO Config - 4 Nodes with Google Cloud Storage
+# 
+# This demonstrates a larger-scale distributed workload using shared cloud storage.
+#
+# Prerequisites:
+#   - Set GOOGLE_APPLICATION_CREDENTIALS or use gcloud auth
+#   - Bucket must exist: gsutil mb gs://your-dlio-test-bucket
+#
+# Usage:
+#   Terminal 1-4: dl_driver_agent --agent-id agent-{0-3} --port 5005{1-4}
+#   Terminal 5: dl-driver distributed run --config tests/dlio_configs/distributed_4node_gcs.yaml \
+#               --agents http://127.0.0.1:50051,http://127.0.0.1:50052,http://127.0.0.1:50053,http://127.0.0.1:50054
+
+model:
+  name: distributed_gcs_4node
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+
+dataset:
+  # Google Cloud Storage - shared storage across all agents
+  # No path template needed - all agents write to the same bucket/prefix
+  # IMPORTANT: Replace <YOUR-GCS-BUCKET> with your actual GCS bucket name
+  data_folder: gs://<YOUR-GCS-BUCKET>/dl-driver-test/distributed-4node
+  format: npz
+
+reader:
+  data_loader: pytorch
+  batch_size: 32
+  read_threads: 4
+  compute_threads: 2
+  prefetch: 16
+  shuffle: true
+  file_shuffle: true
+
+train:
+  epochs: 5
+  computation_time: 0.05  # 50ms per batch (simulate real workload)
+  seed: 42
+
+checkpoint:
+  # Checkpoints also on GCS for shared access
+  # IMPORTANT: Replace <YOUR-GCS-BUCKET> with your actual GCS bucket name
+  checkpoint_folder: gs://<YOUR-GCS-BUCKET>/dl-driver-test/distributed-4node-checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 100

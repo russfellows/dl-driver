@@ -9,6 +9,152 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2025-10-12 🎉 **Phase 3: Distributed Controller - Multi-Agent Orchestration**
+
+### **🎯 Major Features**
+
+#### **Distributed Controller Service**
+- ✅ **Multi-Agent Orchestration**: Controller coordinates multiple agent instances for true distributed workloads
+- ✅ **Health Checking**: Automatic agent health monitoring before workload execution
+- ✅ **Coordinated Start**: Synchronized workload start across all agents with configurable delay
+- ✅ **Aggregate Metrics**: Automatic collection and aggregation of metrics from all agents
+- ✅ **Dual TSV Output**: Both storage and AI/ML metrics aggregated across distributed agents
+
+#### **Distributed CLI**
+New `distributed` subcommand for multi-agent workload orchestration:
+```bash
+dl-driver distributed run \
+  --config tests/dlio_configs/distributed_2node_local.yaml \
+  --agents http://host1:50051,http://host2:50052 \
+  --path-template "{id}/"
+```
+
+Features:
+- `--agents`: Comma-separated list of agent gRPC endpoints
+- `--path-template`: Optional template for agent-specific path isolation (e.g., `{id}/`)
+- `--start-delay-ms`: Configurable coordination delay (default: 1000ms)
+- Automatic storage backend detection from config `data_folder` URI
+
+### **🔧 Technical Implementation**
+
+#### **Controller Service** (`crates/core/src/dist/controller.rs`)
+- `DistributedController` struct for multi-agent coordination
+- Health check phase with parallel gRPC calls
+- Coordinated start with timing synchronization
+- Workload execution with concurrent agent processing
+- Metrics aggregation with dual TSV generation
+- Comprehensive error handling and reporting
+
+#### **Path Utilities** (`crates/core/src/dist/path_utils.rs`)
+- `apply_path_prefix()`: Appends agent-specific prefix to data paths
+- Supports `file://`, `direct://`, and absolute paths
+- Template variable substitution (`{id}` → agent ID)
+- Storage backend detection (shared vs. local storage)
+- **Critical Bug Fix**: Changed from prepending to appending prefix
+  - Was: `file:///agent-1/tmp/data` ❌
+  - Now: `file:///tmp/data/agent-1` ✅
+
+#### **Enhanced CLI** (`crates/cli/src/main.rs`)
+- New `distributed run` subcommand with full argument parsing
+- Agent CLI consistency: `-v/-vv` flags, `--version` support
+- Improved error messages and user feedback
+- Pretty-printed aggregate results
+
+### **📦 Example Configurations**
+
+Four comprehensive distributed test configurations:
+
+1. **`distributed_2node_local.yaml`**: 2-node local storage test
+   - 20 files × 1MB per agent, 2 epochs
+   - Requires `--path-template "{id}/"` for agent isolation
+   - Performance: 687.5 MiB/s aggregate
+
+2. **`distributed_2node_gcs.yaml`**: 2-node Google Cloud Storage test
+   - 20 files × 1MB shared across agents
+   - No path template needed (shared storage)
+   - Performance: 17.2 MiB/s aggregate (network-limited)
+
+3. **`distributed_4node_local.yaml`**: 4-node local storage with checkpointing
+   - 40 files × 2MB per agent, 3 epochs
+   - 160 total files (321MB)
+   - Performance: 2.04 GiB/s aggregate
+
+4. **`distributed_4node_gcs.yaml`**: 4-node GCS with checkpointing
+   - 100 files × 4MB shared across agents
+   - GCS checkpoint folder configured
+
+#### **Complete Usage Guide**
+- **`tests/dlio_configs/DISTRIBUTED_README.md`**: 200+ line comprehensive guide
+  - Quick start examples
+  - Storage backend behavior (local vs. shared)
+  - Environment setup (GCS authentication)
+  - Troubleshooting and best practices
+
+### **✅ End-to-End Testing**
+
+Complete validation of distributed functionality:
+
+| Test | Config | Nodes | Backend | Storage | Performance | Status |
+|------|--------|-------|---------|---------|-------------|--------|
+| 2-node local | distributed_2node_local | 2 | file:// | 40 files, 40MB | 687.5 MiB/s | ✅ PASS |
+| 2-node GCS | distributed_2node_gcs | 2 | gs:// | 20 files, 20MB | 17.2 MiB/s | ✅ PASS |
+| 4-node local | distributed_4node_local | 4 | file:// | 160 files, 321MB | 2.04 GiB/s | ✅ PASS |
+
+**Key Validations:**
+- ✅ Health checks < 10ms per agent
+- ✅ Coordinated start synchronized within 1ms
+- ✅ Path prefix correctly applied for local storage
+- ✅ Shared storage correctly detected (no prefix for gs://)
+- ✅ GCS files verified in bucket
+- ✅ Dual metrics (storage + AI/ML) aggregated correctly
+- ✅ All agents completed successfully with zero errors
+
+### **🐛 Bug Fixes**
+
+#### **Path Prefix Logic Error**
+- **Issue**: `apply_path_prefix()` was prepending prefix instead of appending
+- **Impact**: Agents tried to write to invalid paths like `/agent-1/tmp/data`
+- **Fix**: Changed logic to append prefix after base path: `/tmp/data/agent-1`
+- **Location**: `crates/core/src/dist/path_utils.rs` lines 73-91
+- **Result**: All distributed tests now pass with correct path isolation
+
+### **📚 Documentation**
+
+- **New**: `tests/dlio_configs/DISTRIBUTED_README.md` - Complete distributed usage guide
+- **Updated**: `docs/PHASE3_TESTING_SUMMARY.md` - Full E2E testing report with all results
+- **Updated**: GCS configs use `<YOUR-GCS-BUCKET>` placeholder for privacy
+- **Updated**: All example configs include comprehensive usage instructions
+
+### **🔄 Version Updates**
+
+- Workspace version: `0.7.5` → `0.8.0`
+- All crate versions bumped to `0.8.0`
+- Agent binary version consistency with main CLI
+
+### **🎨 User Experience**
+
+Beautiful formatted output for distributed runs:
+```
+╔════════════════════════════════════════════════╗
+║   Distributed Workload Complete! 🎉           ║
+╚════════════════════════════════════════════════╝
+
+📊 Storage Performance (I/O Perspective):
+   Total Throughput: 313.0 ops/s, 2044.2 MiB/s
+   Total Operations: 196
+   Average Latency: p50=0.00ms, p90=0.00ms, p95=0.00ms, p99=0.00ms
+   Errors: 0
+
+🤖 AI/ML Training Performance (Training Perspective):
+   Training Velocity: 313.0 samples/s, 25.6 batches/s
+   Total Samples: 196, Total Batches: 16
+   Average Batch Time: 21.10ms
+   Epochs Completed: 12
+   Pipeline Efficiency: 30.3%
+```
+
+---
+
 ## [0.7.5] - 2025-10-12 🚀 **Phase 2: Agent Implementation - Dual Metrics System**
 
 ### **🎯 Major Features**
