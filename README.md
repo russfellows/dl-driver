@@ -35,10 +35,6 @@
 
 ---
 
-- **🗺️ Path Remapping**: JSON-based path translation validation
-- **🔄 Streaming Architecture**: Constant-memory op-log processing via s3dlio-oplog
-- **📊 Progress Tracking**: Operation counting and timing metrics (simulated)
-
 **For actual storage I/O replay**, use [sai3-bench](https://github.com/russfellows/sai3-bench) instead.
 
 ## 🌟 Multi-Process Scaling Usage (v0.6.3)
