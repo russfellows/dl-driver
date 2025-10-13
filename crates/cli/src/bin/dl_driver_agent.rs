@@ -20,7 +20,7 @@ use dl_driver_core::dist::proto::dist_agent_server::DistAgentServer;
 /// Command-line arguments for the agent
 #[derive(Parser, Debug)]
 #[command(name = "dl-driver-agent")]
-#[command(about = "DLIO workload agent for distributed execution", long_about = None)]
+#[command(author, version, about = "DLIO workload agent for distributed execution", long_about = None)]
 struct Args {
     /// Port to listen on
     #[arg(short, long, default_value = "50051")]
@@ -34,18 +34,33 @@ struct Args {
     #[arg(short, long)]
     agent_id: Option<String>,
 
-    /// Log level (trace, debug, info, warn, error)
-    #[arg(short, long, default_value = "info")]
-    log_level: String,
+    /// Increase verbosity (default: info, -v: debug, -vv: trace)
+    #[arg(short, long, action = clap::ArgAction::Count, conflicts_with = "log_level")]
+    verbose: u8,
+
+    /// Explicit log level (trace, debug, info, warn, error) - alternative to -v flags
+    #[arg(short = 'l', long, conflicts_with = "verbose")]
+    log_level: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
+    // Determine log level from either -v flags or explicit -l/--log-level
+    let log_level = if let Some(level) = args.log_level.as_ref() {
+        level.as_str()
+    } else {
+        match args.verbose {
+            0 => "info",   // Default: info level
+            1 => "debug",  // -v: debug level
+            _ => "trace",  // -vv: trace level
+        }
+    };
+
     // Initialize tracing/logging
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&args.log_level));
+        .unwrap_or_else(|_| EnvFilter::new(log_level));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -67,7 +82,7 @@ async fn main() -> Result<()> {
     info!("  Agent ID: {}", agent_id);
     info!("  Bind address: {}", args.bind_addr);
     info!("  Port: {}", args.port);
-    info!("  Log level: {}", args.log_level);
+    info!("  Log level: {}", log_level);
 
     // Parse socket address
     let addr: SocketAddr = format!("{}:{}", args.bind_addr, args.port)

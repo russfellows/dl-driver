@@ -219,7 +219,7 @@ impl Controller {
     async fn send_workload_to_agent(
         endpoint: &str,
         agent_id: &str,
-        mut config: DlioConfig,
+        config: DlioConfig,
         path_template: &str,
         start_unix_ms: i64,
         timeout_ms: u64,
