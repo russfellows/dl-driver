@@ -20,6 +20,7 @@ indicatif = "0.17"
 # gRPC dependencies for distributed execution
 tonic = "0.12"
 prost = "0.13"
+hostname = "0.4"  # For agent ID generation
 
 dl-driver-core    = { path = "../core" }
 dl-driver-formats = { path = "../formats" }

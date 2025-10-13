@@ -142,6 +142,26 @@ impl Metrics {
         self.data.lock().unwrap().total_time
     }
 
+    pub fn batches_processed(&self) -> u64 {
+        self.data.lock().unwrap().batches_processed
+    }
+
+    pub fn total_read_time(&self) -> Duration {
+        self.data.lock().unwrap().read_times.iter().sum()
+    }
+
+    pub fn total_compute_time(&self) -> Duration {
+        self.data.lock().unwrap().compute_times.iter().sum()
+    }
+
+    pub fn batch_times(&self) -> Vec<Duration> {
+        self.data.lock().unwrap().batch_times.clone()
+    }
+
+    pub fn epoch_times(&self) -> Vec<Duration> {
+        self.data.lock().unwrap().epoch_times.clone()
+    }
+
     /// Record a read operation
     pub fn record_read_time(&self, duration: Duration) {
         let mut data = self.data.lock().unwrap();

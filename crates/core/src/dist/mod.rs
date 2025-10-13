@@ -7,6 +7,7 @@
 /// - Path utilities for storage backend detection and URI rewriting
 /// - Types for workload requests and metric summaries
 
+pub mod agent;
 pub mod types;
 pub mod path_utils;
 
@@ -19,5 +20,6 @@ pub mod proto {
 }
 
 // Re-export key types for convenience
-pub use types::{WorkloadRequest, WorkloadResult};
+pub use agent::AgentService;
+pub use types::{WorkloadRequest, WorkloadResult, AggregateResults};
 pub use path_utils::{is_shared_storage, apply_path_prefix, join_uri_path};

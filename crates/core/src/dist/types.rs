@@ -39,9 +39,14 @@ impl From<proto::RunWorkloadRequest> for WorkloadRequest {
 }
 
 /// Workload execution results with performance metrics
+/// 
+/// Provides both storage-focused metrics (ops/s, MiB/s) and AI/ML training metrics
+/// (samples/s, batches/s) for comprehensive performance analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkloadResult {
     pub agent_id: String,
+    
+    // Storage performance metrics
     pub ops_per_s: f64,
     pub mib_per_s: f64,
     pub p50_ms: f64,
@@ -51,12 +56,26 @@ pub struct WorkloadResult {
     pub errors: u32,
     pub total_ops: u64,
     pub duration_s: f64,
+    
+    // AI/ML training metrics
+    pub samples_per_second: f64,
+    pub total_samples: u64,
+    pub samples_per_batch: u64,
+    pub batches_per_second: f64,
+    pub total_batches: u64,
+    pub avg_batch_time_ms: f64,
+    pub epochs_completed: u32,
+    pub avg_epoch_time_s: f64,
+    pub data_loading_time_s: f64,
+    pub compute_time_s: f64,
+    pub pipeline_efficiency: f64,
 }
 
 impl From<proto::WorkloadSummary> for WorkloadResult {
     fn from(summary: proto::WorkloadSummary) -> Self {
         WorkloadResult {
             agent_id: summary.agent_id,
+            // Storage metrics
             ops_per_s: summary.ops_per_s,
             mib_per_s: summary.mib_per_s,
             p50_ms: summary.p50_ms,
@@ -66,6 +85,18 @@ impl From<proto::WorkloadSummary> for WorkloadResult {
             errors: summary.errors,
             total_ops: summary.total_ops,
             duration_s: summary.duration_s,
+            // AI/ML metrics
+            samples_per_second: summary.samples_per_second,
+            total_samples: summary.total_samples,
+            samples_per_batch: summary.samples_per_batch,
+            batches_per_second: summary.batches_per_second,
+            total_batches: summary.total_batches,
+            avg_batch_time_ms: summary.avg_batch_time_ms,
+            epochs_completed: summary.epochs_completed,
+            avg_epoch_time_s: summary.avg_epoch_time_s,
+            data_loading_time_s: summary.data_loading_time_s,
+            compute_time_s: summary.compute_time_s,
+            pipeline_efficiency: summary.pipeline_efficiency,
         }
     }
 }
@@ -74,6 +105,7 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
     fn from(result: WorkloadResult) -> Self {
         proto::WorkloadSummary {
             agent_id: result.agent_id,
+            // Storage metrics
             ops_per_s: result.ops_per_s,
             mib_per_s: result.mib_per_s,
             p50_ms: result.p50_ms,
@@ -83,13 +115,28 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
             errors: result.errors,
             total_ops: result.total_ops,
             duration_s: result.duration_s,
+            // AI/ML metrics
+            samples_per_second: result.samples_per_second,
+            total_samples: result.total_samples,
+            samples_per_batch: result.samples_per_batch,
+            batches_per_second: result.batches_per_second,
+            total_batches: result.total_batches,
+            avg_batch_time_ms: result.avg_batch_time_ms,
+            epochs_completed: result.epochs_completed,
+            avg_epoch_time_s: result.avg_epoch_time_s,
+            data_loading_time_s: result.data_loading_time_s,
+            compute_time_s: result.compute_time_s,
+            pipeline_efficiency: result.pipeline_efficiency,
         }
     }
 }
 
 /// Aggregate results from multiple agents
+/// 
+/// Combines both storage metrics and AI/ML training metrics across all agents
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregateResults {
+    // Storage aggregate metrics
     pub total_ops_per_s: f64,
     pub total_mib_per_s: f64,
     pub avg_p50_ms: f64,
@@ -98,6 +145,19 @@ pub struct AggregateResults {
     pub avg_p99_ms: f64,
     pub total_errors: u32,
     pub total_ops: u64,
+    
+    // AI/ML aggregate metrics
+    pub total_samples_per_second: f64,
+    pub total_samples: u64,
+    pub total_batches_per_second: f64,
+    pub total_batches: u64,
+    pub avg_batch_time_ms: f64,
+    pub total_epochs_completed: u32,
+    pub avg_epoch_time_s: f64,
+    pub avg_data_loading_time_s: f64,
+    pub avg_compute_time_s: f64,
+    pub avg_pipeline_efficiency: f64,
+    
     pub agent_results: Vec<WorkloadResult>,
 }
 
@@ -108,18 +168,34 @@ impl AggregateResults {
             anyhow::bail!("Cannot aggregate empty results");
         }
 
+        let count = results.len() as f64;
+        
+        // Storage metric aggregation
         let total_ops_per_s: f64 = results.iter().map(|r| r.ops_per_s).sum();
         let total_mib_per_s: f64 = results.iter().map(|r| r.mib_per_s).sum();
         let total_errors: u32 = results.iter().map(|r| r.errors).sum();
         let total_ops: u64 = results.iter().map(|r| r.total_ops).sum();
 
-        let count = results.len() as f64;
         let avg_p50_ms = results.iter().map(|r| r.p50_ms).sum::<f64>() / count;
         let avg_p90_ms = results.iter().map(|r| r.p90_ms).sum::<f64>() / count;
         let avg_p95_ms = results.iter().map(|r| r.p95_ms).sum::<f64>() / count;
         let avg_p99_ms = results.iter().map(|r| r.p99_ms).sum::<f64>() / count;
 
+        // AI/ML metric aggregation
+        let total_samples_per_second: f64 = results.iter().map(|r| r.samples_per_second).sum();
+        let total_samples: u64 = results.iter().map(|r| r.total_samples).sum();
+        let total_batches_per_second: f64 = results.iter().map(|r| r.batches_per_second).sum();
+        let total_batches: u64 = results.iter().map(|r| r.total_batches).sum();
+        let total_epochs_completed: u32 = results.iter().map(|r| r.epochs_completed).sum();
+        
+        let avg_batch_time_ms = results.iter().map(|r| r.avg_batch_time_ms).sum::<f64>() / count;
+        let avg_epoch_time_s = results.iter().map(|r| r.avg_epoch_time_s).sum::<f64>() / count;
+        let avg_data_loading_time_s = results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count;
+        let avg_compute_time_s = results.iter().map(|r| r.compute_time_s).sum::<f64>() / count;
+        let avg_pipeline_efficiency = results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count;
+
         Ok(AggregateResults {
+            // Storage metrics
             total_ops_per_s,
             total_mib_per_s,
             avg_p50_ms,
@@ -128,12 +204,25 @@ impl AggregateResults {
             avg_p99_ms,
             total_errors,
             total_ops,
+            // AI/ML metrics
+            total_samples_per_second,
+            total_samples,
+            total_batches_per_second,
+            total_batches,
+            avg_batch_time_ms,
+            total_epochs_completed,
+            avg_epoch_time_s,
+            avg_data_loading_time_s,
+            avg_compute_time_s,
+            avg_pipeline_efficiency,
             agent_results: results,
         })
     }
 
-    /// Format results as TSV with per-agent and aggregate rows
-    pub fn to_tsv(&self) -> String {
+    /// Format storage results as TSV with per-agent and aggregate rows
+    /// 
+    /// Returns storage performance metrics (ops/s, MiB/s, latency)
+    pub fn to_storage_tsv(&self) -> String {
         let mut output = String::new();
         output.push_str("agent_id\tops_s\tmib_s\tp50_ms\tp90_ms\tp95_ms\tp99_ms\terrors\ttotal_ops\tduration_s\n");
 
@@ -167,6 +256,55 @@ impl AggregateResults {
 
         output
     }
+
+    /// Format AI/ML training results as TSV with per-agent and aggregate rows
+    /// 
+    /// Returns AI/ML training metrics (samples/s, batches/s, epochs)
+    pub fn to_aiml_tsv(&self) -> String {
+        let mut output = String::new();
+        output.push_str("agent_id\tsamples_s\ttotal_samples\tbatches_s\ttotal_batches\tsamples_per_batch\tavg_batch_ms\tepochs\tavg_epoch_s\tdata_load_s\tcompute_s\tpipeline_eff\n");
+
+        for result in &self.agent_results {
+            output.push_str(&format!(
+                "{}\t{:.1}\t{}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.3}\n",
+                result.agent_id,
+                result.samples_per_second,
+                result.total_samples,
+                result.batches_per_second,
+                result.total_batches,
+                result.samples_per_batch,
+                result.avg_batch_time_ms,
+                result.epochs_completed,
+                result.avg_epoch_time_s,
+                result.data_loading_time_s,
+                result.compute_time_s,
+                result.pipeline_efficiency,
+            ));
+        }
+
+        output.push_str(&format!(
+            "AGGREGATE\t{:.1}\t{}\t{:.1}\t{}\t-\t{:.2}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.3}\n",
+            self.total_samples_per_second,
+            self.total_samples,
+            self.total_batches_per_second,
+            self.total_batches,
+            self.avg_batch_time_ms,
+            self.total_epochs_completed,
+            self.avg_epoch_time_s,
+            self.avg_data_loading_time_s,
+            self.avg_compute_time_s,
+            self.avg_pipeline_efficiency,
+        ));
+
+        output
+    }
+
+    /// Format results as legacy TSV (for backward compatibility)
+    /// 
+    /// Alias for to_storage_tsv()
+    pub fn to_tsv(&self) -> String {
+        self.to_storage_tsv()
+    }
 }
 
 #[cfg(test)]
@@ -178,6 +316,7 @@ mod tests {
         let results = vec![
             WorkloadResult {
                 agent_id: "agent1".to_string(),
+                // Storage metrics
                 ops_per_s: 1000.0,
                 mib_per_s: 500.0,
                 p50_ms: 10.0,
@@ -187,9 +326,22 @@ mod tests {
                 errors: 0,
                 total_ops: 10000,
                 duration_s: 10.0,
+                // AI/ML metrics
+                samples_per_second: 5000.0,
+                total_samples: 50000,
+                samples_per_batch: 64,
+                batches_per_second: 78.125,
+                total_batches: 781,
+                avg_batch_time_ms: 12.8,
+                epochs_completed: 1,
+                avg_epoch_time_s: 10.0,
+                data_loading_time_s: 6.0,
+                compute_time_s: 3.5,
+                pipeline_efficiency: 0.95,
             },
             WorkloadResult {
                 agent_id: "agent2".to_string(),
+                // Storage metrics
                 ops_per_s: 1200.0,
                 mib_per_s: 600.0,
                 p50_ms: 12.0,
@@ -199,16 +351,34 @@ mod tests {
                 errors: 1,
                 total_ops: 12000,
                 duration_s: 10.0,
+                // AI/ML metrics
+                samples_per_second: 6000.0,
+                total_samples: 60000,
+                samples_per_batch: 64,
+                batches_per_second: 93.75,
+                total_batches: 938,
+                avg_batch_time_ms: 10.7,
+                epochs_completed: 1,
+                avg_epoch_time_s: 10.0,
+                data_loading_time_s: 5.5,
+                compute_time_s: 4.0,
+                pipeline_efficiency: 0.95,
             },
         ];
 
         let agg = AggregateResults::from_results(results).unwrap();
         
+        // Storage aggregates
         assert_eq!(agg.total_ops_per_s, 2200.0);
         assert_eq!(agg.total_mib_per_s, 1100.0);
         assert_eq!(agg.avg_p50_ms, 11.0);
         assert_eq!(agg.total_errors, 1);
         assert_eq!(agg.total_ops, 22000);
+        
+        // AI/ML aggregates
+        assert_eq!(agg.total_samples_per_second, 11000.0);
+        assert_eq!(agg.total_samples, 110000);
+        assert_eq!(agg.total_batches, 1719);
     }
 
     #[test]
@@ -216,6 +386,7 @@ mod tests {
         let results = vec![
             WorkloadResult {
                 agent_id: "agent1".to_string(),
+                // Storage metrics
                 ops_per_s: 1000.0,
                 mib_per_s: 500.0,
                 p50_ms: 10.0,
@@ -225,14 +396,37 @@ mod tests {
                 errors: 0,
                 total_ops: 10000,
                 duration_s: 10.0,
+                // AI/ML metrics
+                samples_per_second: 5000.0,
+                total_samples: 50000,
+                samples_per_batch: 64,
+                batches_per_second: 78.125,
+                total_batches: 781,
+                avg_batch_time_ms: 12.8,
+                epochs_completed: 1,
+                avg_epoch_time_s: 10.0,
+                data_loading_time_s: 6.0,
+                compute_time_s: 3.5,
+                pipeline_efficiency: 0.95,
             },
         ];
 
         let agg = AggregateResults::from_results(results).unwrap();
-        let tsv = agg.to_tsv();
         
-        assert!(tsv.contains("agent_id\tops_s"));
-        assert!(tsv.contains("agent1\t1000.0"));
-        assert!(tsv.contains("AGGREGATE\t1000.0"));
+        // Test storage TSV
+        let storage_tsv = agg.to_storage_tsv();
+        assert!(storage_tsv.contains("agent_id\tops_s"));
+        assert!(storage_tsv.contains("agent1\t1000.0"));
+        assert!(storage_tsv.contains("AGGREGATE\t1000.0"));
+        
+        // Test AI/ML TSV
+        let aiml_tsv = agg.to_aiml_tsv();
+        assert!(aiml_tsv.contains("agent_id\tsamples_s"));
+        assert!(aiml_tsv.contains("agent1\t5000.0"));
+        assert!(aiml_tsv.contains("AGGREGATE\t5000.0"));
+        
+        // Test legacy to_tsv() still works
+        let legacy_tsv = agg.to_tsv();
+        assert!(legacy_tsv.contains("agent_id\tops_s"));
     }
 }
