@@ -10,7 +10,7 @@ tracing = "0.1"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.6" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.10" }
 
 dl-driver-core = { path = "../core" }
 dl-driver-formats = { path = "../formats" }

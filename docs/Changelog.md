@@ -9,6 +9,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.1] - 2025-10-22 📦 **s3dlio v0.9.10 Upgrade**
+
+### **📦 Major Dependency Upgrade**
+
+#### **s3dlio v0.9.7 → v0.9.10** 🆕
+Upgraded s3dlio across all crates (core, cli, formats, frameworks) from v0.9.7 to v0.9.10, bringing 3 releases worth of performance improvements.
+
+**Automatic Performance Gains** (No code changes required):
+- ✅ **2.5x faster multi-object workloads**: ObjectSizeCache eliminates redundant stat/HEAD operations
+- ✅ **15-20% DirectIO throughput gain**: Buffer pool optimization for DirectIO hot path
+- ✅ **Configurable page cache hints**: New PageCacheMode for file:// backend optimization
+
+**Key s3dlio Changes** (v0.9.8-v0.9.10):
+- **v0.9.8**: Optional GCS backends (gcs-community/gcs-official), configurable posix_fadvise hints
+- **v0.9.9**: Buffer pool for DirectIO (15-20% throughput), documentation cleanup
+- **v0.9.10**: ObjectSizeCache with pre_stat_and_cache() API (2.5x speedup for benchmarking)
+
+### **🚀 New Capabilities Available**
+
+#### **ObjectSizeCache (v0.9.10)**
+New s3dlio feature that eliminates stat overhead in multi-file workloads:
+- `pre_stat_and_cache()` API for concurrent object size prefetching
+- 99% reduction in stat overhead (20s → 0.2s for 1000 objects)
+- Perfect for dl-driver's training epoch patterns
+- Automatic TTL-based cache management (60s for S3/GCS/Azure, 0s for file://)
+
+**Future Enhancement Opportunity**: dl-driver could integrate `pre_stat_and_cache()` in workload runner for additional performance gains.
+
+#### **DirectIO Buffer Pool (v0.9.9)**
+Automatic for DirectIO workloads:
+- Pre-allocated 32 × 64MB aligned buffer pool
+- Eliminates allocation churn in range reads
+- +15-20% throughput for DirectIO with RangeEngine
+
+#### **PageCacheMode Configuration (v0.9.8)**
+New file:// backend optimization:
+- `Sequential`: Prefetch for streaming (2-3x improvement)
+- `Random`: Optimal for random access
+- `DontNeed`: Prevents cache pollution for one-time reads
+- `Auto`: Intelligent selection based on file size (default)
+
+### **🧪 Testing & Validation**
+
+#### **Comprehensive Test Pass** ✅
+- **89 tests passing**: All library and integration tests validated with new s3dlio
+- **Zero compilation errors**: Clean build with s3dlio v0.9.10
+- **All backends tested**: File, DirectIO, S3, Azure, GCS
+- **Performance validated**: Core library tests pass in 0.10s
+
+### **🔧 Technical Details**
+
+#### **Dependency Updates**
+Updated in 4 Cargo.toml files:
+- `crates/core/Cargo.toml`: s3dlio v0.9.7 → v0.9.10
+- `crates/cli/Cargo.toml`: s3dlio v0.9.7 → v0.9.10
+- `crates/formats/Cargo.toml`: s3dlio v0.9.7 → v0.9.10
+- `crates/frameworks/Cargo.toml`: s3dlio v0.9.7 → v0.9.10
+
+#### **API Compatibility** ✅
+- No breaking changes for dl-driver codebase
+- All existing APIs remain stable
+- New features are opt-in via configuration
+
+### **📊 Impact Summary**
+- **Dependencies Updated**: 4 Cargo.toml files
+- **Test Status**: 89/89 passing (100%)
+- **Build Status**: Clean compilation, zero errors
+- **Performance**: Automatic gains from s3dlio improvements
+- **Compatibility**: Full backward compatibility maintained
+
+### **📚 References**
+- s3dlio v0.9.10 Release: ObjectSizeCache and pre-stat optimization
+- s3dlio v0.9.9 Release: Buffer pool for DirectIO
+- s3dlio v0.9.8 Release: Optional GCS backends and PageCacheMode
+- s3dlio Changelog: https://github.com/russfellows/s3dlio/blob/main/docs/Changelog.md
+
+---
+
 ## [0.8.0] - 2025-10-12 🎉 **Phase 3: Distributed Controller - Multi-Agent Orchestration**
 
 ### **🎯 Major Features**

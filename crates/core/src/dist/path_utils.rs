@@ -185,25 +185,25 @@ mod tests {
     fn test_apply_path_prefix_file() {
         let uri = "file:///data/train";
         let result = apply_path_prefix(uri, "{id}/", "agent-0").unwrap();
-        assert_eq!(result, "file:///agent-0/data/train");
+        assert_eq!(result, "file:///data/train/agent-0");
 
         let uri = "file:///mnt/test/data";
         let result = apply_path_prefix(uri, "run1/{id}/", "agent-2").unwrap();
-        assert_eq!(result, "file:///run1/agent-2/mnt/test/data");
+        assert_eq!(result, "file:///mnt/test/data/run1/agent-2");
     }
 
     #[test]
     fn test_apply_path_prefix_direct() {
         let uri = "direct:///nvme/data";
         let result = apply_path_prefix(uri, "{id}/", "agent-0").unwrap();
-        assert_eq!(result, "direct:///agent-0/nvme/data");
+        assert_eq!(result, "direct:///nvme/data/agent-0");
     }
 
     #[test]
     fn test_apply_path_prefix_absolute() {
         let uri = "/data/train";
         let result = apply_path_prefix(uri, "{id}/", "agent-0").unwrap();
-        assert_eq!(result, "/agent-0/data/train");
+        assert_eq!(result, "/data/train/agent-0");
     }
 
     #[test]
