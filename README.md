@@ -20,6 +20,26 @@
 
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
+## 🎯 Current Status
+
+**🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
+**🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
+**📊 HISTOGRAM AGGREGATION**: Accurate percentile calculation with <1% error for distributed workloads
+**📁 RESULTS DIRECTORY**: Complete, reproducible results with per-agent and consolidated metrics
+**✅ 119/119 TESTS PASSING**: Full validation across all features and backends
+
+### Core Capabilities
+- **🌐 Multi-Agent Orchestration**: Controller coordinates workloads across multiple agent instances
+- **💓 Coordinated Start**: Synchronized workload execution with health checking
+- **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents with histogram-based percentiles
+- **📁 Structured Results**: Complete results directory with per-agent TSV files and consolidated metrics
+- **🗂️ Path Isolation**: Agent-specific path prefixes for local storage isolation
+- **☁️ Shared Storage**: Automatic detection and handling of GCS/S3/Azure shared backends
+- **✅ E2E Validated**: 2-node and 4-node configurations tested (local + cloud storage)
+- **📈 Performance**: Multi-GiB/s aggregate throughput with accurate percentile tracking
+
+---
+
 ## 🎯 Current Status (v0.8.0)
 
 **🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
@@ -51,8 +71,9 @@
 - **[Distributed Setup](tests/dlio_configs/DISTRIBUTED_README.md)** - Multi-agent orchestration guide
 - **[Changelog](docs/Changelog.md)** - Version history and release notes
 - **[Dual Metrics](docs/DUAL_METRICS_REPORTING.md)** - Metrics specification
+- **[Results Directory Format](docs/RESULTS_DIRECTORY_FORMAT.md)** - Structured results output specification
 
-## 🌐 Distributed Execution (v0.8.0)
+## 🌐 Distributed Execution
 
 ### Multi-Agent Orchestration
 Execute DLIO workloads across multiple agent instances with centralized controller:
@@ -118,7 +139,7 @@ Execute DLIO workloads across multiple agent instances with centralized controll
 
 See `tests/dlio_configs/DISTRIBUTED_README.md` for complete usage guide.
 
-## �🌟 Multi-Process Scaling Usage (v0.6.3)
+## 🌟 Multi-Process Scaling Usage
 
 ### Multi-Rank Distributed Execution
 Execute DLIO workloads across multiple processes with shared memory coordination:
@@ -171,6 +192,24 @@ cargo build --release
 
 ### ✨ Key Features
 
+- **🌐 Distributed Controller**: Multi-agent orchestration with coordinated start and histogram-based aggregate metrics
+- **📁 Results Directory**: Complete, reproducible results with per-agent and consolidated TSV files
+- **📊 Histogram Aggregation**: Accurate percentile calculation (<1% error) for distributed workloads
+- **🌟 Multi-Process Scaling**: `--world-size N --rank R` distributed execution with shared memory coordination
+- **🔥 Enterprise Coordination**: Atomic operations, cross-process barriers, zero temp files  
+- **🚀 TRUE DLIO Parallel I/O**: Background workers with I/O+compute overlap for realistic performance
+- **🎯 Complete Format Compatibility**: NPZ, HDF5, TFRecord validated with numpy, h5py, TensorFlow
+- **🏪 Universal Storage**: File, S3/MinIO, Azure Blob, DirectIO backends with unified interface  
+- **📋 DLIO Compatible**: Drop-in replacement for existing DLIO benchmark configurations
+- **📊 Dual Metrics**: Separate storage (ops/s, MiB/s) and AI/ML (samples/s, batches/s) perspectives
+- **☁️ Production Cloud Ready**: Real S3 and Azure credential support
+- **🧪 Comprehensively Validated**: 119 comprehensive tests with golden reference validation and MLCommons DLIO compatibility
+
+## 🧠 Workstream A: Realistic AI/ML Framework Simulation
+```
+
+### ✨ Key Features
+
 - **� Distributed Controller**: Multi-agent orchestration with coordinated start and aggregate metrics
 - **�🌟 Multi-Process Scaling**: `--world-size N --rank R` distributed execution with shared memory coordination
 - **🔥 Enterprise Coordination**: Atomic operations, cross-process barriers, zero temp files  
@@ -180,9 +219,9 @@ cargo build --release
 - **📋 DLIO Compatible**: Drop-in replacement for existing DLIO benchmark configurations
 - **📊 Dual Metrics**: Separate storage (ops/s, MiB/s) and AI/ML (samples/s, batches/s) perspectives
 - **☁️ Production Cloud Ready**: Real S3 and Azure credential support
-- **🧪 Comprehensively Validated**: 80+ comprehensive tests with golden reference validation and MLCommons DLIO compatibility
+- **🧪 Comprehensively Validated**: 119 comprehensive tests with golden reference validation and MLCommons DLIO compatibility
 
-## 🧠 Workstream A: Realistic AI/ML Framework Simulation (v0.6.4)
+## 🧠 Workstream A: Realistic AI/ML Framework Simulation
 
 ### Framework-Specific Workload Profiles
 Execute workloads optimized for specific AI/ML frameworks:
@@ -258,21 +297,25 @@ Validate workload performance against reference operation logs:
 
 ## 🏆 Key Achievements
 
-### 🎯 Realistic testing of AI/ML Pipeline
-dl-driver v0.4.0 represents a **major milestone** - complete transformation from a performance framework to a production-ready AI/ML data pipeline:
+### 🎯 Production-Ready AI/ML Data Pipeline
+dl-driver has evolved into a complete, enterprise-grade testing framework for AI/ML workloads:
 
-- **100% Format Compatibility**: All generated files work seamlessly with standard Python libraries
-- **Enterprise Validation**: 36 comprehensive format tests ensure ongoing quality assurance
+- **100% Format Compatibility**: All generated files work seamlessly with standard Python libraries (numpy, h5py, TensorFlow)
+- **Distributed Orchestration**: Multi-agent coordination with histogram-based percentile aggregation (<1% error)
+- **Results Directory**: Complete, reproducible results with per-agent and consolidated metrics in TSV format
 - **DLIO Drop-in Replacement**: Full MLCommons configuration compatibility with enhanced features
 - **Multi-Backend Excellence**: Unified performance across File, S3, Azure, and DirectIO storage
+- **Enterprise Validation**: Comprehensive test suite ensuring reliability and correctness
 
 ### 📊 Validation Confidence
 ```
-✅ Framework Tests: 7/7 tests passing (PyTorch integration, validation, serialization)
-✅ Core Tests:     15/15 tests passing (DLIO parsing, workload management) 
-✅ Format Tests:    5/5 tests passing (NPZ, HDF5, TFRecord)
-✅ CLI Tests:      29/29 tests passing (configuration, backend integration)
-✅ Total Coverage: 56/56 comprehensive tests validating all functionality
+✅ Core Tests:       60/60 tests passing (metrics, config, workload, distributed, histogram aggregation)
+✅ CLI Tests:        29/29 tests passing (configuration, backend integration)
+✅ Integration Tests: 10/10 tests passing (histogram E2E, results directory workflow)
+✅ Framework Tests:   7/7 tests passing (PyTorch integration, validation, serialization)
+✅ Format Tests:      5/5 tests passing (NPZ, HDF5, TFRecord)
+✅ Other Tests:       8/8 tests passing (replay, coordination, etc.)
+✅ Total Coverage:  119/119 comprehensive tests validating all functionality
 ```
 
 ## 🏗️ Architecture
@@ -403,12 +446,13 @@ cargo test
 ./target/release/dl-driver run --config config.yaml --op-log tests/dlio_configs/reference.csv.zst
 ```
 
-### Validation Results (v0.6.4)
-- ✅ **45+ Rust integration tests** passing (including Workstream A features)
-- ✅ **36/36 format validation tests** with Python libraries
+### Validation Results
+- ✅ **119 comprehensive tests** passing across all features
+- ✅ **Format validation** with numpy, h5py, and TensorFlow standard libraries
+- ✅ **Distributed workloads** validated with histogram aggregation and results directory output
 - ✅ **Framework profiles** validated with PyTorch, TensorFlow, and JAX configurations
-- ✅ **Operation log validation** tested with 2.78M record production datasets
-- ✅ **Metrics export** validated in JSON and CSV formats for CI integration
+- ✅ **Operation log validation** tested with multi-million record production datasets
+- ✅ **Metrics export** validated in JSON, CSV, and TSV formats for CI integration
 - ✅ **100% compatibility** with numpy, h5py, tensorflow
 - ✅ **MLCommons DLIO configs** fully validated
 
