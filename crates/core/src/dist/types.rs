@@ -23,6 +23,10 @@ impl From<WorkloadRequest> for proto::RunWorkloadRequest {
             agent_id: req.agent_id,
             path_prefix: req.path_prefix,
             start_unix_ms: req.start_unix_ms,
+            // v0.8.1 enhancement - per-agent config overrides (currently unused)
+            agent_config: None,
+            // v0.8.1 enhancement - shared storage flag (currently false)
+            shared_storage: false,
         }
     }
 }
@@ -127,6 +131,16 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
             data_loading_time_s: result.data_loading_time_s,
             compute_time_s: result.compute_time_s,
             pipeline_efficiency: result.pipeline_efficiency,
+            // Inline results (v0.8.1 enhancement - currently unused)
+            console_log: String::new(),
+            metadata_json: String::new(),
+            storage_tsv_content: String::new(),
+            aiml_tsv_content: String::new(),
+            results_path: String::new(),
+            // HDR histogram data (v0.8.1 enhancement - currently empty)
+            histogram_read_latency: vec![],
+            histogram_write_latency: vec![],
+            histogram_batch_time: vec![],
         }
     }
 }
@@ -163,6 +177,10 @@ pub struct AggregateResults {
 
 impl AggregateResults {
     /// Compute aggregate statistics from multiple agent results
+    /// 
+    /// NOTE: This method uses simple averaging for percentiles, which is mathematically
+    /// incorrect for unbalanced workloads. Use `from_results_with_histograms()` for
+    /// accurate percentile aggregation when histogram data is available.
     pub fn from_results(results: Vec<WorkloadResult>) -> Result<Self> {
         if results.is_empty() {
             anyhow::bail!("Cannot aggregate empty results");
@@ -176,6 +194,8 @@ impl AggregateResults {
         let total_errors: u32 = results.iter().map(|r| r.errors).sum();
         let total_ops: u64 = results.iter().map(|r| r.total_ops).sum();
 
+        // WARNING: Averaging percentiles is statistically incorrect for unbalanced workloads
+        // This can cause significant errors (30%+) when agents have different operation counts
         let avg_p50_ms = results.iter().map(|r| r.p50_ms).sum::<f64>() / count;
         let avg_p90_ms = results.iter().map(|r| r.p90_ms).sum::<f64>() / count;
         let avg_p95_ms = results.iter().map(|r| r.p95_ms).sum::<f64>() / count;
@@ -196,6 +216,114 @@ impl AggregateResults {
 
         Ok(AggregateResults {
             // Storage metrics
+            total_ops_per_s,
+            total_mib_per_s,
+            avg_p50_ms,
+            avg_p90_ms,
+            avg_p95_ms,
+            avg_p99_ms,
+            total_errors,
+            total_ops,
+            // AI/ML metrics
+            total_samples_per_second,
+            total_samples,
+            total_batches_per_second,
+            total_batches,
+            avg_batch_time_ms,
+            total_epochs_completed,
+            avg_epoch_time_s,
+            avg_data_loading_time_s,
+            avg_compute_time_s,
+            avg_pipeline_efficiency,
+            agent_results: results,
+        })
+    }
+
+    /// Compute aggregate statistics using HDR histogram merging for accurate percentiles
+    /// 
+    /// This method correctly handles unbalanced workloads by merging histograms before
+    /// calculating percentiles, avoiding the statistical errors of naive averaging.
+    /// 
+    /// # Arguments
+    /// * `results` - Vector of agent results
+    /// * `summaries` - Vector of proto summaries containing histogram data
+    /// 
+    /// # Returns
+    /// * `AggregateResults` with correctly computed percentiles from merged histograms
+    pub fn from_results_with_histograms(
+        results: Vec<WorkloadResult>,
+        summaries: &[proto::WorkloadSummary],
+    ) -> Result<Self> {
+        use super::histogram::{deserialize_histogram, merge_histograms, extract_percentiles};
+        
+        if results.is_empty() {
+            anyhow::bail!("Cannot aggregate empty results");
+        }
+
+        let count = results.len() as f64;
+        
+        // Storage metric aggregation (sums and counts)
+        let total_ops_per_s: f64 = results.iter().map(|r| r.ops_per_s).sum();
+        let total_mib_per_s: f64 = results.iter().map(|r| r.mib_per_s).sum();
+        let total_errors: u32 = results.iter().map(|r| r.errors).sum();
+        let total_ops: u64 = results.iter().map(|r| r.total_ops).sum();
+
+        // Percentile aggregation using HDR histogram merging
+        let (avg_p50_ms, avg_p90_ms, avg_p95_ms, avg_p99_ms) = if summaries.is_empty() {
+            // Fallback to naive averaging if no histogram data available
+            (
+                results.iter().map(|r| r.p50_ms).sum::<f64>() / count,
+                results.iter().map(|r| r.p90_ms).sum::<f64>() / count,
+                results.iter().map(|r| r.p95_ms).sum::<f64>() / count,
+                results.iter().map(|r| r.p99_ms).sum::<f64>() / count,
+            )
+        } else {
+            // Deserialize and merge read latency histograms
+            let read_hists: Vec<_> = summaries
+                .iter()
+                .filter_map(|s| {
+                    if s.histogram_read_latency.is_empty() {
+                        None
+                    } else {
+                        deserialize_histogram(&s.histogram_read_latency).ok()
+                    }
+                })
+                .collect();
+            
+            if !read_hists.is_empty() {
+                // Merge histograms and extract correct percentiles
+                let read_hist_refs: Vec<_> = read_hists.iter().collect();
+                let merged = merge_histograms(read_hist_refs)?;
+                
+                // Convert from microseconds to milliseconds
+                let (p50, p90, p95, p99) = extract_percentiles(&merged);
+                (p50 / 1000.0, p90 / 1000.0, p95 / 1000.0, p99 / 1000.0)
+            } else {
+                // Fallback if histograms couldn't be deserialized
+                (
+                    results.iter().map(|r| r.p50_ms).sum::<f64>() / count,
+                    results.iter().map(|r| r.p90_ms).sum::<f64>() / count,
+                    results.iter().map(|r| r.p95_ms).sum::<f64>() / count,
+                    results.iter().map(|r| r.p99_ms).sum::<f64>() / count,
+                )
+            }
+        };
+
+        // AI/ML metric aggregation
+        let total_samples_per_second: f64 = results.iter().map(|r| r.samples_per_second).sum();
+        let total_samples: u64 = results.iter().map(|r| r.total_samples).sum();
+        let total_batches_per_second: f64 = results.iter().map(|r| r.batches_per_second).sum();
+        let total_batches: u64 = results.iter().map(|r| r.total_batches).sum();
+        let total_epochs_completed: u32 = results.iter().map(|r| r.epochs_completed).sum();
+        
+        let avg_batch_time_ms = results.iter().map(|r| r.avg_batch_time_ms).sum::<f64>() / count;
+        let avg_epoch_time_s = results.iter().map(|r| r.avg_epoch_time_s).sum::<f64>() / count;
+        let avg_data_loading_time_s = results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count;
+        let avg_compute_time_s = results.iter().map(|r| r.compute_time_s).sum::<f64>() / count;
+        let avg_pipeline_efficiency = results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count;
+
+        Ok(AggregateResults {
+            // Storage metrics with correctly merged percentiles
             total_ops_per_s,
             total_mib_per_s,
             avg_p50_ms,

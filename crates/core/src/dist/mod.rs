@@ -11,6 +11,7 @@ pub mod agent;
 pub mod controller;
 pub mod types;
 pub mod path_utils;
+pub mod histogram;
 
 // Include distributed config from config module
 pub use crate::config::distributed::DistributedConfig;

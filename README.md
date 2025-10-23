@@ -3,10 +3,10 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.0-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.1-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-80%2F80%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-119%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Distributed](https://img.shields.io/badge/distributed-multi--agent-purple.svg)](#distributed-execution)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)

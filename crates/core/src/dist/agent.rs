@@ -167,10 +167,54 @@ impl AgentService {
             0.0
         };
 
-        // TODO: Get latency percentiles from metrics once available
-        // For now, return zeros - these will be populated in future versions
-        let (p50, p90, p95, p99) = (0.0, 0.0, 0.0, 0.0);
+        // v0.8.1: Extract histograms and calculate accurate percentiles
+        let read_hists = metrics.get_read_histograms();
+        let write_hists = metrics.get_write_histograms();
+        let batch_hists = metrics.get_batch_histograms();
+
+        // Calculate percentiles from combined read histogram (across all size buckets)
+        let combined_read = read_hists.combined_histogram();
+        let (p50, p90, p95, p99) = if combined_read.len() > 0 {
+            (
+                combined_read.value_at_quantile(0.50) as f64 / 1000.0, // Convert μs to ms
+                combined_read.value_at_quantile(0.90) as f64 / 1000.0,
+                combined_read.value_at_quantile(0.95) as f64 / 1000.0,
+                combined_read.value_at_quantile(0.99) as f64 / 1000.0,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        };
+
         let errors = 0u32; // TODO: Get error count from metrics
+
+        // v0.8.1: Serialize histograms for accurate aggregation on controller
+        use crate::dist::histogram::serialize_histogram;
+        
+        // Serialize read histogram (all size buckets combined)
+        let histogram_read_latency = serialize_histogram(&combined_read)
+            .unwrap_or_else(|e| {
+                warn!("Failed to serialize read histogram: {}", e);
+                vec![]
+            });
+
+        // Serialize write histogram (all size buckets combined)
+        let combined_write = write_hists.combined_histogram();
+        let histogram_write_latency = serialize_histogram(&combined_write)
+            .unwrap_or_else(|e| {
+                warn!("Failed to serialize write histogram: {}", e);
+                vec![]
+            });
+
+        // Serialize batch time histogram
+        let histogram_batch_time = if let Some(batch_hist) = batch_hists.get_histogram() {
+            serialize_histogram(&batch_hist)
+                .unwrap_or_else(|e| {
+                    warn!("Failed to serialize batch histogram: {}", e);
+                    vec![]
+                })
+        } else {
+            vec![]
+        };
 
         info!(
             "Agent {} completed workload:",
@@ -213,6 +257,16 @@ impl AgentService {
             data_loading_time_s,
             compute_time_s,
             pipeline_efficiency,
+            // Inline results (v0.8.1 enhancement - currently unused)
+            console_log: String::new(),
+            metadata_json: String::new(),
+            storage_tsv_content: String::new(),
+            aiml_tsv_content: String::new(),
+            results_path: String::new(),
+            // HDR histogram data (v0.8.1) - serialized for accurate aggregation
+            histogram_read_latency,
+            histogram_write_latency,
+            histogram_batch_time,
         })
     }
 }

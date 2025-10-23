@@ -2,6 +2,21 @@ syntax = "proto3";
 
 package dl_driver.dist;
 
+// Per-agent configuration overrides (v0.8.1)
+message AgentConfig {
+  // Agent identifier
+  string agent_id = 1;
+  
+  // Override data_folder for this agent (multi-cloud/multi-region testing)
+  string target_override = 2;
+  
+  // Path prefix for local storage isolation (e.g., "agent-{id}/")
+  string path_prefix = 3;
+  
+  // Environment variable overrides (e.g., AWS_REGION, AZURE_STORAGE_ACCOUNT)
+  map<string, string> env_vars = 4;
+}
+
 // Request to run a DLIO workload on an agent
 message RunWorkloadRequest {
   // YAML configuration content for DLIO workload
@@ -16,6 +31,12 @@ message RunWorkloadRequest {
   // Unix timestamp (milliseconds) when all agents should start
   // Enables coordinated execution across multiple hosts
   int64 start_unix_ms = 4;
+  
+  // Per-agent configuration overrides (v0.8.1)
+  AgentConfig agent_config = 5;
+  
+  // Flag indicating if storage is shared across agents (S3/GCS/Azure)
+  bool shared_storage = 6;
 }
 
 // Summary metrics returned after workload completion
@@ -58,6 +79,21 @@ message WorkloadSummary {
   double data_loading_time_s = 19; // Time spent in data loading
   double compute_time_s = 20;      // Time spent in compute (if simulated)
   double pipeline_efficiency = 21; // Efficiency ratio (0-1)
+  
+  // === INLINE RESULTS COLLECTION (v0.8.1) ===
+  // Inline transfer of results files (avoids separate file collection)
+  string console_log = 22;          // Agent console output
+  string metadata_json = 23;        // Agent metadata JSON
+  string storage_tsv_content = 24;  // Storage metrics TSV
+  string aiml_tsv_content = 25;     // AI/ML metrics TSV
+  string results_path = 26;         // Local path where agent saved results
+  
+  // === HDR HISTOGRAM DATA (v0.8.1) ===
+  // Serialized HDR histograms for accurate aggregation across agents
+  // Using HDR histogram allows mathematically correct percentile merging
+  bytes histogram_read_latency = 27;   // Read operation latencies
+  bytes histogram_write_latency = 28;  // Write operation latencies
+  bytes histogram_batch_time = 29;     // Batch processing times (AI/ML)
 }
 
 // Health check response

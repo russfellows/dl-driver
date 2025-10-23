@@ -182,10 +182,14 @@ impl WorkloadRunner {
                 .with_context(|| format!("Failed to write file {}", full_path))?;
             let write_time = write_start.elapsed();
 
-            // Record metrics
+            // Record metrics (with histogram collection for v0.8.1)
             let bytes_written = (samples_per_file as u64) * (record_size as u64);
             self.metrics
                 .record_write_operation(bytes_written, write_time);
+            
+            // v0.8.1: Record histogram data for accurate write percentiles
+            self.metrics.record_write_with_histogram(bytes_written as usize, write_time);
+            
             info!(
                 "Wrote {} bytes to {} in {:?}",
                 bytes_written, full_path, write_time
@@ -327,11 +331,14 @@ impl WorkloadRunner {
                         total_io_time += io_time;
                         total_compute_time += compute_time;
                         
-                        // Record metrics
+                        // Record metrics (with histogram collection for v0.8.1)
                         self.metrics.record_bytes_read(batch_bytes as u64);
                         self.metrics.record_read_time(io_time);
                         self.metrics.record_compute_time(compute_time);
                         self.metrics.record_batch_time(batch_total_time);
+                        
+                        // v0.8.1: Record histogram data for accurate percentiles
+                        self.metrics.record_read_with_histogram(batch_bytes, io_time);
 
                         batch_count += 1;
                         total_samples += batch_size_actual;
