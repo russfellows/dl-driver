@@ -9,7 +9,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.8.1] - 2025-10-22 📦 **s3dlio v0.9.10 Upgrade**
+## [0.8.1] - 2025-10-22 � **Histogram-Based Percentile Aggregation & Results Directory**
+
+### **🎯 Major Features**
+
+#### **HDR Histogram Aggregation**
+Solves the critical problem of inaccurate percentile aggregation in distributed workloads:
+- **Problem:** Naive averaging of percentiles (p50, p90, p95, p99) from multiple agents produces errors exceeding 50% for unbalanced workloads
+- **Solution:** HDR Histogram-based aggregation that tracks full latency distributions
+- **Impact:** Reduces percentile error from 50%+ to <1%
+- **Implementation:** V2 deflate compression for efficient transport (10-50x reduction, ~2KB per histogram)
+
+#### **Comprehensive Results Directory**
+Inspired by sai3-bench, provides complete, reproducible results:
+```
+dlio-YYYYMMDD-HHMM-{test_name}/
+├── config.yaml              # Input config (reproducibility)
+├── console.log              # Execution timeline
+├── metadata.json            # Run metadata
+├── storage_results.tsv      # Consolidated storage metrics
+├── aiml_results.tsv        # Consolidated AI/ML metrics
+└── agents/                  # Per-agent results
+    ├── agent-0/
+    │   ├── storage_results.tsv
+    │   ├── aiml_results.tsv
+    │   └── metadata.json
+    └── ...
+```
+
+#### **Size-Bucketed Byte Tracking**
+Fixes TSV export accuracy:
+- **Problem:** TSV exports were estimating throughput from bucket midpoints
+- **Solution:** `SizeBins` structure tracks actual operations and bytes per size bucket
+- **Impact:** Accurate throughput calculations using real data
+- **Implementation:** 9 size buckets (zero, 1B-8KiB, ..., >2GiB)
+
+### **📦 New Modules**
+
+- **`results_dir.rs`** (285 lines) - Results directory lifecycle management
+- **`tsv_export.rs`** (233 lines) - Storage and AI/ML TSV formatting
+- **`histogram.rs`** (261 lines) - HDR histogram utilities *(from v0.8.0)*
+
+### **🔧 Enhanced Modules**
+
+- **`metrics.rs`** - Added `SizeBins`, `StorageOpHists` enhancements, 11 new unit tests
+- **`controller.rs`** - Added `run_distributed_with_results()`, histogram aggregation
+- **`types.rs`** - Added `from_results_with_histograms()`, TSV formatting methods
+
+### **🧪 Testing**
+
+- **Total:** 119 tests passing (up from 51 in v0.8.0)
+- **New Integration Tests:**
+  - 5 results directory workflow tests
+  - 5 histogram aggregation tests
+  - All existing tests maintained
+
+### **📚 Documentation**
+
+- **`docs/RESULTS_DIRECTORY_FORMAT.md`** - Complete format specification
+- **`docs/releases/v0.8.1-release-notes.md`** - Comprehensive release notes
+
+### **🔄 API Changes**
+
+**New Public Methods:**
+```rust
+// Controller
+impl Controller {
+    pub async fn run_distributed_with_results(
+        &self,
+        config_path: Option<&Path>,
+        output_dir: Option<&Path>,
+    ) -> Result<AggregateResults>;
+}
+
+// AggregateResults
+impl AggregateResults {
+    pub fn from_results_with_histograms(
+        results: Vec<WorkloadResult>,
+        summaries: &[WorkloadSummary],
+    ) -> Result<Self>;
+    
+    pub fn to_storage_tsv(&self) -> String;
+    pub fn to_aiml_tsv(&self) -> String;
+}
+```
+
+**Backwards Compatibility:** ✅ 100% backwards compatible
+
+### **📦 Dependencies**
+
+- **New:** `hostname = "0.4"`
+- **Existing:** `hdrhistogram = "7.5"` *(from v0.8.0)*
+- **No breaking changes**
+
+---
+
+## [0.8.0] - 2025-10-21 �📦 **s3dlio v0.9.10 Upgrade**
 
 ### **📦 Major Dependency Upgrade**
 

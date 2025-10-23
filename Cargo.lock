@@ -1436,6 +1436,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hdrhistogram",
+ "hostname 0.4.1",
  "indicatif",
  "memmap2",
  "ndarray 0.15.6",

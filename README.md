@@ -6,7 +6,7 @@
 [![Version](https://img.shields.io/badge/version-0.8.1-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-51%20lib%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-119%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Distributed](https://img.shields.io/badge/distributed-multi--agent-purple.svg)](#distributed-execution)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)

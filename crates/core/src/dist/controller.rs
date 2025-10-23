@@ -13,7 +13,7 @@ use tracing::{info, warn, error};
 
 use crate::dlio_compat::DlioConfig;
 use crate::dist::proto::dist_agent_client::DistAgentClient;
-use crate::dist::proto::{RunWorkloadRequest, HealthCheckRequest};
+use crate::dist::proto::{RunWorkloadRequest, HealthCheckRequest, WorkloadSummary};
 use crate::dist::types::{AggregateResults, WorkloadResult};
 use crate::dist::path_utils::is_shared_storage;
 
@@ -117,10 +117,103 @@ impl Controller {
         Ok(DistAgentClient::new(channel))
     }
 
-    /// Run distributed workload across all agents
+    /// Run distributed workload across all agents (without results directory)
     /// 
     /// Returns aggregated results from all agents
     pub async fn run_distributed(&self) -> Result<AggregateResults> {
+        // Simple version without results directory - just run the workload
+        use std::path::PathBuf;
+        let dummy_results_dir = PathBuf::from("/tmp/dummy_results");
+        std::fs::create_dir_all(&dummy_results_dir)?;
+        
+        let mut results_dir = crate::results_dir::ResultsDir::create(
+            std::path::Path::new("config.yaml"),
+            Some("temp"),
+            Some(&dummy_results_dir),
+            self.distributed.agents.len(),
+        )?;
+        
+        let agents_dir = results_dir.create_agents_dir()?;
+        
+        self.run_distributed_internal(&mut results_dir, &agents_dir).await
+    }
+
+    /// Run distributed workload across all agents with results directory
+    /// 
+    /// # Arguments
+    /// * `config_path` - Optional path to config file (for results directory naming)
+    /// * `output_dir` - Optional output directory for results (defaults to current directory)
+    /// 
+    /// Returns aggregated results from all agents
+    pub async fn run_distributed_with_results(
+        &self,
+        config_path: Option<&std::path::Path>,
+        output_dir: Option<&std::path::Path>,
+    ) -> Result<AggregateResults> {
+        use crate::results_dir::ResultsDir;
+        use std::time::Instant;
+        
+        let start_time = Instant::now();
+        
+        // Create results directory
+        let config_path = config_path.unwrap_or_else(|| std::path::Path::new("dlio_config.yaml"));
+        let mut results_dir = ResultsDir::create(
+            config_path,
+            None,
+            output_dir,
+            self.distributed.agents.len(),
+        )?;
+        
+        // Create agents subdirectory
+        let agents_dir = results_dir.create_agents_dir()?;
+        
+        results_dir.write_console(&format!("🚀 Starting distributed workload execution"))?;
+        results_dir.write_console(&format!("   Agents: {}", self.distributed.agents.len()))?;
+        results_dir.write_console(&format!("   Start delay: {}ms", self.distributed.start_delay_ms))?;
+        results_dir.write_console("")?;
+        
+        // Run the actual workload
+        let aggregate = self.run_distributed_internal(&mut results_dir, &agents_dir).await?;
+        
+        // Calculate duration
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        
+        // Write consolidated TSV files at top level
+        let storage_tsv_path = results_dir.storage_tsv_path();
+        let aiml_tsv_path = results_dir.aiml_tsv_path();
+        
+        // Write storage results TSV
+        let storage_tsv_content = aggregate.to_storage_tsv();
+        std::fs::write(&storage_tsv_path, &storage_tsv_content)
+            .with_context(|| format!("Failed to write storage TSV: {}", storage_tsv_path.display()))?;
+        
+        // Write AI/ML results TSV
+        let aiml_tsv_content = aggregate.to_aiml_tsv();
+        std::fs::write(&aiml_tsv_path, &aiml_tsv_content)
+            .with_context(|| format!("Failed to write AI/ML TSV: {}", aiml_tsv_path.display()))?;
+        
+        // Finalize results directory
+        results_dir.finalize(duration_secs, aggregate.agent_results.len())?;
+        
+        info!("\n✅ Results saved to: {}", results_dir.path().display());
+        info!("   - config.yaml (copy of input config)");
+        info!("   - storage_results.tsv (consolidated storage metrics)");
+        info!("   - aiml_results.tsv (consolidated AI/ML metrics)");
+        info!("   - metadata.json (run metadata)");
+        info!("   - console.log (execution log)");
+        info!("   - agents/ (per-agent results)");
+        
+        Ok(aggregate)
+    }
+
+    /// Run distributed workload across all agents (internal implementation)
+    /// 
+    /// Returns aggregated results from all agents
+    async fn run_distributed_internal(
+        &self,
+        results_dir: &mut crate::results_dir::ResultsDir,
+        agents_dir: &std::path::Path,
+    ) -> Result<AggregateResults> {
         info!("🚀 Starting distributed workload execution");
         info!("   Agents: {}", self.distributed.agents.len());
         info!("   Start delay: {}ms", self.distributed.start_delay_ms);
@@ -176,22 +269,35 @@ impl Controller {
         }
         
         info!("📤 Workload sent to all {} agents", tasks.len());
+        results_dir.write_console("📤 Workload sent to all agents")?;
         info!("⏳ Waiting for agents to complete...");
+        results_dir.write_console("⏳ Waiting for agents to complete...")?;
+        results_dir.write_console("")?;
         
-        // Collect results
+        // Collect results and proto summaries (for histogram data)
         let mut results = Vec::new();
+        let mut summaries = Vec::new();
         for (agent_id, task) in tasks {
             match task.await {
-                Ok(Ok(result)) => {
+                Ok(Ok((result, summary))) => {
                     info!("✅ Agent {} completed successfully", agent_id);
+                    results_dir.write_console(&format!("✅ Agent {} completed successfully", agent_id))?;
+                    results_dir.add_agent(agent_id.clone());
+                    
+                    // Write per-agent results to agents/ subdirectory
+                    self.write_agent_results(agents_dir, &agent_id, &result, &summary)?;
+                    
                     results.push(result);
+                    summaries.push(summary);
                 }
                 Ok(Err(e)) => {
                     error!("❌ Agent {} failed: {}", agent_id, e);
+                    results_dir.write_console(&format!("❌ Agent {} failed: {}", agent_id, e))?;
                     // Continue collecting other results
                 }
                 Err(e) => {
                     error!("❌ Agent {} task panicked: {}", agent_id, e);
+                    results_dir.write_console(&format!("❌ Agent {} task panicked: {}", agent_id, e))?;
                 }
             }
         }
@@ -201,21 +307,94 @@ impl Controller {
         }
         
         if results.len() < self.distributed.agents.len() {
-            warn!("⚠️  Only {}/{} agents succeeded", 
+            let msg = format!("⚠️  Only {}/{} agents succeeded", 
                   results.len(), self.distributed.agents.len());
+            warn!("{}", msg);
+            results_dir.write_console(&msg)?;
         }
         
+        results_dir.write_console("")?;
         info!("📊 Aggregating results from {} agents...", results.len());
+        results_dir.write_console(&format!("📊 Aggregating results from {} agents...", results.len()))?;
         
-        // Aggregate results
-        let aggregate = AggregateResults::from_results(results)?;
+        // Aggregate results using histogram merging for accurate percentiles
+        let aggregate = AggregateResults::from_results_with_histograms(results, &summaries)?;
         
         info!("🎉 Distributed workload complete!");
+        results_dir.write_console("🎉 Distributed workload complete!")?;
+        results_dir.write_console("")?;
         
         Ok(aggregate)
     }
 
+    /// Write per-agent results to agents subdirectory
+    fn write_agent_results(
+        &self,
+        agents_dir: &std::path::Path,
+        agent_id: &str,
+        result: &WorkloadResult,
+        _summary: &WorkloadSummary,
+    ) -> Result<()> {
+        
+        // Create agent metadata JSON
+        let metadata = serde_json::json!({
+            "agent_id": agent_id,
+            "ops_per_s": result.ops_per_s,
+            "mib_per_s": result.mib_per_s,
+            "total_ops": result.total_ops,
+            "total_samples": result.total_samples,
+            "epochs_completed": result.epochs_completed,
+        });
+        let metadata_json = serde_json::to_string_pretty(&metadata)?;
+        
+        // Generate storage TSV content (single-agent row)
+        let storage_tsv = format!(
+            "agent_id\tops_s\tmib_s\tp50_ms\tp90_ms\tp95_ms\tp99_ms\terrors\ttotal_ops\tduration_s\n{}\t{:.1}\t{:.1}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}\t{}\t{:.2}\n",
+            result.agent_id,
+            result.ops_per_s,
+            result.mib_per_s,
+            result.p50_ms,
+            result.p90_ms,
+            result.p95_ms,
+            result.p99_ms,
+            result.errors,
+            result.total_ops,
+            result.duration_s
+        );
+        
+        // Generate AI/ML TSV content (single-agent row)
+        let aiml_tsv = format!(
+            "agent_id\tsamples_s\ttotal_samples\tbatches_s\ttotal_batches\tsamples_per_batch\tavg_batch_ms\tepochs\tavg_epoch_s\tdata_load_s\tcompute_s\tpipeline_eff\n{}\t{:.1}\t{}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.3}\n",
+            result.agent_id,
+            result.samples_per_second,
+            result.total_samples,
+            result.batches_per_second,
+            result.total_batches,
+            result.samples_per_batch,
+            result.avg_batch_time_ms,
+            result.epochs_completed,
+            result.avg_epoch_time_s,
+            result.data_loading_time_s,
+            result.compute_time_s,
+            result.pipeline_efficiency,
+        );
+        
+        // Write to agents subdirectory (using ResultsDir helper method would be cleaner,
+        // but we can also do it directly here)
+        let agent_dir = agents_dir.join(agent_id);
+        std::fs::create_dir_all(&agent_dir)
+            .with_context(|| format!("Failed to create agent directory: {}", agent_dir.display()))?;
+        
+        std::fs::write(agent_dir.join("storage_results.tsv"), storage_tsv)?;
+        std::fs::write(agent_dir.join("aiml_results.tsv"), aiml_tsv)?;
+        std::fs::write(agent_dir.join("metadata.json"), metadata_json)?;
+        
+        Ok(())
+    }
+
     /// Send workload to a single agent
+    /// 
+    /// Returns both WorkloadResult and the raw proto WorkloadSummary (which contains histogram data)
     async fn send_workload_to_agent(
         endpoint: &str,
         agent_id: &str,
@@ -224,7 +403,7 @@ impl Controller {
         start_unix_ms: i64,
         timeout_ms: u64,
         is_shared: bool,
-    ) -> Result<WorkloadResult> {
+    ) -> Result<(WorkloadResult, WorkloadSummary)> {
         // Connect to agent
         let url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
             endpoint.to_string()
@@ -275,7 +454,8 @@ impl Controller {
         
         let summary = response.into_inner();
         
-        // Convert to WorkloadResult
-        Ok(WorkloadResult::from(summary))
+        // Return both WorkloadResult and the proto summary (which contains histogram bytes)
+        let result = WorkloadResult::from(summary.clone());
+        Ok((result, summary))
     }
 }

@@ -17,6 +17,8 @@ pub mod dist;
 // Temporarily disabled - needs update for new config system
 // pub mod dataset;
 pub mod plan;
+pub mod results_dir;  // Results directory management for distributed workloads
+pub mod tsv_export;   // TSV export for histogram-based metrics
 // Temporarily disabled - needs update for new config system  
 // pub mod generation;
 pub mod metrics;

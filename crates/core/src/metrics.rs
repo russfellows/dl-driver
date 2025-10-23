@@ -56,10 +56,65 @@ pub fn size_bucket_index(nbytes: usize) -> usize {
     }
 }
 
+/// Size-bucketed byte tracking for storage I/O operations
+#[derive(Clone, Debug)]
+pub struct SizeBins {
+    // bucket_index -> (ops, bytes)
+    pub by_bucket: Arc<Mutex<std::collections::HashMap<usize, (u64, u64)>>>,
+}
+
+impl SizeBins {
+    pub fn new() -> Self {
+        SizeBins {
+            by_bucket: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    pub fn add(&self, size_bytes: u64) {
+        let bucket = size_bucket_index(size_bytes as usize);
+        if let Ok(mut map) = self.by_bucket.lock() {
+            let entry = map.entry(bucket).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += size_bytes;
+        }
+    }
+
+    pub fn get_bucket_stats(&self, bucket: usize) -> (u64, u64) {
+        if let Ok(map) = self.by_bucket.lock() {
+            map.get(&bucket).copied().unwrap_or((0, 0))
+        } else {
+            (0, 0)
+        }
+    }
+
+    pub fn total_ops(&self) -> u64 {
+        if let Ok(map) = self.by_bucket.lock() {
+            map.values().map(|(ops, _)| ops).sum()
+        } else {
+            0
+        }
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        if let Ok(map) = self.by_bucket.lock() {
+            map.values().map(|(_, bytes)| bytes).sum()
+        } else {
+            0
+        }
+    }
+}
+
+impl Default for SizeBins {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Size-bucketed histograms for storage I/O operations
 #[derive(Clone, Debug)]
 pub struct StorageOpHists {
     pub buckets: Arc<Vec<Mutex<Histogram<u64>>>>,
+    pub size_bins: SizeBins,
 }
 
 impl StorageOpHists {
@@ -73,17 +128,23 @@ impl StorageOpHists {
         }
         StorageOpHists {
             buckets: Arc::new(v),
+            size_bins: SizeBins::new(),
         }
     }
 
     pub fn record_with_size(&self, size_bytes: usize, duration: Duration) {
         let bucket = size_bucket_index(size_bytes);
         let micros = duration.as_micros() as u64;
+        
+        // Record in histogram
         if let Some(hist_mutex) = self.buckets.get(bucket) {
             if let Ok(mut hist) = hist_mutex.lock() {
                 let _ = hist.record(micros);
             }
         }
+        
+        // Track actual bytes in size bins
+        self.size_bins.add(size_bytes as u64);
     }
 
     pub fn combined_histogram(&self) -> Histogram<u64> {
@@ -917,5 +978,249 @@ impl WorkloadMetrics {
         }
 
         println!("==========================================\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_size_bucket_index() {
+        // Test all bucket boundaries
+        assert_eq!(size_bucket_index(0), 0);
+        assert_eq!(size_bucket_index(1), 1);
+        assert_eq!(size_bucket_index(8 * 1024), 1);
+        assert_eq!(size_bucket_index(8 * 1024 + 1), 2);
+        assert_eq!(size_bucket_index(64 * 1024), 2);
+        assert_eq!(size_bucket_index(64 * 1024 + 1), 3);
+        assert_eq!(size_bucket_index(512 * 1024), 3);
+        assert_eq!(size_bucket_index(512 * 1024 + 1), 4);
+        assert_eq!(size_bucket_index(4 * 1024 * 1024), 4);
+        assert_eq!(size_bucket_index(4 * 1024 * 1024 + 1), 5);
+        assert_eq!(size_bucket_index(32 * 1024 * 1024), 5);
+        assert_eq!(size_bucket_index(32 * 1024 * 1024 + 1), 6);
+        assert_eq!(size_bucket_index(256 * 1024 * 1024), 6);
+        assert_eq!(size_bucket_index(256 * 1024 * 1024 + 1), 7);
+        assert_eq!(size_bucket_index(2 * 1024 * 1024 * 1024), 7);
+        assert_eq!(size_bucket_index(3 * 1024 * 1024 * 1024), 8);
+    }
+
+    #[test]
+    fn test_storage_ophists_record_with_size() {
+        let hists = StorageOpHists::new();
+        
+        // Record different sizes
+        hists.record_with_size(1024, Duration::from_micros(100)); // Bucket 1
+        hists.record_with_size(10 * 1024, Duration::from_micros(200)); // Bucket 2
+        hists.record_with_size(100 * 1024, Duration::from_micros(300)); // Bucket 3
+
+        // Verify correct bucketing
+        assert_eq!(hists.buckets[1].lock().unwrap().len(), 1);
+        assert_eq!(hists.buckets[2].lock().unwrap().len(), 1);
+        assert_eq!(hists.buckets[3].lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_storage_ophists_combined_histogram() {
+        let hists = StorageOpHists::new();
+        
+        hists.record_with_size(1024, Duration::from_micros(100));
+        hists.record_with_size(10 * 1024, Duration::from_micros(200));
+        hists.record_with_size(100 * 1024, Duration::from_micros(300));
+
+        let combined = hists.combined_histogram();
+        assert_eq!(combined.len(), 3);
+        
+        // Verify percentiles are calculated from all samples
+        let p50 = combined.value_at_quantile(0.50);
+        assert!(p50 >= 100 && p50 <= 300);
+    }
+
+    #[test]
+    fn test_batch_time_hist_record() {
+        let batch_hist = BatchTimeHist::new();
+        
+        batch_hist.record(Duration::from_micros(1000));
+        batch_hist.record(Duration::from_micros(2000));
+        batch_hist.record(Duration::from_micros(3000));
+
+        let hist = batch_hist.hist.lock().unwrap();
+        assert_eq!(hist.len(), 3);
+        
+        let p50 = hist.value_at_quantile(0.50);
+        assert!(p50 >= 1000 && p50 <= 3000);
+    }
+
+    #[test]
+    fn test_metrics_record_read_with_histogram() {
+        let metrics = Metrics::new();
+        
+        // Record reads with different sizes
+        metrics.record_read_with_histogram(1024, Duration::from_micros(100));
+        metrics.record_read_with_histogram(10 * 1024, Duration::from_micros(200));
+        metrics.record_read_with_histogram(100 * 1024, Duration::from_micros(300));
+
+        // Get histograms and verify data was recorded
+        let read_hists = metrics.get_read_histograms();
+        let combined = read_hists.combined_histogram();
+        
+        assert_eq!(combined.len(), 3, "Should have 3 samples");
+        assert!(combined.value_at_quantile(0.50) > 0, "p50 should be > 0");
+    }
+
+    #[test]
+    fn test_metrics_record_write_with_histogram() {
+        let metrics = Metrics::new();
+        
+        // Record writes with different sizes
+        metrics.record_write_with_histogram(1024, Duration::from_micros(150));
+        metrics.record_write_with_histogram(10 * 1024, Duration::from_micros(250));
+
+        // Get histograms and verify data was recorded
+        let write_hists = metrics.get_write_histograms();
+        let combined = write_hists.combined_histogram();
+        
+        assert_eq!(combined.len(), 2, "Should have 2 samples");
+        assert!(combined.value_at_quantile(0.50) > 0, "p50 should be > 0");
+    }
+
+    #[test]
+    fn test_metrics_record_batch_time_with_histogram() {
+        let metrics = Metrics::new();
+        
+        // Record batch times (this should also record in histogram)
+        metrics.record_batch_time(Duration::from_micros(5000));
+        metrics.record_batch_time(Duration::from_micros(6000));
+        metrics.record_batch_time(Duration::from_micros(7000));
+
+        // Verify batch times vec
+        assert_eq!(metrics.batches_processed(), 0); // batch_time doesn't increment this
+        let batch_times = metrics.batch_times();
+        assert_eq!(batch_times.len(), 3);
+
+        // Verify histogram was also updated
+        let batch_hists = metrics.get_batch_histograms();
+        if let Some(hist) = batch_hists.get_histogram() {
+            assert_eq!(hist.len(), 3, "Histogram should have 3 samples");
+            let p50 = hist.value_at_quantile(0.50);
+            assert!(p50 >= 5000 && p50 <= 7000, "p50 should be in range");
+        } else {
+            panic!("Batch histogram should exist");
+        }
+    }
+
+    #[test]
+    fn test_size_bucketing_accuracy() {
+        let hists = StorageOpHists::new();
+        
+        // Record 10 samples in each bucket
+        for _ in 0..10 {
+            hists.record_with_size(100, Duration::from_micros(50)); // Bucket 1
+            hists.record_with_size(10 * 1024, Duration::from_micros(100)); // Bucket 2
+            hists.record_with_size(100 * 1024, Duration::from_micros(200)); // Bucket 3
+        }
+
+        // Verify each bucket has exactly 10 samples
+        assert_eq!(hists.buckets[1].lock().unwrap().len(), 10);
+        assert_eq!(hists.buckets[2].lock().unwrap().len(), 10);
+        assert_eq!(hists.buckets[3].lock().unwrap().len(), 10);
+
+        // Verify combined histogram has all 30 samples
+        let combined = hists.combined_histogram();
+        assert_eq!(combined.len(), 30);
+    }
+
+    #[test]
+    fn test_histogram_percentile_calculation() {
+        let metrics = Metrics::new();
+        
+        // Record 100 reads with increasing latencies (100-199μs)
+        for i in 0..100 {
+            metrics.record_read_with_histogram(1024, Duration::from_micros(100 + i));
+        }
+
+        let read_hists = metrics.get_read_histograms();
+        let combined = read_hists.combined_histogram();
+        
+        // Verify percentile calculations
+        let p50 = combined.value_at_quantile(0.50);
+        let p90 = combined.value_at_quantile(0.90);
+        let p99 = combined.value_at_quantile(0.99);
+
+        // p50 should be around 150μs (middle of 100-199)
+        assert!(p50 >= 140 && p50 <= 160, "p50 = {} (expected ~150)", p50);
+        
+        // p90 should be around 190μs
+        assert!(p90 >= 180 && p90 <= 199, "p90 = {} (expected ~190)", p90);
+        
+        // p99 should be around 199μs
+        assert!(p99 >= 195 && p99 <= 199, "p99 = {} (expected ~199)", p99);
+    }
+
+    #[test]
+    fn test_multiple_size_buckets_different_latencies() {
+        let hists = StorageOpHists::new();
+        
+        // Small files (1KB) - fast (100μs)
+        for _ in 0..50 {
+            hists.record_with_size(1024, Duration::from_micros(100));
+        }
+        
+        // Medium files (64KB) - medium (500μs)
+        for _ in 0..30 {
+            hists.record_with_size(64 * 1024, Duration::from_micros(500));
+        }
+        
+        // Large files (1MB) - slow (2000μs)
+        for _ in 0..20 {
+            hists.record_with_size(1024 * 1024, Duration::from_micros(2000));
+        }
+
+        // Verify bucket populations
+        assert_eq!(hists.buckets[1].lock().unwrap().len(), 50); // 1KB bucket
+        assert_eq!(hists.buckets[2].lock().unwrap().len(), 30); // 64KB bucket
+        assert_eq!(hists.buckets[4].lock().unwrap().len(), 20); // 1MB bucket
+
+        // Combined percentiles should reflect the distribution
+        let combined = hists.combined_histogram();
+        assert_eq!(combined.len(), 100);
+        
+        // With 50 fast, 30 medium, 20 slow:
+        // p50 should be in the fast range (50th sample)
+        let p50 = combined.value_at_quantile(0.50);
+        assert!(p50 >= 90 && p50 <= 110, "p50 = {} (expected ~100)", p50);
+        
+        // p90 should be in the slow range (90th sample)
+        let p90 = combined.value_at_quantile(0.90);
+        assert!(p90 >= 1800 && p90 <= 2200, "p90 = {} (expected ~2000)", p90);
+    }
+
+    #[test]
+    fn test_size_bins_tracking() {
+        let hists = StorageOpHists::new();
+        
+        // Record operations with known sizes
+        hists.record_with_size(1024, Duration::from_micros(100));      // Bucket 1
+        hists.record_with_size(1024, Duration::from_micros(110));      // Bucket 1
+        hists.record_with_size(10 * 1024, Duration::from_micros(200)); // Bucket 2
+        hists.record_with_size(100 * 1024, Duration::from_micros(300)); // Bucket 3
+
+        // Verify actual bytes tracked per bucket
+        let (ops1, bytes1) = hists.size_bins.get_bucket_stats(1);
+        assert_eq!(ops1, 2);
+        assert_eq!(bytes1, 2048); // 2 * 1024
+
+        let (ops2, bytes2) = hists.size_bins.get_bucket_stats(2);
+        assert_eq!(ops2, 1);
+        assert_eq!(bytes2, 10240); // 10 * 1024
+
+        let (ops3, bytes3) = hists.size_bins.get_bucket_stats(3);
+        assert_eq!(ops3, 1);
+        assert_eq!(bytes3, 102400); // 100 * 1024
+
+        // Verify totals
+        assert_eq!(hists.size_bins.total_ops(), 4);
+        assert_eq!(hists.size_bins.total_bytes(), 2048 + 10240 + 102400);
     }
 }

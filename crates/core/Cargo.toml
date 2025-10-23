@@ -35,6 +35,9 @@ async-stream = "0.3"
 # Progress indicators
 indicatif = "0.17"
 
+# Hostname detection
+hostname = "0.4"
+
 # Multi-rank coordination dependencies
 memmap2 = "0.9"
 shared_memory = "0.12"
