@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::path::Path;
 use std::fs::File;
@@ -10,6 +10,139 @@ use std::io::Write;
 use tokio::sync::RwLock;
 use serde::{Serialize, Deserialize};
 use crate::dlio_compat::DlioConfig;
+use hdrhistogram::Histogram;
+
+// ============================================================================
+// HDR Histogram Collection (v0.8.1)
+// ============================================================================
+// Based on sai3-bench's size-bucketed histogram approach, extended for AI/ML
+
+/// Number of size buckets for storage I/O histogram collection
+pub const NUM_SIZE_BUCKETS: usize = 9;
+
+/// Labels for each size bucket (storage I/O operations)
+pub const SIZE_BUCKET_LABELS: [&str; NUM_SIZE_BUCKETS] = [
+    "zero",
+    "1B-8KiB",
+    "8KiB-64KiB",
+    "64KiB-512KiB",
+    "512KiB-4MiB",
+    "4MiB-32MiB",
+    "32MiB-256MiB",
+    "256MiB-2GiB",
+    ">2GiB",
+];
+
+/// Determine which size bucket a given byte count belongs to
+pub fn size_bucket_index(nbytes: usize) -> usize {
+    if nbytes == 0 {
+        0
+    } else if nbytes <= 8 * 1024 {
+        1
+    } else if nbytes <= 64 * 1024 {
+        2
+    } else if nbytes <= 512 * 1024 {
+        3
+    } else if nbytes <= 4 * 1024 * 1024 {
+        4
+    } else if nbytes <= 32 * 1024 * 1024 {
+        5
+    } else if nbytes <= 256 * 1024 * 1024 {
+        6
+    } else if nbytes <= 2 * 1024 * 1024 * 1024 {
+        7
+    } else {
+        8
+    }
+}
+
+/// Size-bucketed histograms for storage I/O operations
+#[derive(Clone, Debug)]
+pub struct StorageOpHists {
+    pub buckets: Arc<Vec<Mutex<Histogram<u64>>>>,
+}
+
+impl StorageOpHists {
+    pub fn new() -> Self {
+        let mut v = Vec::with_capacity(NUM_SIZE_BUCKETS);
+        for _ in 0..NUM_SIZE_BUCKETS {
+            v.push(Mutex::new(
+                Histogram::<u64>::new_with_bounds(1, 3_600_000_000, 3)
+                    .expect("failed to allocate histogram"),
+            ));
+        }
+        StorageOpHists {
+            buckets: Arc::new(v),
+        }
+    }
+
+    pub fn record_with_size(&self, size_bytes: usize, duration: Duration) {
+        let bucket = size_bucket_index(size_bytes);
+        let micros = duration.as_micros() as u64;
+        if let Some(hist_mutex) = self.buckets.get(bucket) {
+            if let Ok(mut hist) = hist_mutex.lock() {
+                let _ = hist.record(micros);
+            }
+        }
+    }
+
+    pub fn combined_histogram(&self) -> Histogram<u64> {
+        let mut combined = Histogram::<u64>::new_with_bounds(1, 3_600_000_000, 3)
+            .expect("failed to allocate combined histogram");
+        
+        for bucket_hist in self.buckets.iter() {
+            if let Ok(hist) = bucket_hist.lock() {
+                let _ = combined.add(&*hist);
+            }
+        }
+        
+        combined
+    }
+}
+
+impl Default for StorageOpHists {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// AI/ML batch processing histogram
+#[derive(Clone, Debug)]
+pub struct BatchTimeHist {
+    pub hist: Arc<Mutex<Histogram<u64>>>,
+}
+
+impl BatchTimeHist {
+    pub fn new() -> Self {
+        BatchTimeHist {
+            hist: Arc::new(Mutex::new(
+                Histogram::<u64>::new_with_bounds(1, 3_600_000_000, 3)
+                    .expect("failed to allocate batch time histogram"),
+            )),
+        }
+    }
+
+    pub fn record(&self, duration: Duration) {
+        let micros = duration.as_micros() as u64;
+        if let Ok(mut hist) = self.hist.lock() {
+            let _ = hist.record(micros);
+        }
+    }
+
+    pub fn get_histogram(&self) -> Option<Histogram<u64>> {
+        self.hist.lock().ok().map(|h| h.clone())
+    }
+}
+
+impl Default for BatchTimeHist {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Existing Metrics Infrastructure
+// ============================================================================
 
 /// Performance metrics collection with interior mutability for Arc compatibility
 #[derive(Debug, Default)]
@@ -17,7 +150,7 @@ pub struct Metrics {
     data: Mutex<MetricsData>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct MetricsData {
     pub total_time: Option<Duration>,
     pub read_times: Vec<Duration>,        // Pure I/O times
@@ -29,6 +162,31 @@ struct MetricsData {
     pub bytes_read: u64,
     pub bytes_written: u64,
     pub batches_processed: u64,
+    
+    // v0.8.1: HDR histogram collection for accurate percentiles
+    pub read_hists: StorageOpHists,
+    pub write_hists: StorageOpHists,
+    pub batch_hists: BatchTimeHist,
+}
+
+impl Default for MetricsData {
+    fn default() -> Self {
+        MetricsData {
+            total_time: None,
+            read_times: Vec::new(),
+            write_times: Vec::new(),
+            compute_times: Vec::new(),
+            batch_times: Vec::new(),
+            epoch_times: Vec::new(),
+            files_processed: 0,
+            bytes_read: 0,
+            bytes_written: 0,
+            batches_processed: 0,
+            read_hists: StorageOpHists::new(),
+            write_hists: StorageOpHists::new(),
+            batch_hists: BatchTimeHist::new(),
+        }
+    }
 }
 
 /// Result of Accelerator Utilization calculation
@@ -191,12 +349,48 @@ impl Metrics {
     pub fn record_batch_time(&self, duration: Duration) {
         let mut data = self.data.lock().unwrap();
         data.batch_times.push(duration);
+        // v0.8.1: Also record in histogram for accurate percentiles
+        data.batch_hists.record(duration);
     }
 
     /// Record epoch time
     pub fn record_epoch_time(&self, duration: Duration) {
         let mut data = self.data.lock().unwrap();
         data.epoch_times.push(duration);
+    }
+
+    // ========================================================================
+    // v0.8.1: Histogram Recording Methods
+    // ========================================================================
+
+    /// Record a read operation with size for histogram bucketing
+    pub fn record_read_with_histogram(&self, size_bytes: usize, duration: Duration) {
+        let data = self.data.lock().unwrap();
+        data.read_hists.record_with_size(size_bytes, duration);
+    }
+
+    /// Record a write operation with size for histogram bucketing
+    pub fn record_write_with_histogram(&self, size_bytes: usize, duration: Duration) {
+        let data = self.data.lock().unwrap();
+        data.write_hists.record_with_size(size_bytes, duration);
+    }
+
+    /// Get clone of read histograms for serialization
+    pub fn get_read_histograms(&self) -> StorageOpHists {
+        let data = self.data.lock().unwrap();
+        data.read_hists.clone()
+    }
+
+    /// Get clone of write histograms for serialization
+    pub fn get_write_histograms(&self) -> StorageOpHists {
+        let data = self.data.lock().unwrap();
+        data.write_hists.clone()
+    }
+
+    /// Get clone of batch histograms for serialization
+    pub fn get_batch_histograms(&self) -> BatchTimeHist {
+        let data = self.data.lock().unwrap();
+        data.batch_hists.clone()
     }
 
     /// Record bytes written
