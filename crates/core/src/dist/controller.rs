@@ -262,6 +262,10 @@ impl Controller {
             agent_id: agent_id.to_string(),
             path_prefix,
             start_unix_ms,
+            // v0.8.1 enhancement - per-agent config overrides (currently unused)
+            agent_config: None,
+            // v0.8.1 enhancement - shared storage flag (currently false)
+            shared_storage: false,
         });
         
         let response = client

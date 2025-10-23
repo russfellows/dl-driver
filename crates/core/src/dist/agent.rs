@@ -213,6 +213,16 @@ impl AgentService {
             data_loading_time_s,
             compute_time_s,
             pipeline_efficiency,
+            // Inline results (v0.8.1 enhancement - currently unused)
+            console_log: String::new(),
+            metadata_json: String::new(),
+            storage_tsv_content: String::new(),
+            aiml_tsv_content: String::new(),
+            results_path: String::new(),
+            // HDR histogram data (v0.8.1 enhancement - currently empty)
+            histogram_read_latency: vec![],
+            histogram_write_latency: vec![],
+            histogram_batch_time: vec![],
         })
     }
 }

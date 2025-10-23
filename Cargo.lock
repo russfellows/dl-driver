@@ -1435,6 +1435,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-core",
  "futures-util",
+ "hdrhistogram",
  "indicatif",
  "memmap2",
  "ndarray 0.15.6",

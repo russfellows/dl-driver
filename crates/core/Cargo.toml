@@ -23,6 +23,9 @@ tonic = "0.12"
 prost = "0.13"
 prost-types = "0.13"
 
+# HDR Histogram for accurate latency merging (v0.8.1)
+hdrhistogram = "7.5"
+
 # Additional dependencies from s3dlio for advanced features
 futures = "0.3"
 futures-core = "0.3"
