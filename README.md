@@ -38,27 +38,7 @@
 - **✅ E2E Validated**: 2-node and 4-node configurations tested (local + cloud storage)
 - **📈 Performance**: Multi-GiB/s aggregate throughput with accurate percentile tracking
 
----
-
-## 🎯 Current Status (v0.8.0)
-
-**🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
-**🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
-**📊 DUAL METRICS**: Separate storage (ops/s, MiB/s) and AI/ML (samples/s, batches/s) perspectives
-**✅ 80/80 TESTS PASSING**: Full validation across all backends
-
-### Latest v0.8.0 Release - Distributed Controller 🎉
-- **🌐 Multi-Agent Orchestration**: Controller coordinates workloads across multiple agent instances
-- **� Coordinated Start**: Synchronized workload execution with health checking
-- **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents
-- **🗂️ Path Isolation**: Agent-specific path prefixes for local storage isolation
-- **☁️ Shared Storage**: Automatic detection and handling of GCS/S3 shared backends
-- **✅ E2E Validated**: 2-node and 4-node configurations tested (local + GCS)
-- **📈 Performance**: Up to 2.04 GiB/s aggregate throughput (4-node local test)
-
----
-
-**For actual storage I/O replay**, use [sai3-bench](https://github.com/russfellows/sai3-bench) instead.
+**For storage I/O replay**, use [sai3-bench](https://github.com/russfellows/sai3-bench) instead.
 
 ## 📚 Documentation
 
