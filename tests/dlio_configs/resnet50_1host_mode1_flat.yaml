@@ -1,0 +1,62 @@
+# dl-driver ResNet50 Config - 1 Host (Mode 1: Flat Directory)
+#
+# MODE 1: All files in single flat directory (current DLIO/dl-driver default)
+# Structure: train_file_00000000.npz, train_file_00000001.npz, ...
+#
+# Single host: 102,400 files, ~101 GB
+# File sizes: 1 MB per file (fixed)
+#
+# Usage:
+#   dl-driver run --config resnet50_1host_mode1_flat.yaml
+
+model:
+  name: resnet50_flat_mode
+  model_size: 25557032
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/lustre/resnet50_flat/data
+  format: npz
+  
+  # Mode 1: Flat directory (no directory_tree or num_subfolders_train specified)
+  num_files_train: 102400
+  num_samples_per_file: 1
+  record_length_bytes: 1048576  # 1 MB
+
+reader:
+  data_loader: pytorch
+  batch_size: 64
+  prefetch: 2
+  shuffle: false
+  read_threads: 16
+  compute_threads: 8
+  transfer_size: 1048576
+  file_access_type: default
+
+train:
+  epochs: 5
+  computation_time: 0.195
+  seed: 42
+
+checkpoint:
+  checkpoint_folder: file:///mnt/lustre/resnet50_flat/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 500
+
+# Expected Results (Mode 1 - Flat):
+# - Files: 102,400
+# - Structure: All files in single directory
+# - Total data: ~101 GB
+# - Avg file size: 1 MB
+# - Example paths:
+#     train_file_00000000.npz
+#     train_file_00000001.npz
+#     train_file_00102399.npz

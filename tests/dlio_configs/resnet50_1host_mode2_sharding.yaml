@@ -1,0 +1,66 @@
+# dl-driver ResNet50 Config - 1 Host (Mode 2: DLIO-style Sharding)
+#
+# MODE 2: Files distributed across flat subdirectories (DLIO-compatible)
+# Structure: train/0000/, train/0001/, ..., train/0031/
+# Files distributed via modulo: file_i → train/{i % 32}/
+#
+# Single host: 102,400 files, ~101 GB, 32 subdirectories
+# File sizes: 1 MB per file (fixed)
+#
+# Usage:
+#   dl-driver run --config resnet50_1host_mode2_sharding.yaml
+
+model:
+  name: resnet50_sharding_mode
+  model_size: 25557032
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/lustre/resnet50_sharding/data
+  format: npz
+  
+  # Mode 2: DLIO-style sharding
+  num_files_train: 102400
+  num_subfolders_train: 32  # Creates train/0000 through train/0031
+  
+  num_samples_per_file: 1
+  record_length_bytes: 1048576  # 1 MB
+
+reader:
+  data_loader: pytorch
+  batch_size: 64
+  prefetch: 2
+  shuffle: false
+  read_threads: 16
+  compute_threads: 8
+  transfer_size: 1048576
+  file_access_type: default
+
+train:
+  epochs: 5
+  computation_time: 0.195
+  seed: 42
+
+checkpoint:
+  checkpoint_folder: file:///mnt/lustre/resnet50_sharding/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 500
+
+# Expected Results (Mode 2 - DLIO Sharding):
+# - Files: 102,400 (3,200 per subdirectory)
+# - Structure: 32 flat subdirectories
+# - Total data: ~101 GB
+# - Avg file size: 1 MB
+# - Example paths:
+#     train/0000/train_file_00000000.npz  (0 % 32 = 0)
+#     train/0001/train_file_00000001.npz  (1 % 32 = 1)
+#     train/0000/train_file_00000032.npz  (32 % 32 = 0)
+#     train/0010/train_file_00000042.npz  (42 % 32 = 10)

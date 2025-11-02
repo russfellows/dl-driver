@@ -1,0 +1,52 @@
+# dl-driver Small Test - Mode 1 (Flat Directory)
+# Test Size: 256 files × 10 MB = 2.56 GB
+#
+# Purpose: Quick verification that Mode 1 (flat) works correctly
+# Structure: All files in single directory
+# 
+# Usage:
+#   dl-driver run --config test_mode1_small_flat.yaml --dry-run
+#   dl-driver run --config test_mode1_small_flat.yaml
+
+model:
+  name: test_flat_mode
+  model_size: 1000000
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/test/dldriver_test/mode1_flat
+  format: npz
+  num_files_train: 256
+  num_samples_per_file: 1
+  record_length_bytes: 10485760  # 10 MB per file
+
+reader:
+  data_loader: pytorch
+  batch_size: 16
+  prefetch: 2
+  shuffle: false
+  read_threads: 4
+  compute_threads: 2
+  transfer_size: 1048576
+
+train:
+  epochs: 2
+  computation_time: 0.1
+  seed: 42
+
+# Expected Results (Mode 1 - Flat):
+# - Files: 256
+# - Structure: Single directory (train/)
+# - Total data: 2.56 GB
+# - File size: 10 MB each
+# - Example: train_file_00000000.npz, train_file_00000001.npz, ...
+# - Batches/epoch: 16
+# - Total batches: 32
+# - Compute time: ~3.2s (excluding I/O)

@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1423,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-core"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-formats"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-frameworks"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-py-api"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1513,7 +1513,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-storage"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "tempfile",
 ]
@@ -4315,8 +4315,8 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "s3dlio"
-version = "0.9.10"
-source = "git+https://github.com/russfellows/s3dlio.git?tag=v0.9.10#66c1700bc1ae1ae504bc496d54cf0df6c167c80e"
+version = "0.9.11"
+source = "git+https://github.com/russfellows/s3dlio.git?tag=v0.9.11#a61a31fbd8a1566847fe8b5fe0a07ab925faca1c"
 dependencies = [
  "anyhow",
  "async-stream",

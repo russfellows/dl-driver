@@ -145,32 +145,93 @@ impl WorkloadRunner {
     }
 
     /// Data generation phase using s3dlio for high-performance storage operations
+    /// Supports 3 directory organization modes:
+    /// 1. Flat: All files in single directory (Mode 1)
+    /// 2. DLIO-style sharding: Files distributed across train/NNNN subdirectories (Mode 2)
+    /// 3. Hierarchical: Multi-level nested directory tree (Mode 3)
     async fn run_data_generation(&mut self) -> Result<()> {
+        use crate::directory_tree::DirectoryMode;
+        
         let start_time = Instant::now();
         info!("Starting data generation phase");
 
+        // Determine directory organization mode from config
+        let dir_mode = DirectoryMode::from_config(
+            self.config.dataset.directory_tree.as_ref(),
+            self.config.dataset.num_subfolders_train,
+        )?;
+        
+        match &dir_mode {
+            DirectoryMode::Flat => {
+                info!("Directory mode: Flat (all files in single directory)");
+            }
+            DirectoryMode::DlioSharding { num_subfolders } => {
+                info!("Directory mode: DLIO-style sharding ({} subfolders)", num_subfolders);
+            }
+            DirectoryMode::Hierarchical { tree } => {
+                info!("Directory mode: Hierarchical (width={}, depth={}, {} dirs, {} files)",
+                    tree.config().width, tree.config().depth,
+                    tree.total_directories(), tree.total_files());
+            }
+        }
+
         // Create object store for the configured storage backend
         let store = self.create_object_store()?;
+        let data_folder = &self.config.dataset.data_folder;
 
-        let num_files = self.config.dataset.num_files_train.unwrap_or(100);
+        // Create directory structure if needed (filesystem only, not object stores)
+        let dirs_to_create = dir_mode.get_directories_to_create(data_folder);
+        if !dirs_to_create.is_empty() {
+            info!("Creating {} directories for {} backend", 
+                dirs_to_create.len(),
+                if data_folder.starts_with("file://") { "filesystem" } 
+                else if data_folder.starts_with("direct://") { "direct I/O" }
+                else { "object store (implicit)" }
+            );
+            
+            for dir_path in &dirs_to_create {
+                let full_dir_uri = if data_folder.ends_with('/') {
+                    format!("{}{}", data_folder, dir_path)
+                } else {
+                    format!("{}/{}", data_folder, dir_path)
+                };
+                
+                // Use s3dlio's mkdir (added in v0.9.11)
+                store.mkdir(&full_dir_uri).await
+                    .with_context(|| format!("Failed to create directory: {}", full_dir_uri))?;
+            }
+            info!("Directory structure created successfully");
+        }
+
+        // Determine number of files to generate
+        let num_files = match &dir_mode {
+            DirectoryMode::Hierarchical { tree } => {
+                // Mode 3: Use tree's total file count
+                tree.total_files()
+            }
+            _ => {
+                // Mode 1 & 2: Use num_files_train from config
+                self.config.dataset.num_files_train.unwrap_or(100)
+            }
+        };
+
         let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1);
         let record_size = self.config.dataset.record_length_bytes.unwrap_or(1024);
+        let format = self.config.dataset.format.as_deref().unwrap_or("npz");
 
         info!(
             "Generating {} files with {} samples each ({}B per record)",
             num_files, samples_per_file, record_size
         );
 
-        // Generate data files using s3dlio's object store
+        // Generate data files using directory mode for path resolution
         for file_idx in 0..num_files {
-            // Create full URI path by combining base data folder with filename
-            let format = self.config.dataset.format.as_deref().unwrap_or("npz");
-            let file_name = format!("train_file_{:06}.{}", file_idx, format);
-            let data_folder = &self.config.dataset.data_folder;
+            // Get file path based on directory mode
+            let rel_path = dir_mode.get_file_path(file_idx, format);
             let full_path = if data_folder.ends_with('/') {
-                format!("{}{}", data_folder, file_name)
+                format!("{}{}", data_folder, rel_path)
             } else {
-                format!("{}/{}", data_folder, file_name)
+                format!("{}/{}", data_folder, rel_path)
             };
 
             let data = self.generate_file_data(samples_per_file, record_size)?;
@@ -190,18 +251,19 @@ impl WorkloadRunner {
             // v0.8.1: Record histogram data for accurate write percentiles
             self.metrics.record_write_with_histogram(bytes_written as usize, write_time);
             
-            info!(
-                "Wrote {} bytes to {} in {:?}",
-                bytes_written, full_path, write_time
-            );
-
             if file_idx % 100 == 0 {
-                info!("Generated {}/{} files", file_idx + 1, num_files);
+                info!("Generated {}/{} files ({})", file_idx + 1, num_files, rel_path);
             }
         }
 
         let generation_time = start_time.elapsed();
         info!("Data generation completed in {:?}", generation_time);
+        info!("Generated {} files in {:?} ({:.2} MB/s)", 
+            num_files, 
+            generation_time,
+            (num_files as f64 * record_size as f64 * samples_per_file as f64) / 
+            (1024.0 * 1024.0 * generation_time.as_secs_f64())
+        );
         Ok(())
     }
 
@@ -239,10 +301,9 @@ impl WorkloadRunner {
             // Create progress bar for this epoch
             let progress = ProgressBar::new(estimated_batches_per_epoch as u64);
             progress.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} batches ({percent}%) {per_sec}")
-                    .expect("Failed to set progress bar template")
-                    .progress_chars("#>-")
+                ProgressStyle::with_template(
+                    "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} batches {msg}"
+                ).expect("Failed to set progress bar template")
             );
 
             let mut batch_count = 0;

@@ -1,0 +1,57 @@
+# dl-driver Small Test - Mode 2 (DLIO Sharding)
+# Test Size: 256 files × 10 MB = 2.56 GB
+#
+# Purpose: Quick verification that Mode 2 (DLIO sharding) works correctly
+# Structure: 8 flat subdirectories with 32 files each
+# 
+# Usage:
+#   dl-driver run --config test_mode2_small_sharding.yaml --dry-run
+#   dl-driver run --config test_mode2_small_sharding.yaml
+
+model:
+  name: test_sharding_mode
+  model_size: 1000000
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/test/dldriver_test/mode2_sharding
+  format: npz
+  num_files_train: 256
+  num_subfolders_train: 8  # Creates train/0000 through train/0007
+  num_samples_per_file: 1
+  record_length_bytes: 10485760  # 10 MB per file
+
+reader:
+  data_loader: pytorch
+  batch_size: 16
+  prefetch: 2
+  shuffle: false
+  read_threads: 4
+  compute_threads: 2
+  transfer_size: 1048576
+
+train:
+  epochs: 2
+  computation_time: 0.1
+  seed: 42
+
+# Expected Results (Mode 2 - DLIO Sharding):
+# - Files: 256 (32 per subdirectory)
+# - Structure: 8 subdirectories (train/0000 through train/0007)
+# - Total data: 2.56 GB
+# - File size: 10 MB each
+# - Distribution: Modulo sharding (file_i → train/{i % 8})
+# - Examples:
+#     train/0000/train_file_00000000.npz (0 % 8 = 0)
+#     train/0001/train_file_00000001.npz (1 % 8 = 1)
+#     train/0000/train_file_00000008.npz (8 % 8 = 0)
+# - Batches/epoch: 16
+# - Total batches: 32
+# - Compute time: ~3.2s (excluding I/O)

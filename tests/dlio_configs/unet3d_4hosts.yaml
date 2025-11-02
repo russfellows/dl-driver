@@ -1,0 +1,59 @@
+# dl-driver UNet3D Config - 4 Hosts Distributed
+#
+# 4-host distributed: 51,200 files total (12,800 per host), ~588 GB total
+# File sizes: Lognormal mean=12MB, std=6MB
+#
+# Usage:
+#   Host 1-4: dl_driver_agent --agent-id agent-N --listen 0.0.0.0:50051
+#
+#   Controller: dl-driver distributed run \
+#     --config unet3d_4hosts.yaml \
+#     --agents http://host1:50051,...,http://host4:50051 \
+#     --path-template "{id}/"
+
+model:
+  name: unet3d_4host_distributed
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/lustre/unet3d/data
+  format: npz
+  
+  # 12,800 files per host × 4 = 51,200 total
+  num_files_train: 12800
+  num_samples_per_file: 1
+  record_length_bytes: 12582912  # 12 MB
+
+reader:
+  data_loader: pytorch
+  batch_size: 4
+  prefetch: 4
+  shuffle: false
+  read_threads: 4
+  compute_threads: 2
+  transfer_size: 12582912
+  file_access_type: default
+
+train:
+  epochs: 5
+  computation_time: 1.3604
+  seed: 42
+
+checkpoint:
+  checkpoint_folder: file:///mnt/lustre/unet3d/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 100
+
+# Expected Results (4 hosts):
+# - Files: 51,200 total (12,800 per host)
+# - Total data: ~588 GB (~147 GB per host)
+# - Avg file size: ~12 MB

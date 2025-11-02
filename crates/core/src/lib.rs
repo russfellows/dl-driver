@@ -12,6 +12,9 @@ pub mod coordination;
 // Internal config module (not publicly exported to avoid conflicts)
 mod config;
 
+// Directory tree generation for hierarchical dataset structures
+pub mod directory_tree;
+
 // Distributed execution for multi-host workloads
 pub mod dist;
 // Temporarily disabled - needs update for new config system

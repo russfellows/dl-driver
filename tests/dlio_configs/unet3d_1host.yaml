@@ -1,0 +1,64 @@
+# dl-driver UNet3D Config - Single Host
+#
+# Based on DLIO UNet3D benchmark with scaled parameters
+# Matches sai3-bench unet3d_dlio_style.yaml capacity
+#
+# Single-host: 12,800 files, ~147 GB
+# File sizes: Lognormal mean=12MB, std=6MB
+
+model:
+  name: unet3d_workload
+  model_size: 499153191
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/lustre/unet3d/data
+  format: npz
+  
+  # Match sai3-bench: 12,800 files
+  num_files_train: 12800
+  num_samples_per_file: 1  # One large volume per file
+  
+  # Mean file size: ~12 MB (matches sai3-bench lognormal mean)
+  # DLIO original: 146,600,628 bytes (~140 MB) per sample
+  # This config: ~12 MB for more manageable large-file testing
+  record_length_bytes: 12582912  # 12 MB
+
+reader:
+  data_loader: pytorch
+  batch_size: 4
+  prefetch: 4
+  shuffle: false
+  read_threads: 4
+  compute_threads: 2
+  transfer_size: 12582912  # 12 MB transfer size
+  file_access_type: default
+
+train:
+  epochs: 5
+  computation_time: 1.3604  # 1360ms per batch (DLIO original)
+  seed: 42
+
+checkpoint:
+  checkpoint_folder: file:///mnt/lustre/unet3d/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 100
+
+profiling:
+  profiler: pytorch_profiler
+  profile_folder: /tmp/unet3d_profiles
+  iostat: false
+
+# Expected Results:
+# - Files: 12,800
+# - Total data: ~147 GB
+# - Avg file size: ~12 MB
+# - Comparable to sai3-bench unet3d_dlio_style.yaml

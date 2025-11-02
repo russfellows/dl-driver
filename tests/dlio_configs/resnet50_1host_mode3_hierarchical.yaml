@@ -1,0 +1,83 @@
+# dl-driver ResNet50 Config - 1 Host (Mode 3: Hierarchical Tree)
+#
+# MODE 3: Files in nested hierarchical directory tree (realistic ML datasets)
+# Structure: Nested tree with width^depth directories
+# width: 32, depth: 2 → 32 + 32² = 1,056 directories
+# files_per_dir: 100 → 32² × 100 = 102,400 files
+#
+# Example structure:
+#   resnet50.d1_w0.dir/resnet50.d2_w0.dir/train_file_*.npz
+#   resnet50.d1_w0.dir/resnet50.d2_w1.dir/train_file_*.npz
+#   ...
+#   resnet50.d1_w31.dir/resnet50.d2_w31.dir/train_file_*.npz
+#
+# Single host: 102,400 files, ~101 GB, 1,056 directories
+# File sizes: 1 MB per file (fixed)
+#
+# Usage:
+#   dl-driver run --config resnet50_1host_mode3_hierarchical.yaml
+
+model:
+  name: resnet50_hierarchical_mode
+  model_size: 25557032
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/lustre/resnet50_hierarchical/data
+  format: npz
+  
+  # Mode 3: Hierarchical tree structure
+  directory_tree:
+    width: 32                    # 32 subdirectories per level
+    depth: 2                     # 2 levels deep
+    files_per_dir: 100           # 100 files per leaf directory
+    distribution: bottom         # Files only in leaf directories
+    dir_mask: "resnet50.d%d_w%d.dir"  # e.g., resnet50.d1_w5.dir
+  
+  num_samples_per_file: 1
+  record_length_bytes: 1048576  # 1 MB
+
+reader:
+  data_loader: pytorch
+  batch_size: 64
+  prefetch: 2
+  shuffle: false
+  read_threads: 16
+  compute_threads: 8
+  transfer_size: 1048576
+  file_access_type: default
+
+train:
+  epochs: 5
+  computation_time: 0.195
+  seed: 42
+
+checkpoint:
+  checkpoint_folder: file:///mnt/lustre/resnet50_hierarchical/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 500
+
+# Expected Results (Mode 3 - Hierarchical):
+# - Files: 102,400 (100 per leaf directory)
+# - Structure: 1,056 total directories
+#     - Level 1: 32 directories (d1_w0 through d1_w31)
+#     - Level 2: 32² = 1,024 leaf directories (d2_w0 through d2_w31 under each L1)
+# - Total data: ~101 GB
+# - Avg file size: 1 MB
+# - Example paths:
+#     resnet50.d1_w0.dir/resnet50.d2_w0.dir/train_file_00000000.npz
+#     resnet50.d1_w0.dir/resnet50.d2_w0.dir/train_file_00000099.npz
+#     resnet50.d1_w0.dir/resnet50.d2_w1.dir/train_file_00000100.npz
+#     resnet50.d1_w31.dir/resnet50.d2_w31.dir/train_file_00102399.npz
+#
+# Math:
+#   Total directories = width + width^depth = 32 + 32² = 1,056
+#   Total files = width^depth × files_per_dir = 1,024 × 100 = 102,400

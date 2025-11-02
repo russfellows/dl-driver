@@ -33,6 +33,10 @@ enum Commands {
         #[arg(long)]
         pretty: bool,
 
+        /// Validate config and show execution summary without running (dry-run mode)
+        #[arg(long)]
+        dry_run: bool,
+
         /// Enable MLPerf compliance mode with enhanced reporting
         #[arg(long)]
         mlperf: bool,
@@ -265,6 +269,7 @@ async fn main() -> Result<()> {
         Commands::Run {
             config,
             pretty,
+            dry_run,
             mlperf,
             format,
             output,
@@ -289,7 +294,8 @@ async fn main() -> Result<()> {
             metrics_csv,
         } => run_unified_dlio(
             &config, 
-            pretty, 
+            pretty,
+            dry_run,
             mlperf, 
             &format, 
             output.as_deref(),
@@ -357,6 +363,7 @@ async fn main() -> Result<()> {
 async fn run_unified_dlio(
     config_path: &std::path::Path,
     pretty: bool,
+    dry_run: bool,
     mlperf_mode: bool,
     _format: &str,
     _output_path: Option<&std::path::Path>,
@@ -417,6 +424,12 @@ async fn run_unified_dlio(
     // Load DLIO configuration
     let yaml_content = std::fs::read_to_string(config_path)?;
     let dlio_config = DlioConfig::from_yaml(&yaml_content)?;
+
+    // Dry-run mode: display config summary and exit
+    if dry_run {
+        display_config_summary(&dlio_config, config_path)?;
+        return Ok(());
+    }
 
     // Handle file list sharding for multi-rank execution
     let sharded_file_list = if let Some(filelist_path) = filelist {
@@ -686,19 +699,81 @@ async fn run_unified_dlio(
 }
 
 /// Data generation phase using s3dlio (shared by both modes) - PARALLEL VERSION
+/// Supports 3 directory organization modes:
+/// 1. Flat: All files in single directory (Mode 1)
+/// 2. DLIO-style sharding: Files distributed across train/NNNN subdirectories (Mode 2)
+/// 3. Hierarchical: Multi-level nested directory tree (Mode 3)
 async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     use s3dlio::object_store::store_for_uri;
     use std::sync::Arc;
     use indicatif::{ProgressBar, ProgressStyle};
+    use dl_driver_core::directory_tree::DirectoryMode;
     
     let start_time = std::time::Instant::now();
     info!("Starting PARALLEL data generation phase");
+
+    // Determine directory organization mode from config
+    let dir_mode = DirectoryMode::from_config(
+        config.dataset.directory_tree.as_ref(),
+        config.dataset.num_subfolders_train,
+    )?;
+    
+    match &dir_mode {
+        DirectoryMode::Flat => {
+            info!("📁 Directory mode: Flat (all files in single directory)");
+        }
+        DirectoryMode::DlioSharding { num_subfolders } => {
+            info!("📁 Directory mode: DLIO-style sharding ({} subfolders)", num_subfolders);
+        }
+        DirectoryMode::Hierarchical { tree } => {
+            info!("📁 Directory mode: Hierarchical (width={}, depth={}, {} dirs, {} files)",
+                tree.config().width, tree.config().depth,
+                tree.total_directories(), tree.total_files());
+        }
+    }
 
     // Create object store for the configured storage backend
     let store = Arc::new(store_for_uri(&config.dataset.data_folder)
         .with_context(|| format!("Failed to create object store for {}", config.dataset.data_folder))?);
 
-    let num_files = config.dataset.num_files_train.unwrap_or(100);
+    // Create directory structure if needed (filesystem only, not object stores)
+    let data_folder = &config.dataset.data_folder;
+    let dirs_to_create = dir_mode.get_directories_to_create(data_folder);
+    if !dirs_to_create.is_empty() {
+        info!("📂 Creating {} directories for {} backend", 
+            dirs_to_create.len(),
+            if data_folder.starts_with("file://") { "filesystem" } 
+            else if data_folder.starts_with("direct://") { "direct I/O" }
+            else { "object store (implicit)" }
+        );
+        
+        for dir_path in &dirs_to_create {
+            let full_dir_uri = if data_folder.ends_with('/') {
+                format!("{}{}", data_folder, dir_path)
+            } else {
+                format!("{}/{}", data_folder, dir_path)
+            };
+            
+            // Use s3dlio's mkdir (added in v0.9.11)
+            store.mkdir(&full_dir_uri).await
+                .with_context(|| format!("Failed to create directory: {}", full_dir_uri))?;
+            debug!("Created directory: {}", full_dir_uri);
+        }
+        info!("✅ Directory structure created successfully");
+    }
+
+    // Determine number of files to generate
+    let num_files = match &dir_mode {
+        DirectoryMode::Hierarchical { tree } => {
+            // Mode 3: Use tree's total file count
+            tree.total_files()
+        }
+        _ => {
+            // Mode 1 & 2: Use num_files_train from config
+            config.dataset.num_files_train.unwrap_or(100)
+        }
+    };
+
     let samples_per_file = config.dataset.num_samples_per_file.unwrap_or(1);
     let record_size = config.dataset.record_length_bytes.unwrap_or(1024);
     
@@ -732,16 +807,18 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     // Create progress bar for visual feedback
     let progress = ProgressBar::new(num_files as u64);
     progress.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({percent}%) {msg}")
-            .expect("Failed to set progress bar template")
-            .progress_chars("#>-")
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} files {msg}"
+        ).expect("Failed to set progress bar template")
     );
 
     // Create semaphore to limit concurrent operations
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-    let data_folder = config.dataset.data_folder.clone();
+    let data_folder_clone = config.dataset.data_folder.clone();
     let format = config.dataset.format.as_ref().map(|f| f.as_str()).unwrap_or("npz");
+
+    // Clone DirectoryMode for use in async tasks
+    let dir_mode = Arc::new(dir_mode);
 
     // Spawn parallel file generation tasks
     let mut handles = Vec::new();
@@ -749,20 +826,21 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
         let store_clone = Arc::clone(&store);
         let data_clone = Arc::clone(&synthetic_data);
         let semaphore_clone = Arc::clone(&semaphore);
-        let data_folder_clone = data_folder.clone();
+        let data_folder_clone2 = data_folder_clone.clone();
         let format_str = format.to_string();
         let progress_clone = progress.clone();
+        let dir_mode_clone = Arc::clone(&dir_mode);
 
         let handle = tokio::spawn(async move {
             // Acquire semaphore permit for rate limiting
             let _permit = semaphore_clone.acquire().await.unwrap();
             
-            // Create full URI path
-            let file_name = format!("train_file_{:06}.{}", file_idx, format_str);
-            let full_path = if data_folder_clone.ends_with('/') {
-                format!("{}{}", data_folder_clone, file_name)
+            // Get file path based on directory mode (uses DirectoryMode logic)
+            let rel_path = dir_mode_clone.get_file_path(file_idx, &format_str);
+            let full_path = if data_folder_clone2.ends_with('/') {
+                format!("{}{}", data_folder_clone2, rel_path)
             } else {
-                format!("{}/{}", data_folder_clone, file_name)
+                format!("{}/{}", data_folder_clone2, rel_path)
             };
 
             let write_start = std::time::Instant::now();
@@ -1369,3 +1447,286 @@ async fn run_distributed(
     
     Ok(())
 }
+
+// ============================================================================
+// Configuration Validation & Summary Display (--dry-run)
+// ============================================================================
+
+/// Display comprehensive configuration summary for dry-run validation
+fn display_config_summary(config: &DlioConfig, config_path: &std::path::Path) -> Result<()> {
+    use dl_driver_core::directory_tree::DirectoryMode;
+    
+    println!("╔═══════════════════════════════════════════════════════════════════════╗");
+    println!("║         DL-DRIVER CONFIGURATION VALIDATION & TEST SUMMARY             ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════╝");
+    println!();
+    println!("✅ Config file parsed successfully: {}", config_path.display());
+    println!();
+    
+    // Model Information
+    if let Some(ref model) = config.model {
+        println!("┌─ Model Configuration ────────────────────────────────────────────────┐");
+        if let Some(ref name) = model.name {
+            println!("│ Model Name:   {}", name);
+        }
+        if let Some(size) = model.model_size {
+            println!("│ Model Size:   {} parameters", size);
+        }
+        println!("└──────────────────────────────────────────────────────────────────────┘");
+        println!();
+    }
+    
+    // Framework
+    if let Some(ref framework) = config.framework {
+        println!("Framework: {}", framework);
+        println!();
+    }
+    
+    // Workflow phases
+    if let Some(ref workflow) = config.workflow {
+        println!("┌─ Workflow Phases ────────────────────────────────────────────────────┐");
+        println!("│ Generate Data:  {}", if workflow.generate_data.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
+        println!("│ Training:       {}", if workflow.train.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
+        println!("│ Checkpoint:     {}", if workflow.checkpoint.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
+        println!("│ Evaluation:     {}", if workflow.evaluation.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
+        println!("└──────────────────────────────────────────────────────────────────────┘");
+        println!();
+    }
+    
+    // Dataset configuration - detect backend type
+    let data_folder = &config.dataset.data_folder;
+    let backend_type = if data_folder.starts_with("s3://") {
+        "Amazon S3"
+    } else if data_folder.starts_with("az://") || data_folder.starts_with("azure://") {
+        "Azure Blob Storage"
+    } else if data_folder.starts_with("gs://") {
+        "Google Cloud Storage"
+    } else if data_folder.starts_with("file://") {
+        "Local Filesystem (file://)"
+    } else if data_folder.starts_with("direct://") {
+        "Direct I/O (direct://)"
+    } else if data_folder.starts_with("/") {
+        "Local Filesystem (absolute path)"
+    } else {
+        "Unknown Backend"
+    };
+    
+    println!("┌─ Dataset Configuration ──────────────────────────────────────────────┐");
+    println!("│ Data Folder:  {}", data_folder);
+    println!("│ Backend Type: {}", backend_type);
+    if let Some(ref format) = config.dataset.format {
+        println!("│ Format:       {}", format);
+    }
+    if let Some(record_len) = config.dataset.record_length_bytes {
+        println!("│ Record Size:  {} bytes ({:.2} MB)", 
+                 record_len, 
+                 record_len as f64 / (1024.0 * 1024.0));
+    }
+    if let Some(samples) = config.dataset.num_samples_per_file {
+        println!("│ Samples/File: {}", samples);
+    }
+    println!("└──────────────────────────────────────────────────────────────────────┘");
+    println!();
+    
+    // Directory structure analysis
+    let dir_mode = DirectoryMode::from_config(
+        config.dataset.directory_tree.as_ref(),
+        config.dataset.num_subfolders_train,
+    )?;
+    
+    let num_files = config.dataset.num_files_train.unwrap_or(0);
+    let format_str = config.dataset.format.as_deref().unwrap_or("dat");
+    
+    match &dir_mode {
+        DirectoryMode::Flat => {
+            println!("┌─ Directory Structure: Mode 1 (Flat) ────────────────────────────────┐");
+            println!("│ Structure:     Single directory (all files in one location)");
+            println!("│ Files:         {} training files", num_files);
+            println!("│ Path Pattern:  train_file_{{:08}}.{}", format_str);
+            println!("│ Example:       train_file_00000000.{}", format_str);
+            println!("│                train_file_00000001.{}", format_str);
+            
+            if let (Some(record_len), Some(samples_per_file)) = 
+                (config.dataset.record_length_bytes, config.dataset.num_samples_per_file) {
+                let total_bytes = num_files as u64 * samples_per_file as u64 * record_len as u64;
+                let total_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                println!("│ Total Size:    {:.2} GB", total_gb);
+            }
+            println!("└──────────────────────────────────────────────────────────────────────┘");
+        }
+        DirectoryMode::DlioSharding { num_subfolders } => {
+            println!("┌─ Directory Structure: Mode 2 (DLIO Sharding) ───────────────────────┐");
+            println!("│ Structure:     Flat subdirectories (DLIO-compatible sharding)");
+            println!("│ Subdirectories: {} folders (train/0000 through train/{:04})", 
+                     num_subfolders, num_subfolders - 1);
+            println!("│ Total Files:   {} training files", num_files);
+            println!("│ Files/Subdir:  ~{} files per subdirectory", 
+                     num_files / num_subfolders);
+            println!("│ Distribution:  Modulo sharding (file_i → train/{{i % {}}})", num_subfolders);
+            println!("│ Path Pattern:  train/{{:04}}/train_file_{{:08}}.{}", format_str);
+            println!("│ Example:       train/0000/train_file_00000000.{}", format_str);
+            println!("│                train/0001/train_file_00000001.{}", format_str);
+            println!("│                train/0000/train_file_000000{:02}.{}", num_subfolders, format_str);
+            
+            if let (Some(record_len), Some(samples_per_file)) = 
+                (config.dataset.record_length_bytes, config.dataset.num_samples_per_file) {
+                let total_bytes = num_files as u64 * samples_per_file as u64 * record_len as u64;
+                let total_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                println!("│ Total Size:    {:.2} GB", total_gb);
+            }
+            println!("└──────────────────────────────────────────────────────────────────────┘");
+        }
+        DirectoryMode::Hierarchical { tree } => {
+            println!("┌─ Directory Structure: Mode 3 (Hierarchical Tree) ───────────────────┐");
+            println!("│ Structure:     Nested hierarchical directories (realistic ML datasets)");
+            println!("│ Width:         {} subdirectories per level", tree.config().width);
+            println!("│ Depth:         {} levels", tree.config().depth);
+            println!("│ Files/Dir:     {} files per {} directory", 
+                     tree.config().files_per_dir,
+                     if tree.config().distribution == "bottom" { "leaf" } else { "directory" });
+            println!("│ Distribution:  {} (files {})", 
+                     tree.config().distribution,
+                     if tree.config().distribution == "bottom" { 
+                         "only in leaf directories" 
+                     } else { 
+                         "at every level" 
+                     });
+            println!("│ Directory Mask: {}", tree.config().dir_mask);
+            println!("│");
+            
+            // Calculate totals
+            let total_dirs = tree.total_directories();
+            let total_files = tree.total_files();
+            
+            println!("│ 📊 Calculated Tree Metrics:");
+            println!("│   Total Directories:  {}", total_dirs);
+            println!("│   Total Files:        {}", total_files);
+            
+            if let (Some(record_len), Some(samples_per_file)) = 
+                (config.dataset.record_length_bytes, config.dataset.num_samples_per_file) {
+                let total_bytes = total_files as u64 * samples_per_file as u64 * record_len as u64;
+                let total_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                println!("│   Total Size:         {:.2} GB", total_gb);
+            }
+            
+            // Show example paths
+            println!("│");
+            println!("│ Example Paths:");
+            if tree.config().depth >= 1 {
+                // Build example path manually
+                let example_dir = format!("{}", 
+                    tree.config().dir_mask.replace("%d", "1").replacen("%d", "0", 1));
+                println!("│   {}/train_file_00000000.{}", example_dir, format_str);
+            }
+            println!("└──────────────────────────────────────────────────────────────────────┘");
+        }
+    }
+    println!();
+    
+    // Reader configuration
+    println!("┌─ Data Loader Configuration ──────────────────────────────────────────┐");
+    if let Some(ref loader) = config.reader.data_loader {
+        println!("│ Loader Type:       {}", loader);
+    }
+    if let Some(batch_size) = config.reader.batch_size {
+        println!("│ Batch Size:        {}", batch_size);
+    }
+    if let Some(read_threads) = config.reader.read_threads {
+        println!("│ Read Threads:      {}", read_threads);
+    }
+    if let Some(compute_threads) = config.reader.compute_threads {
+        println!("│ Compute Threads:   {}", compute_threads);
+    }
+    if let Some(prefetch) = config.reader.prefetch {
+        println!("│ Prefetch:          {}", prefetch);
+    }
+    if let Some(transfer_size) = config.reader.transfer_size {
+        println!("│ Transfer Size:     {} bytes", transfer_size);
+    }
+    if let Some(shuffle) = config.reader.shuffle {
+        println!("│ Shuffle:           {}", if shuffle { "✅ YES" } else { "❌ NO" });
+    }
+    println!("└──────────────────────────────────────────────────────────────────────┘");
+    println!();
+    
+    // Training configuration
+    if let Some(ref workflow) = config.workflow {
+        if workflow.train.unwrap_or(false) {
+            if let Some(ref train_config) = config.train {
+                println!("┌─ Training Configuration ─────────────────────────────────────────────┐");
+                if let Some(epochs) = train_config.epochs {
+                    println!("│ Epochs:            {}", epochs);
+                }
+                if let Some(comp_time) = train_config.computation_time {
+                    println!("│ Computation Time:  {:.3}s per batch", comp_time);
+                }
+                
+                // Calculate training metrics
+                if let (Some(batch_size), Some(epochs)) = (config.reader.batch_size, train_config.epochs) {
+                    let total_samples = num_files * config.dataset.num_samples_per_file.unwrap_or(1);
+                    let batches_per_epoch = (total_samples + batch_size - 1) / batch_size;
+                    let total_batches = batches_per_epoch * epochs as usize;
+                    
+                    println!("│");
+                    println!("│ 📊 Estimated Training Workload:");
+                    println!("│   Total Samples:   {} ({} files × {} samples/file)", 
+                             total_samples, num_files, config.dataset.num_samples_per_file.unwrap_or(1));
+                    println!("│   Batches/Epoch:   {}", batches_per_epoch);
+                    println!("│   Total Batches:   {}", total_batches);
+                    
+                    if let Some(comp_time) = train_config.computation_time {
+                        let estimated_compute_time = total_batches as f64 * comp_time;
+                        println!("│   Compute Time:    {:.1}s ({:.1} min) - excluding I/O", 
+                                 estimated_compute_time, estimated_compute_time / 60.0);
+                    }
+                }
+                println!("└──────────────────────────────────────────────────────────────────────┘");
+                println!();
+            }
+        }
+    }
+    
+    // Checkpoint configuration
+    if let Some(ref workflow) = config.workflow {
+        if workflow.checkpoint.unwrap_or(false) {
+            if let Some(ref ckpt_config) = config.checkpointing {
+                println!("┌─ Checkpoint Configuration ───────────────────────────────────────────┐");
+                if let Some(ref folder) = ckpt_config.checkpoint_folder {
+                    println!("│ Checkpoint Folder: {}", folder);
+                }
+                if let Some(after_epoch) = ckpt_config.checkpoint_after_epoch {
+                    println!("│ After Epoch:       {}", after_epoch);
+                }
+                if let Some(epoch_interval) = ckpt_config.epochs_between_checkpoints {
+                    println!("│ Epoch Interval:    every {} epoch(s)", epoch_interval);
+                }
+                if let Some(step_interval) = ckpt_config.steps_between_checkpoints {
+                    println!("│ Step Interval:     every {} step(s)", step_interval);
+                }
+                println!("└──────────────────────────────────────────────────────────────────────┘");
+                println!();
+            }
+        }
+    }
+    
+    // Object store specific warnings
+    if backend_type.contains("S3") || backend_type.contains("Azure") || backend_type.contains("Google") {
+        println!("⚠️  Object Store Notes:");
+        println!("   - Directories are implicit (created automatically with first object)");
+        println!("   - No explicit mkdir operations will be performed");
+        println!("   - Directory tree structure reflected in object key paths");
+        println!();
+    }
+    
+    println!("╔═══════════════════════════════════════════════════════════════════════╗");
+    println!("║                         DRY-RUN VALIDATION COMPLETE                   ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════╝");
+    println!();
+    println!("✅ Configuration is valid and ready to execute.");
+    println!("   Remove --dry-run flag to run the workload.");
+    println!();
+    
+    Ok(())
+}
+
+
