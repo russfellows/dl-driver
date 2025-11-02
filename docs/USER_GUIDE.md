@@ -1,7 +1,7 @@
 # dl-driver User Guide
 
-**Version:** 0.8.0  
-**Last Updated:** October 12, 2025
+**Version:** 0.8.2  
+**Last Updated:** November 2, 2025
 
 ## Table of Contents
 
@@ -70,12 +70,32 @@ Binaries will be available in `./target/release/`:
 # Run a complete DLIO workload (generate + train)
 ./target/release/dl-driver run --config tests/dlio_configs/minimal_config.yaml
 
+# Validate configuration before execution (dry-run)
+./target/release/dl-driver run --config tests/dlio_configs/minimal_config.yaml --dry-run
+
 # Generate data only
 ./target/release/dl-driver generate --config tests/dlio_configs/minimal_config.yaml
 
 # Validate configuration without running
 ./target/release/dl-driver validate --config tests/dlio_configs/minimal_config.yaml
 ```
+
+**Configuration Validation (--dry-run):**
+
+The `--dry-run` flag validates your configuration and shows a detailed workload summary without executing:
+
+```bash
+./target/release/dl-driver run --config myconfig.yaml --dry-run
+```
+
+Output includes:
+- ✅ Model configuration
+- ✅ Workflow phases enabled
+- ✅ Backend detection (file vs object store)
+- ✅ Directory structure analysis
+- ✅ Training workload estimation (batches, total I/O, AU calculation)
+
+See [`docs/DRY_RUN_FEATURE.md`](DRY_RUN_FEATURE.md) for complete details.
 
 **Example Output:**
 ```
@@ -194,6 +214,13 @@ dataset:
   format: npz                         # npz, hdf5, tfrecord
   num_files_train: 100
   record_length_bytes: 1048576        # 1MB per record
+  
+  # Directory organization (optional - see Directory Modes below)
+  # num_subfolders_train: 8           # Mode 2: DLIO sharding
+  # directory_tree:                   # Mode 3: Hierarchical
+  #   width: 4
+  #   depth: 2
+  #   files_per_dir: 16
 
 reader:
   data_loader: pytorch
@@ -208,6 +235,36 @@ train:
   computation_time: 0.05  # 50ms simulated compute per batch
   seed: 42
 ```
+
+### Directory Organization Modes
+
+dl-driver supports 3 directory organization modes for realistic dataset structures:
+
+**Mode 1: Flat (Default)**
+```yaml
+dataset:
+  num_files_train: 1000
+  # No directory configuration = flat mode (all files in single directory)
+```
+
+**Mode 2: DLIO-Style Sharding**
+```yaml
+dataset:
+  num_files_train: 10000
+  num_subfolders_train: 32  # Creates train/0000 through train/0031
+```
+
+**Mode 3: Hierarchical Tree**
+```yaml
+dataset:
+  directory_tree:
+    width: 32          # 32 branches at each level
+    depth: 2           # 2 levels deep
+    files_per_dir: 100 # 100 files per leaf directory
+    # Total: 32×32 = 1,024 directories, 102,400 files
+```
+
+**Documentation:** See [`tests/dlio_configs/DIRECTORY_MODES_README.md`](../tests/dlio_configs/DIRECTORY_MODES_README.md) for complete guide with decision tree, performance considerations, and full-scale examples.
 
 ### Configuration Examples
 

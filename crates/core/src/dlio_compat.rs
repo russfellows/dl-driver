@@ -190,6 +190,17 @@ pub struct DatasetConfig {
     pub record_length_bytes: Option<usize>,
     pub num_samples_per_file: Option<usize>,
     pub compression: Option<String>,
+    
+    // Mode 2: DLIO-style flat subdirectory sharding
+    // If specified, creates train/0000, train/0001, ..., train/NNNN subdirectories
+    // and distributes files across them using modulo (i % num_subfolders_train)
+    #[serde(default)]
+    pub num_subfolders_train: Option<usize>,
+    
+    // Mode 3: Hierarchical nested directory tree (sai3-bench style)
+    // If specified, creates multi-level nested directory structure
+    // Overrides num_subfolders_train if both are present
+    pub directory_tree: Option<crate::directory_tree::DirectoryStructureConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

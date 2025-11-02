@@ -1,0 +1,70 @@
+# dl-driver Small Test - Mode 3 (Hierarchical Tree)
+# Test Size: 256 files × 10 MB = 2.56 GB
+#
+# Purpose: Quick verification that Mode 3 (hierarchical tree) works correctly
+# Structure: 4×4 nested tree (16 leaf directories + 4 L1 = 20 total dirs)
+# 
+# Usage:
+#   dl-driver run --config test_mode3_small_hierarchical.yaml --dry-run
+#   dl-driver run --config test_mode3_small_hierarchical.yaml
+
+model:
+  name: test_hierarchical_mode
+  model_size: 1000000
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: file:///mnt/test/dldriver_test/mode3_hierarchical
+  format: npz
+  
+  # Mode 3: Hierarchical tree structure
+  directory_tree:
+    width: 4              # 4 subdirectories per level
+    depth: 2              # 2 levels deep
+    files_per_dir: 16     # 16 files per leaf directory
+    distribution: bottom  # Files only in leaf directories
+    dir_mask: "test.d%d_w%d.dir"
+  
+  num_samples_per_file: 1
+  record_length_bytes: 10485760  # 10 MB per file
+
+reader:
+  data_loader: pytorch
+  batch_size: 16
+  prefetch: 2
+  shuffle: false
+  read_threads: 4
+  compute_threads: 2
+  transfer_size: 1048576
+
+train:
+  epochs: 2
+  computation_time: 0.1
+  seed: 42
+
+# Expected Results (Mode 3 - Hierarchical):
+# - Files: 256 (16 per leaf directory)
+# - Structure: 20 total directories
+#     - Level 1: 4 directories (d1_w0, d1_w1, d1_w2, d1_w3)
+#     - Level 2: 16 leaf directories (d2_w0 through d2_w3 under each L1)
+# - Total data: 2.56 GB
+# - File size: 10 MB each
+# - Examples:
+#     test.d1_w0.dir/test.d2_w0.dir/train_file_00000000.npz
+#     test.d1_w0.dir/test.d2_w0.dir/train_file_00000015.npz
+#     test.d1_w0.dir/test.d2_w1.dir/train_file_00000016.npz
+#     test.d1_w3.dir/test.d2_w3.dir/train_file_00000255.npz
+# - Batches/epoch: 16
+# - Total batches: 32
+# - Compute time: ~3.2s (excluding I/O)
+#
+# Math:
+#   Total directories = width + width^depth = 4 + 4² = 20
+#   Total files = width^depth × files_per_dir = 16 × 16 = 256

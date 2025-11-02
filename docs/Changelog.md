@@ -9,6 +9,187 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.2] - 2025-11-02 - **Directory Tree Modes & Configuration Validation**
+
+### **🎯 Major Features**
+
+#### **3-Mode Directory Tree System**
+Supports realistic dataset organization patterns for AI/ML workloads:
+
+**Mode 1: Flat (Single Directory)**
+- All files in a single directory
+- Simplest structure for small datasets
+- Default mode when no directory configuration specified
+```yaml
+dataset:
+  num_files_train: 1000
+  # No directory configuration = flat mode
+```
+
+**Mode 2: DLIO-Style Sharding**
+- Files distributed across `train/NNNN` subdirectories
+- Compatible with original DLIO benchmark patterns
+- Reduces directory listing overhead for large datasets
+```yaml
+dataset:
+  num_files_train: 10000
+  num_subfolders_train: 32  # Creates train/0000 through train/0031
+```
+
+**Mode 3: Hierarchical Tree**
+- Multi-level nested directory structures
+- Configurable width, depth, and files per leaf directory
+- Simulates production dataset organizations (e.g., ImageNet-style)
+```yaml
+dataset:
+  directory_tree:
+    width: 32      # 32 branches at each level
+    depth: 2       # 2 levels deep
+    files_per_dir: 100  # 100 files per leaf directory
+    # Total: 32×32 = 1,024 directories, 102,400 files
+```
+
+**Key Implementation Details:**
+- Uses s3dlio v0.9.11 `mkdir()` for filesystem/direct:// backends
+- Object stores (S3/Azure/GCS) use implicit directories (no mkdir calls)
+- Full path generation integrated into parallel data generation
+- Automatic directory creation before file generation
+- Works with all storage backends (file://, direct://, s3://, az://, gs://)
+
+#### **Configuration Validation with --dry-run**
+Pre-execution validation and workload preview:
+```bash
+dl-driver run --config myconfig.yaml --dry-run
+```
+
+**Output includes:**
+- Model configuration validation
+- Workflow phases enabled/disabled
+- Backend detection (file vs object store)
+- Directory structure analysis (mode, file distribution)
+- Data loader settings
+- Training workload estimation (total I/O, batches, AU calculation)
+- All before executing any operations
+
+**Benefits:**
+- Catch configuration errors early
+- Verify workload matches expectations
+- Understand resource requirements
+- Safe config testing without side effects
+
+### **🎨 UI Improvements**
+
+#### **Enhanced Progress Bars**
+Updated to match sai3-bench's clean, professional styling:
+- **Before:** `[=========>-----] (42%)` (fixed 40-char width)
+- **After:** `[====================>--------]` (adaptive `wide_bar`)
+- Removed redundant percentage display
+- Cleaner, more readable output that adapts to terminal width
+- Applied to both data generation and training progress
+
+### **📦 New Modules**
+
+- **`crates/core/src/directory_tree.rs`** (733 lines) - Complete 3-mode directory tree implementation
+  - `DirectoryTree` struct with width/depth/files_per_dir configuration
+  - `DirectoryMode` enum (Flat, DlioSharding, Hierarchical)
+  - Path generation: `get_file_path(file_idx, format) -> String`
+  - Directory enumeration: `get_directories_to_create(&base_uri) -> Vec<String>`
+  - Validation and error handling
+
+### **🔧 Enhanced Modules**
+
+#### **Configuration Schema (`dlio_compat.rs`)**
+Extended `DatasetConfig`:
+```rust
+pub struct DatasetConfig {
+    // Existing fields...
+    
+    // Mode 2: DLIO sharding
+    pub num_subfolders_train: Option<usize>,
+    
+    // Mode 3: Hierarchical tree
+    pub directory_tree: Option<DirectoryTreeConfig>,
+}
+
+pub struct DirectoryTreeConfig {
+    pub width: usize,           // Branches per level
+    pub depth: usize,           // Tree depth
+    pub files_per_dir: usize,   // Files per leaf directory
+}
+```
+
+#### **Data Generation (`crates/cli/src/main.rs`)**
+Integrated DirectoryMode into parallel data generation:
+- Mode detection from config (`DirectoryMode::from_config()`)
+- Directory creation before file generation (9-20 directories for test cases)
+- File path generation using `dir_mode.get_file_path(file_idx, format)`
+- Verbose logging shows directory creation (`-vv` flag)
+- Maintains >10 GB/s parallel throughput
+
+#### **Configuration Validation (`crates/cli/src/main.rs`)**
+New `display_config_summary()` function (250+ lines):
+- Comprehensive validation of all config sections
+- Handles all `Option<T>` fields gracefully
+- Backend detection (file:// vs s3:// vs az:// vs gs://)
+- Directory mode analysis
+- Training workload estimation
+- Clean, structured output format
+
+### **📚 Documentation**
+
+- **`docs/DRY_RUN_FEATURE.md`** - Complete --dry-run usage guide
+- **`tests/dlio_configs/DIRECTORY_MODES_README.md`** - Comprehensive 300+ line directory modes guide
+  - Mode selection decision tree
+  - Configuration examples for each mode
+  - Performance considerations
+  - Object store compatibility notes
+  - Full-scale example configs (ResNet-50, CosmoFlow, UNet3D)
+- **`CONFIG_ORGANIZATION.md`** - Config file organization and sync workflow
+
+### **🧪 Test Configurations**
+
+**Small Test Configs (for /mnt/test):**
+- `tests/dlio_configs/test_mode1_small_flat.yaml` - 256 files, 2.5 GB
+- `tests/dlio_configs/test_mode2_small_sharding.yaml` - 256 files, 8 subdirs, 2.5 GB
+- `tests/dlio_configs/test_mode3_small_hierarchical.yaml` - 256 files, 4×4 tree, 2.5 GB
+
+**Full-Scale Configs (for production testing):**
+- `tests/dlio_configs/resnet50_1host_mode1_flat.yaml` - 102,400 files, 100 GB
+- `tests/dlio_configs/resnet50_1host_mode2_sharding.yaml` - 102,400 files, 32 subdirs, 100 GB
+- `tests/dlio_configs/resnet50_1host_mode3_hierarchical.yaml` - 102,400 files, 32×2 tree, 100 GB
+
+**Multi-host configs** also created for ResNet-50, CosmoFlow, and UNet3D (1/4/8 hosts).
+
+### **✅ Validation Results**
+
+All 3 directory modes validated with actual execution:
+- **Mode 1 (Flat):** ✅ 256 files in single directory
+- **Mode 2 (DLIO Sharding):** ✅ 256 files in 8 subdirs (32 files each, `train/0000` through `train/0007`)
+- **Mode 3 (Hierarchical):** ✅ 256 files in 4×4 tree (16 leaf dirs × 16 files each)
+
+Performance maintained: >10 GB/s parallel data generation throughput.
+
+### **🔄 Backward Compatibility**
+
+✅ **Fully backward compatible:**
+- Mode 1 (Flat) is default when no directory config specified
+- Existing configs without `num_subfolders_train` or `directory_tree` work unchanged
+- All existing tests (119) continue to pass
+
+### **🐛 Bug Fixes**
+
+- Fixed directory mode integration - initial implementation in `workload.rs` was never called; migrated to actual execution path in `main.rs`
+- Progress bars now use `ProgressStyle::with_template()` instead of deprecated `default_bar().template()`
+
+### **📝 Notes**
+
+- Directory creation uses s3dlio v0.9.11 `mkdir()` API
+- Object stores (S3/Azure/GCS) skip explicit mkdir calls (implicit directories)
+- Hierarchical mode file count determined by tree calculation (width^depth × files_per_dir)
+- All modes support parallel file generation (48 concurrent workers on 12-core system)
+
+---
+
 ## [0.8.1] - 2025-10-22 � **Histogram-Based Percentile Aggregation & Results Directory**
 
 ### **🎯 Major Features**

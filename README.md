@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.1-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.2-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-119%20passing-success.svg)](#testing--validation)
@@ -175,6 +175,8 @@ cargo build --release
 - **🌐 Distributed Controller**: Multi-agent orchestration with coordinated start and histogram-based aggregate metrics
 - **📁 Results Directory**: Complete, reproducible results with per-agent and consolidated TSV files
 - **📊 Histogram Aggregation**: Accurate percentile calculation (<1% error) for distributed workloads
+- **🗂️ Directory Tree Modes**: 3-mode system (Flat, DLIO Sharding, Hierarchical) for realistic dataset organization
+- **🔍 Dry-Run Validation**: `--dry-run` flag validates configs and shows workload summary before execution
 - **🌟 Multi-Process Scaling**: `--world-size N --rank R` distributed execution with shared memory coordination
 - **🔥 Enterprise Coordination**: Atomic operations, cross-process barriers, zero temp files  
 - **🚀 TRUE DLIO Parallel I/O**: Background workers with I/O+compute overlap for realistic performance
