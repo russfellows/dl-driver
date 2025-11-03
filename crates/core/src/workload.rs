@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn, trace};
 
 use crate::dlio_compat::DlioConfig;
 use crate::metrics::Metrics;
+use crate::plugins::PluginManager;
 
 // Import s3dlio 0.8.0 functionality - using new advanced API
 use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
@@ -24,6 +25,7 @@ pub struct WorkloadRunner {
     rank: u32,
     world_size: u32,
     file_list: Option<Vec<String>>,
+    plugins: Option<PluginManager>,
 }
 
 impl WorkloadRunner {
@@ -39,9 +41,16 @@ impl WorkloadRunner {
             accelerators: 1, // Default to 1 accelerator
             strict_au: false, // Default to non-strict mode
             rank: 0, // Default to single-process mode
-            world_size: 1,
+            world_size: 1, // Default to single-process mode
             file_list: None,
+            plugins: None, // Plugins are optional, passed via with_plugins()
         }
+    }
+
+    /// Set plugin manager for checkpoint and other plugin functionality
+    pub fn with_plugins(mut self, plugins: PluginManager) -> Self {
+        self.plugins = Some(plugins);
+        self
     }
 
     /// Set accelerator configuration for AU calculation
@@ -405,6 +414,12 @@ impl WorkloadRunner {
                         total_samples += batch_size_actual;
                         total_bytes += batch_bytes;
 
+                        // Call plugin hook for step-based checkpointing
+                        let global_step = (epoch as usize * estimated_batches_per_epoch) + batch_count;
+                        if let Some(ref mut plugins) = self.plugins {
+                            plugins.after_step(global_step as u32).await?;
+                        }
+
                         // Update progress bar
                         progress.inc(1);
 
@@ -474,6 +489,16 @@ impl WorkloadRunner {
                     warn!("⚠️  HIGH AU: {:.1}% suggests sequential processing, not parallel I/O", au_percentage);
                 }
             }
+
+            // Call plugin hook for epoch-based checkpointing
+            if let Some(ref mut plugins) = self.plugins {
+                plugins.after_epoch(epoch as u32).await?;
+            }
+        }
+
+        // Finalize plugins (cleanup, final checkpoint, etc.)
+        if let Some(ref mut plugins) = self.plugins {
+            plugins.finalize().await?;
         }
 
         info!("🏁 DLIO parallel training completed");

@@ -228,6 +228,79 @@ impl CheckpointPlugin {
         Ok(())
     }
 
+    /// Write checkpoint for the given epoch
+    async fn write_epoch_checkpoint(&self, epoch: u32) -> Result<()> {
+        println!("DEBUG: write_epoch_checkpoint() started for epoch {}", epoch);
+        
+        let checkpoint_data = CheckpointData {
+            run_id: self.run_id.clone(),
+            step: 0, // Step not meaningful for epoch-based checkpointing
+            epoch: Some(epoch),
+            timestamp: chrono::Utc::now(),
+            dl_driver_version: env!("CARGO_PKG_VERSION").to_string(),
+            config_snapshot: self.config_snapshot.clone(),
+            metadata: CheckpointMetadata {
+                total_samples_processed: 0, // TODO: Get from metrics when available
+                total_bytes_read: 0,        // TODO: Get from metrics when available
+                elapsed_time_secs: 0.0,     // TODO: Get from metrics when available
+                compression_enabled: self.use_compression(),
+                compressed_size_bytes: None,
+                uncompressed_size_bytes: 0,
+            },
+        };
+
+        // Serialize checkpoint data to JSON
+        let json_data = serde_json::to_vec_pretty(&checkpoint_data)
+            .context("Failed to serialize checkpoint data")?;
+
+        let uncompressed_size = json_data.len();
+        
+        // Apply compression if enabled
+        let (final_data, compressed_size) = if self.use_compression() {
+            let compressed = zstd::encode_all(json_data.as_slice(), self.compression_level())
+                .context("Failed to compress checkpoint data with zstd")?;
+            let size = compressed.len();
+            (Bytes::from(compressed), Some(size))
+        } else {
+            (Bytes::from(json_data), None)
+        };
+
+        // Create checkpoint file path: {run_id}/epoch_{epoch:04}.ckpt
+        let checkpoint_relative_path = format!("{}/epoch_{:04}.ckpt", self.run_id, epoch);
+        
+        // Construct full URI by appending relative path to base URI
+        let checkpoint_full_uri = if self.base_uri.ends_with('/') {
+            format!("{}{}", self.base_uri, checkpoint_relative_path)
+        } else {
+            format!("{}/{}", self.base_uri, checkpoint_relative_path)
+        };
+        
+        println!("DEBUG: Epoch checkpoint - base_uri = {}", self.base_uri);
+        println!("DEBUG: Epoch checkpoint - checkpoint_relative_path = {}", checkpoint_relative_path);
+        println!("DEBUG: Epoch checkpoint - checkpoint_full_uri = {}", checkpoint_full_uri);
+        
+        // Write to object store using full URI
+        self.store
+            .put(&checkpoint_full_uri, &final_data)
+            .await
+            .with_context(|| format!("Failed to write epoch checkpoint to {}", checkpoint_relative_path))?;
+
+        let compression_info = if let Some(compressed) = compressed_size {
+            format!(" (compressed {} -> {} bytes, {:.1}% reduction)", 
+                uncompressed_size, compressed,
+                (1.0 - (compressed as f64 / uncompressed_size as f64)) * 100.0)
+        } else {
+            format!(" ({} bytes uncompressed)", uncompressed_size)
+        };
+
+        info!(
+            "Epoch checkpoint written: epoch={}, path={}{}", 
+            epoch, checkpoint_relative_path, compression_info
+        );
+
+        Ok(())
+    }
+
     /// Check if a checkpoint should be written at this step
     fn should_checkpoint(&self, step: u32) -> bool {
         step >= self.next_checkpoint_step
@@ -263,8 +336,25 @@ impl Plugin for CheckpointPlugin {
     }
 
     async fn after_epoch(&mut self, epoch: u32) -> Result<()> {
-        // Optionally write checkpoint at end of each epoch
-        debug!("Epoch {} completed", epoch);
+        // Check if epoch-based checkpointing is configured
+        let checkpoint_after = self.cfg.checkpoint_after_epoch.map(|e| e as u32).unwrap_or(u32::MAX);
+        let epochs_between = self.cfg.epochs_between_checkpoints.map(|e| e as u32).unwrap_or(u32::MAX);
+        
+        // Don't checkpoint if we haven't reached checkpoint_after_epoch yet
+        if epoch < checkpoint_after {
+            debug!("Epoch {}: Before checkpoint_after_epoch ({})", epoch, checkpoint_after);
+            return Ok(());
+        }
+        
+        // Check if we should checkpoint this epoch based on interval
+        let epochs_since_start = epoch - checkpoint_after;
+        if epochs_since_start % epochs_between == 0 {
+            info!("Epoch-based checkpoint triggered at epoch {}", epoch);
+            
+            // Write checkpoint with epoch information
+            self.write_epoch_checkpoint(epoch).await?;
+        }
+        
         Ok(())
     }
 

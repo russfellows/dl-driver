@@ -432,17 +432,16 @@ async fn run_unified_dlio(
     }
 
     // Create plugin manager with CheckpointPlugin if enabled
-    let _plugins = PluginManager::new();
+    let mut plugins = PluginManager::new();
     
-    // TODO: Temporarily disabled while we fix config compatibility
     // Add CheckpointPlugin if checkpointing is enabled in config
-    // if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&dlio_config).await? {
-    //     plugins.push(Box::new(checkpoint_plugin));
-    //     info!("CheckpointPlugin registered");
-    // }
+    if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&dlio_config).await? {
+        plugins.push(Box::new(checkpoint_plugin));
+        info!("CheckpointPlugin registered");
+    }
     
-    // plugins.initialize(&dlio_config).await
-    //     .context("Failed to initialize plugins")?;
+    plugins.initialize(&dlio_config).await
+        .context("Failed to initialize plugins")?;
 
     // Initialize metrics system (always available, enhanced in MLPerf mode)
     let _metrics = if mlperf_mode {
@@ -508,6 +507,7 @@ async fn run_unified_dlio(
         };
 
         let mut workload_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone())
+            .with_plugins(plugins)
             .with_accelerator_config(accelerator_count, strict_au)
             .with_rank_config(current_rank, total_ranks, sharded_file_list.clone());
 
