@@ -928,85 +928,9 @@ async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> R
     // Parse as DLIO config
     let dlio_config = DlioConfig::from_yaml(&yaml_content)?;
 
-    // Validate essential fields
-    println!("✅ YAML parsing: SUCCESS");
-    println!(
-        "✅ Model name: {:?}",
-        dlio_config.model.as_ref().and_then(|m| m.name.as_ref())
-    );
-    println!("✅ Framework: {:?}", dlio_config.framework);
-    println!("✅ Data folder: {}", dlio_config.data_folder_uri());
-    println!("✅ Batch size: {:?}", dlio_config.reader.batch_size);
-
-    // Test LoaderOptions conversion
-    let loader_opts = dlio_config.to_loader_options();
-    println!("✅ LoaderOptions conversion: SUCCESS");
-    println!("  - Batch size: {}", loader_opts.batch_size);
-    println!("  - Prefetch: {}", loader_opts.prefetch);
-    println!("  - Shuffle: {}", loader_opts.shuffle);
-    println!("  - Num workers: {}", loader_opts.num_workers);
-
-    // Test PoolConfig conversion
-    let pool_config = dlio_config.to_pool_config();
-    println!("✅ PoolConfig conversion: SUCCESS");
-    println!("  - Pool size: {}", pool_config.pool_size);
-    println!("  - Readahead batches: {}", pool_config.readahead_batches);
-    println!("  - Max inflight: {}", pool_config.max_inflight);
-
-    // Test object store URI parsing (don't actually create store for validation)
-    let uri = dlio_config.data_folder_uri();
-    if uri.starts_with("file://") {
-        println!("✅ Backend detection: File");
-    } else if uri.starts_with("s3://") {
-        println!("✅ Backend detection: S3");
-    } else if uri.starts_with("az://") {
-        println!("✅ Backend detection: Azure");
-    } else if uri.starts_with("direct://") {
-        println!("✅ Backend detection: DirectIO");
-    } else {
-        println!("⚠️  Backend detection: Unknown scheme");
-    }
-
-    // Test RunPlan conversion (using flat RunPlan structure)
-    let run_plan = dlio_config.to_run_plan()?;
-    println!("✅ RunPlan conversion: SUCCESS");
-    
-    // Display model info
-    if let Some(model) = &dlio_config.model {
-        println!("  - Model: {} ({})", 
-            model.name.as_deref().unwrap_or("unnamed"),
-            dlio_config.framework.as_deref().unwrap_or("unspecified"));
-    } else {
-        println!("  - Model: No model specified");
-    }
-    
-    // Display workflow info  
-    if let Some(workflow) = &dlio_config.workflow {
-        println!("  - Workflow: generate_data={}, train={}, checkpoint={}, evaluation={}",
-            workflow.generate_data.unwrap_or(false),
-            workflow.train.unwrap_or(false), 
-            workflow.checkpoint.unwrap_or(false),
-            workflow.evaluation.unwrap_or(false));
-    } else {
-        println!("  - Workflow: No workflow specified");
-    }
-    
-    // Display dataset info using the structured RunPlan
-    println!("  - Dataset: {} files, {} samples/file, {} bytes/record",
-        run_plan.dataset.train.num_files,
-        run_plan.dataset.train.num_samples_per_file,
-        run_plan.dataset.train.record_length_bytes);
-        
-    // Calculate totals
-    let total_samples = run_plan.dataset.train.num_files * 
-                       run_plan.dataset.train.num_samples_per_file;
-    let total_bytes = total_samples * run_plan.dataset.train.record_length_bytes;
-    
-    println!("  - Total: {} samples, {:.2} MB",
-        total_samples,
-        total_bytes as f64 / 1024.0 / 1024.0);
-
-    println!("🎉 DLIO configuration is valid and ready to run!");
+    // Use the same comprehensive validation as --dry-run
+    // This makes 'validate' and '--dry-run' functional aliases
+    display_config_summary(&dlio_config, config_path)?;
 
     Ok(())
 }
