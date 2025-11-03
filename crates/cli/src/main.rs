@@ -23,7 +23,13 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Run DLIO workload (use --mlperf for enhanced reporting and compliance)
+    /// Run DLIO workload (phases controlled by workflow: section in config)
+    ///
+    /// Workflow phases:
+    ///   - generate_data: Generate synthetic dataset
+    ///   - train: Run training/data loading workload  
+    ///   - checkpoint: Checkpointing I/O (planned)
+    ///   - evaluation: Evaluation phase (planned)
     Run {
         /// Path to a DLIO YAML config file
         #[arg(short, long)]
@@ -137,20 +143,6 @@ enum Commands {
         /// Convert YAML to JSON and print it
         #[arg(long)]
         to_json: bool,
-    },
-    /// Generate synthetic dataset from DLIO config
-    Generate {
-        /// Path to a DLIO YAML config file
-        #[arg(short, long)]
-        config: std::path::PathBuf,
-
-        /// Show progress during generation
-        #[arg(long)]
-        verbose: bool,
-
-        /// Skip generation if data folder already exists
-        #[arg(long)]
-        skip_existing: bool,
     },
     /// Run distributed DLIO workload across multiple agents
     Distributed {
@@ -302,11 +294,6 @@ async fn main() -> Result<()> {
             metrics_csv.as_deref(),
         ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
-        Commands::Generate {
-            config,
-            verbose,
-            skip_existing,
-        } => run_generate_only(&config, verbose, skip_existing).await,
         Commands::Distributed { command } => match command {
             DistributedCommands::Run {
                 config,
@@ -932,42 +919,6 @@ async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> R
     // This makes 'validate' and '--dry-run' functional aliases
     display_config_summary(&dlio_config, config_path)?;
 
-    Ok(())
-}
-
-/// Generate dataset only (no training) - useful for testing and debugging
-async fn run_generate_only(
-    config_path: &std::path::Path, 
-    verbose: bool, 
-    skip_existing: bool
-) -> Result<()> {
-    use dl_driver_core::dlio_compat::DlioConfig;
-    
-    // Load DLIO config
-    let yaml_content = std::fs::read_to_string(config_path)
-        .with_context(|| format!("Failed to read config file {:?}", config_path))?;
-    let dlio_config = DlioConfig::from_yaml(&yaml_content)
-        .with_context(|| format!("Failed to parse DLIO config from {:?}", config_path))?;
-    
-    if verbose {
-        info!("Loaded DLIO config: data_folder = {}", dlio_config.dataset.data_folder);
-        info!("Files to generate: {}", dlio_config.dataset.num_files_train.unwrap_or(100));
-        info!("Samples per file: {}", dlio_config.dataset.num_samples_per_file.unwrap_or(1));
-        info!("Record size: {}B", dlio_config.dataset.record_length_bytes.unwrap_or(1024));
-    }
-    
-    // Check if data folder exists and handle skip_existing
-    if skip_existing {
-        // TODO: Add logic to check if folder exists and skip if it does
-        info!("Note: --skip-existing flag is set but not yet implemented");
-    }
-    
-    // Run data generation phase
-    info!("🚀 Starting data generation phase...");
-    run_data_generation(&dlio_config).await
-        .context("Data generation failed")?;
-    
-    info!("✅ Data generation completed successfully");
     Ok(())
 }
 
