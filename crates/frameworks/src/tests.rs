@@ -20,6 +20,8 @@ fn create_test_dlio_config() -> DlioConfig {
             record_length_bytes: Some(1024),
             num_samples_per_file: Some(10),
             compression: None,
+            directory_tree: None,
+            num_subfolders_train: None,
         },
         reader: ReaderConfig {
             data_loader: Some("pytorch".to_string()),

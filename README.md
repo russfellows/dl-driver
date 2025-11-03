@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.2-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.3-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-119%20passing-success.svg)](#testing--validation)
@@ -22,6 +22,9 @@
 
 ## 🎯 Current Status
 
+**🎉 v0.8.3 RELEASED**: Checkpoint plugin integration and CLI cleanup complete
+**💾 CHECKPOINT SUPPORT**: Step-based and epoch-based checkpointing across all storage backends
+**🔧 CLI SIMPLIFIED**: Removed legacy commands, unified interface with validate/--dry-run
 **🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
 **🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
 **📊 HISTOGRAM AGGREGATION**: Accurate percentile calculation with <1% error for distributed workloads
@@ -29,6 +32,8 @@
 **✅ 119/119 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
+- **💾 Checkpoint Plugin**: Step-based and epoch-based checkpointing with multi-backend support (file://, s3://, az://, gs://)
+- **🔧 Clean CLI**: Unified interface with validate and --dry-run as aliases, legacy commands removed
 - **🌐 Multi-Agent Orchestration**: Controller coordinates workloads across multiple agent instances
 - **💓 Coordinated Start**: Synchronized workload execution with health checking
 - **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents with histogram-based percentiles

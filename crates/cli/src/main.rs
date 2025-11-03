@@ -23,7 +23,13 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Run DLIO workload (use --mlperf for enhanced reporting and compliance)
+    /// Run DLIO workload (phases controlled by workflow: section in config)
+    ///
+    /// Workflow phases:
+    ///   - generate_data: Generate synthetic dataset
+    ///   - train: Run training/data loading workload  
+    ///   - checkpoint: Checkpointing I/O (planned)
+    ///   - evaluation: Evaluation phase (planned)
     Run {
         /// Path to a DLIO YAML config file
         #[arg(short, long)]
@@ -137,38 +143,6 @@ enum Commands {
         /// Convert YAML to JSON and print it
         #[arg(long)]
         to_json: bool,
-    },
-    /// Generate synthetic dataset from DLIO config
-    Generate {
-        /// Path to a DLIO YAML config file
-        #[arg(short, long)]
-        config: std::path::PathBuf,
-
-        /// Show progress during generation
-        #[arg(long)]
-        verbose: bool,
-
-        /// Skip generation if data folder already exists
-        #[arg(long)]
-        skip_existing: bool,
-    },
-    /// Aggregate results from multiple rank JSON files
-    Aggregate {
-        /// Pattern or paths to rank result files (e.g., "/results/rank*.json")
-        #[arg(short, long)]
-        inputs: String,
-
-        /// Output aggregated results to file
-        #[arg(short, long)]
-        output: std::path::PathBuf,
-
-        /// Enable strict AU mode - fail if global AU is below threshold
-        #[arg(long)]
-        strict_au: bool,
-
-        /// Expected metric AU threshold (default from first rank config)
-        #[arg(long)]
-        au_threshold: Option<f64>,
     },
     /// Run distributed DLIO workload across multiple agents
     Distributed {
@@ -320,17 +294,6 @@ async fn main() -> Result<()> {
             metrics_csv.as_deref(),
         ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
-        Commands::Generate {
-            config,
-            verbose,
-            skip_existing,
-        } => run_generate_only(&config, verbose, skip_existing).await,
-        Commands::Aggregate {
-            inputs,
-            output,
-            strict_au,
-            au_threshold,
-        } => aggregate_rank_results(&inputs, &output, strict_au, au_threshold).await,
         Commands::Distributed { command } => match command {
             DistributedCommands::Run {
                 config,
@@ -469,17 +432,16 @@ async fn run_unified_dlio(
     }
 
     // Create plugin manager with CheckpointPlugin if enabled
-    let _plugins = PluginManager::new();
+    let mut plugins = PluginManager::new();
     
-    // TODO: Temporarily disabled while we fix config compatibility
     // Add CheckpointPlugin if checkpointing is enabled in config
-    // if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&dlio_config).await? {
-    //     plugins.push(Box::new(checkpoint_plugin));
-    //     info!("CheckpointPlugin registered");
-    // }
+    if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&dlio_config).await? {
+        plugins.push(Box::new(checkpoint_plugin));
+        info!("CheckpointPlugin registered");
+    }
     
-    // plugins.initialize(&dlio_config).await
-    //     .context("Failed to initialize plugins")?;
+    plugins.initialize(&dlio_config).await
+        .context("Failed to initialize plugins")?;
 
     // Initialize metrics system (always available, enhanced in MLPerf mode)
     let _metrics = if mlperf_mode {
@@ -545,6 +507,7 @@ async fn run_unified_dlio(
         };
 
         let mut workload_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone())
+            .with_plugins(plugins)
             .with_accelerator_config(accelerator_count, strict_au)
             .with_rank_config(current_rank, total_ranks, sharded_file_list.clone());
 
@@ -952,122 +915,10 @@ async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> R
     // Parse as DLIO config
     let dlio_config = DlioConfig::from_yaml(&yaml_content)?;
 
-    // Validate essential fields
-    println!("✅ YAML parsing: SUCCESS");
-    println!(
-        "✅ Model name: {:?}",
-        dlio_config.model.as_ref().and_then(|m| m.name.as_ref())
-    );
-    println!("✅ Framework: {:?}", dlio_config.framework);
-    println!("✅ Data folder: {}", dlio_config.data_folder_uri());
-    println!("✅ Batch size: {:?}", dlio_config.reader.batch_size);
+    // Use the same comprehensive validation as --dry-run
+    // This makes 'validate' and '--dry-run' functional aliases
+    display_config_summary(&dlio_config, config_path)?;
 
-    // Test LoaderOptions conversion
-    let loader_opts = dlio_config.to_loader_options();
-    println!("✅ LoaderOptions conversion: SUCCESS");
-    println!("  - Batch size: {}", loader_opts.batch_size);
-    println!("  - Prefetch: {}", loader_opts.prefetch);
-    println!("  - Shuffle: {}", loader_opts.shuffle);
-    println!("  - Num workers: {}", loader_opts.num_workers);
-
-    // Test PoolConfig conversion
-    let pool_config = dlio_config.to_pool_config();
-    println!("✅ PoolConfig conversion: SUCCESS");
-    println!("  - Pool size: {}", pool_config.pool_size);
-    println!("  - Readahead batches: {}", pool_config.readahead_batches);
-    println!("  - Max inflight: {}", pool_config.max_inflight);
-
-    // Test object store URI parsing (don't actually create store for validation)
-    let uri = dlio_config.data_folder_uri();
-    if uri.starts_with("file://") {
-        println!("✅ Backend detection: File");
-    } else if uri.starts_with("s3://") {
-        println!("✅ Backend detection: S3");
-    } else if uri.starts_with("az://") {
-        println!("✅ Backend detection: Azure");
-    } else if uri.starts_with("direct://") {
-        println!("✅ Backend detection: DirectIO");
-    } else {
-        println!("⚠️  Backend detection: Unknown scheme");
-    }
-
-    // Test RunPlan conversion (using flat RunPlan structure)
-    let run_plan = dlio_config.to_run_plan()?;
-    println!("✅ RunPlan conversion: SUCCESS");
-    
-    // Display model info
-    if let Some(model) = &dlio_config.model {
-        println!("  - Model: {} ({})", 
-            model.name.as_deref().unwrap_or("unnamed"),
-            dlio_config.framework.as_deref().unwrap_or("unspecified"));
-    } else {
-        println!("  - Model: No model specified");
-    }
-    
-    // Display workflow info  
-    if let Some(workflow) = &dlio_config.workflow {
-        println!("  - Workflow: generate_data={}, train={}, checkpoint={}, evaluation={}",
-            workflow.generate_data.unwrap_or(false),
-            workflow.train.unwrap_or(false), 
-            workflow.checkpoint.unwrap_or(false),
-            workflow.evaluation.unwrap_or(false));
-    } else {
-        println!("  - Workflow: No workflow specified");
-    }
-    
-    // Display dataset info using the structured RunPlan
-    println!("  - Dataset: {} files, {} samples/file, {} bytes/record",
-        run_plan.dataset.train.num_files,
-        run_plan.dataset.train.num_samples_per_file,
-        run_plan.dataset.train.record_length_bytes);
-        
-    // Calculate totals
-    let total_samples = run_plan.dataset.train.num_files * 
-                       run_plan.dataset.train.num_samples_per_file;
-    let total_bytes = total_samples * run_plan.dataset.train.record_length_bytes;
-    
-    println!("  - Total: {} samples, {:.2} MB",
-        total_samples,
-        total_bytes as f64 / 1024.0 / 1024.0);
-
-    println!("🎉 DLIO configuration is valid and ready to run!");
-
-    Ok(())
-}
-
-/// Generate dataset only (no training) - useful for testing and debugging
-async fn run_generate_only(
-    config_path: &std::path::Path, 
-    verbose: bool, 
-    skip_existing: bool
-) -> Result<()> {
-    use dl_driver_core::dlio_compat::DlioConfig;
-    
-    // Load DLIO config
-    let yaml_content = std::fs::read_to_string(config_path)
-        .with_context(|| format!("Failed to read config file {:?}", config_path))?;
-    let dlio_config = DlioConfig::from_yaml(&yaml_content)
-        .with_context(|| format!("Failed to parse DLIO config from {:?}", config_path))?;
-    
-    if verbose {
-        info!("Loaded DLIO config: data_folder = {}", dlio_config.dataset.data_folder);
-        info!("Files to generate: {}", dlio_config.dataset.num_files_train.unwrap_or(100));
-        info!("Samples per file: {}", dlio_config.dataset.num_samples_per_file.unwrap_or(1));
-        info!("Record size: {}B", dlio_config.dataset.record_length_bytes.unwrap_or(1024));
-    }
-    
-    // Check if data folder exists and handle skip_existing
-    if skip_existing {
-        // TODO: Add logic to check if folder exists and skip if it does
-        info!("Note: --skip-existing flag is set but not yet implemented");
-    }
-    
-    // Run data generation phase
-    info!("🚀 Starting data generation phase...");
-    run_data_generation(&dlio_config).await
-        .context("Data generation failed")?;
-    
-    info!("✅ Data generation completed successfully");
     Ok(())
 }
 
@@ -1135,143 +986,6 @@ fn apply_sharding_strategy(
 }
 
 /// Aggregate results from multiple rank JSON files
-async fn aggregate_rank_results(
-    inputs: &str,
-    output: &std::path::Path,
-    strict_au: bool,
-    au_threshold: Option<f64>,
-) -> Result<()> {
-    use glob::glob;
-    use serde_json::Value;
-    
-    info!("Aggregating results from pattern: {}", inputs);
-    
-    // Find all matching files
-    let paths: Vec<_> = glob(inputs)
-        .with_context(|| format!("Failed to glob pattern: {}", inputs))?
-        .collect::<Result<Vec<_>, _>>()?;
-        
-    if paths.is_empty() {
-        return Err(anyhow::anyhow!("No files found matching pattern: {}", inputs));
-    }
-    
-    info!("Found {} result files to aggregate", paths.len());
-    
-    let mut aggregated = serde_json::json!({
-        "aggregated_results": {
-            "total_ranks": paths.len(),
-            "global_metrics": {},
-            "rank_details": []
-        }
-    });
-    
-    let mut total_throughput = 0.0_f64;
-    let mut total_files_processed = 0u64;
-    let mut total_bytes_read = 0u64;
-    let mut min_start_time = f64::MAX;
-    let mut max_end_time = 0.0_f64;
-    
-    // Process each rank result file
-    for (rank_idx, path) in paths.iter().enumerate() {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read result file: {:?}", path))?;
-        let rank_data: Value = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse JSON from: {:?}", path))?;
-            
-        // Extract metrics from rank data
-        if let Some(metrics) = rank_data.get("metrics") {
-            if let Some(throughput) = metrics.get("storage_throughput_gib_s").and_then(|v| v.as_f64()) {
-                total_throughput += throughput;
-            }
-            if let Some(files) = metrics.get("files_processed").and_then(|v| v.as_u64()) {
-                total_files_processed += files;
-            }
-            if let Some(bytes) = metrics.get("bytes_read").and_then(|v| v.as_u64()) {
-                total_bytes_read += bytes;
-            }
-        }
-        
-        // Track timing for global AU calculation
-        if let Some(start) = rank_data.get("start_time").and_then(|v| v.as_f64()) {
-            min_start_time = min_start_time.min(start);
-        }
-        if let Some(end) = rank_data.get("end_time").and_then(|v| v.as_f64()) {
-            max_end_time = max_end_time.max(end);
-        }
-        
-        // Add rank details to aggregated results
-        aggregated["aggregated_results"]["rank_details"].as_array_mut().unwrap()
-            .push(serde_json::json!({
-                "rank": rank_idx,
-                "file": path.file_name().unwrap_or_default().to_string_lossy(),
-                "metrics": rank_data.get("metrics").cloned().unwrap_or(Value::Null)
-            }));
-    }
-    
-    // Calculate global metrics
-    let global_runtime = max_end_time - min_start_time;
-    
-    // Plan A1: Multi-GPU AU aggregation - sum compute times and wall clock times across all GPUs
-    let mut total_compute_time = 0.0;
-    let mut total_wall_clock_time = 0.0;
-    let mut gpu_count = 0u32;
-    
-    // Re-read rank files to aggregate AU calculation data
-    for path in &paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(rank_data) = serde_json::from_str::<Value>(&content) {
-                if let Some(metrics) = rank_data.get("metrics") {
-                    // Sum total compute time from all GPUs
-                    if let Some(compute_ms) = metrics.get("total_compute_time_ms").and_then(|v| v.as_f64()) {
-                        total_compute_time += compute_ms / 1000.0; // Convert to seconds
-                    }
-                    // Sum wall clock time from all GPUs
-                    if let Some(wall_ms) = metrics.get("wall_clock_time_ms").and_then(|v| v.as_f64()) {
-                        total_wall_clock_time += wall_ms / 1000.0; // Convert to seconds
-                    }
-                    gpu_count += 1;
-                }
-            }
-        }
-    }
-    
-    // Plan A1: Global AU = Total GPU compute time / (Total wall clock time across all GPUs)
-    let global_au = if total_wall_clock_time > 0.0 && gpu_count > 0 {
-        // Multi-GPU AU: aggregate utilization across all GPUs
-        let average_wall_clock = total_wall_clock_time / gpu_count as f64;
-        (total_compute_time / average_wall_clock).min(1.0) // Cap at 100%
-    } else {
-        0.0
-    };
-    
-    info!("Plan A1 Multi-GPU AU: {:.1}% across {} GPUs (total_compute={:.3}s, avg_wall_clock={:.3}s)", 
-          global_au * 100.0, gpu_count, total_compute_time, total_wall_clock_time / gpu_count.max(1) as f64);
-    
-    aggregated["aggregated_results"]["global_metrics"] = serde_json::json!({
-        "total_throughput_gib_s": total_throughput,
-        "total_files_processed": total_files_processed,
-        "total_bytes_read": total_bytes_read,
-        "global_runtime_seconds": global_runtime,
-        "global_au": global_au,
-        "pass": !strict_au || global_au >= au_threshold.unwrap_or(0.9)
-    });
-    
-    // Write aggregated results
-    std::fs::write(output, serde_json::to_string_pretty(&aggregated)?)
-        .with_context(|| format!("Failed to write aggregated results to: {:?}", output))?;
-        
-    info!("✅ Aggregated results written to: {:?}", output);
-    info!("Global metrics: {:.2} GiB/s throughput, {} files, {:.2}s runtime", 
-          total_throughput, total_files_processed, global_runtime);
-    
-    if strict_au && global_au < au_threshold.unwrap_or(0.9) {
-        return Err(anyhow::anyhow!("Global AU {:.3} below threshold {:.3}", 
-                                  global_au, au_threshold.unwrap_or(0.9)));
-    }
-    
-    Ok(())
-}
-
 /// Plan A1: Set GPU affinity and environment for realistic multi-GPU scaling
 fn setup_gpu_affinity(rank: u32, world_size: u32, simulated_gpus: Option<u32>, use_real_gpus: bool) -> Result<()> {
     let effective_gpu_count = simulated_gpus.unwrap_or(world_size);
