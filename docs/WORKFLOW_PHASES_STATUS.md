@@ -104,68 +104,61 @@ Number of epochs: 3
 
 ---
 
-### Phase 3: `checkpoint` - ⚠️ PARTIALLY IMPLEMENTED (TBD)
+### Phase 3: `checkpoint` - ✅ FULLY IMPLEMENTED
 
 **Purpose:** Checkpointing I/O during training
 
-**Status:** ⚠️ Config schema defined, validation displayed, **NOT EXECUTED** (planned for implementation)
+**Status:** ✅ Functional with both step-based and epoch-based triggering
 
 **Implementation:**
 - ✅ Config schema: `CheckpointingConfig` in `crates/core/src/dlio_compat.rs`
-- ✅ Validation: Displayed in `display_config_summary()` 
-- ❌ **Execution: Commented out** (CheckpointPlugin code exists but disabled)
-- ❌ No Phase 3 execution block in `run_unified_dlio()`
+- ✅ Plugin system: `CheckpointPlugin` in `crates/core/src/plugins/checkpoint.rs`
+- ✅ PluginManager integrated into WorkloadRunner
+- ✅ Plugin hooks called in training loop:
+  - `after_step()` for step-based checkpointing
+  - `after_epoch()` for epoch-based checkpointing
+  - `finalize()` at training end
+- ✅ Multi-backend support via s3dlio ObjectStore
+- ✅ Checkpoint metadata with run_id, timestamp, config snapshot
 
 **Config Fields:**
 ```yaml
 checkpointing:
   checkpoint_folder: file:///path/to/checkpoints
-  checkpoint_after_epoch: 1
-  epochs_between_checkpoints: 2
-  steps_between_checkpoints: 100
-  checkpoint_mechanism: "mmap"
+  checkpoint_after_epoch: 1           # Start checkpointing after epoch 1
+  epochs_between_checkpoints: 2       # Checkpoint every 2 epochs
+  steps_between_checkpoints: 100      # Alternative: checkpoint every 100 steps
 ```
 
-**Current Behavior:**
-```
-# Config parsed successfully ✅
-# Displayed in validation ✅
-┌─ Checkpoint Configuration ───────────────────────────────────────────┐
-│ Checkpoint Folder: file:///path/to/checkpoints
-│ After Epoch:       1
-│ Epoch Interval:    every 2 epoch(s)
-└──────────────────────────────────────────────────────────────────────┘
+**Checkpoint Files:**
+- Step-based: `{run_id}/step_{step:08}.ckpt`
+- Epoch-based: `{run_id}/epoch_{epoch:04}.ckpt`
+- Format: JSON with CheckpointData structure
+- Optional compression: zstd (currently disabled in config)
 
-# But NOT executed during run ❌
-# No "📁 Phase 3: Checkpointing" message
-# No checkpoint files created
+**Example Output:**
 ```
-
-**Code Location:**
-```rust
-// In crates/cli/src/main.rs:447-454 (COMMENTED OUT)
-// Create plugin manager with CheckpointPlugin if enabled
-// let mut plugins = PluginManager::new();
-// 
-// // Add CheckpointPlugin if checkpointing is enabled in config
-// if let Some(checkpoint_plugin) = dl_driver_core::plugins::CheckpointPlugin::new(&dlio_config).await? {
-//     plugins.push(Box::new(checkpoint_plugin));
-//     info!("CheckpointPlugin registered");
-// }
+🚀 Phase 2: Training
+CheckpointPlugin initialized for run_id: 86f77541-99a2-4e06-ae74-7280dcd33516
+🏃 Epoch 1/3 starting...
+✅ Epoch 1/3 complete: 5 batches, 50 samples, 5.1MB in 0.01s
+[Checkpoint written: step=5, path=86f77541.../step_00000005.ckpt (1.8KB)]
+🏃 Epoch 2/3 starting...
+✅ Epoch 2/3 complete: 5 batches, 50 samples, 5.1MB in 0.01s
+[Epoch checkpoint written: epoch=1, path=86f77541.../epoch_0001.ckpt (1.8KB)]
+[Checkpoint written: step=10, path=86f77541.../step_00000010.ckpt (1.8KB)]
 ```
 
-**To Enable:**
-1. Uncomment CheckpointPlugin initialization code
-2. Add Phase 3 execution block after Phase 2:
-   ```rust
-   // Phase 3: Checkpointing (if enabled)
-   if dlio_config.workflow.as_ref().map_or(false, |w| w.checkpoint.unwrap_or(false)) {
-       println!("\n💾 Phase 3: Checkpointing");
-       // Execute checkpoint writes
-   }
-   ```
-3. Implement checkpoint file generation logic
-4. Add progress tracking
+**Supported Modes:**
+1. **Step-based only**: Specify `steps_between_checkpoints`
+2. **Epoch-based only**: Specify `checkpoint_after_epoch` and `epochs_between_checkpoints`
+3. **Combined**: Specify both for checkpoints at both step and epoch boundaries
+
+**Architecture:**
+- Plugin pattern for extensibility
+- Clean separation from training loop
+- Works with all backends (file://, s3://, az://, gs://, direct://)
+- See `docs/CHECKPOINT_ARCHITECTURE_ANALYSIS.md` for full design details
 
 ---
 

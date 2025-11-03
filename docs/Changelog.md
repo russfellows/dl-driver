@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned for v0.8.4
+- Checkpoint reload functionality (resume training from saved checkpoint)
+- MLPerf Storage compliance reporting (--mlperf flag implementation)
+
+---
+
+## [0.8.3] - 2025-11-02 - **CLI Cleanup & Checkpoint Implementation**
+
+### **🎯 Major Features**
+
+#### **Checkpoint Plugin System - Fully Functional**
+Complete implementation of Phase 3 (checkpointing) from DLIO workflow specification:
+
+**Step-Based Checkpointing:**
+```yaml
+checkpointing:
+  checkpoint_folder: file:///path/to/checkpoints
+  steps_between_checkpoints: 100  # Checkpoint every 100 training steps
+```
+
+**Epoch-Based Checkpointing:**
+```yaml
+checkpointing:
+  checkpoint_folder: s3://bucket/checkpoints
+  checkpoint_after_epoch: 1           # Start checkpointing after epoch 1
+  epochs_between_checkpoints: 2       # Checkpoint every 2 epochs
+```
+
+**Combined Step + Epoch:**
+```yaml
+checkpointing:
+  checkpoint_folder: az://container/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 50      # Both triggers work independently
+```
+
+**Architecture:**
+- Plugin pattern for extensibility (CheckpointPlugin, PluginManager)
+- Plugin hooks called at appropriate points in training loop:
+  - `after_step(step)` for step-based checkpointing
+  - `after_epoch(epoch)` for epoch-based checkpointing
+  - `finalize()` at training completion
+- Multi-backend support via s3dlio ObjectStore
+- Checkpoint metadata: run_id (UUID), step/epoch, timestamp, config snapshot
+- Checkpoint files: `{run_id}/step_{step:08}.ckpt` or `{run_id}/epoch_{epoch:04}.ckpt`
+- JSON format with optional zstd compression (framework exists, disabled in config)
+
+See `docs/CHECKPOINT_ARCHITECTURE_ANALYSIS.md` for full design rationale and implementation details.
+
+### **🔧 CLI Improvements**
+
+#### **Removed Commands**
+- **`aggregate` command removed** - Legacy file-based coordination superseded by shared memory coordination
+  - Multi-rank coordination now uses shared memory (single-host) or gRPC (multi-host)
+  - No temporary files needed for rank coordination
+  - ~150 lines of legacy code removed
+
+- **`generate` command removed** - Simplified to single workflow pattern
+  - Use `workflow.generate_data: true` in config instead
+  - Unified command structure: `dl-driver run` handles all phases
+  - See `docs/GENERATE_COMMAND_PATTERNS.md` for data generation patterns
+
+#### **Consolidated Commands**
+- **`validate` and `--dry-run` are now functional aliases**
+  - Both perform comprehensive configuration validation and workload preview
+  - ~80 lines of duplicate logic removed
+  - Use either interchangeably: `dl-driver validate --config x.yaml` or `dl-driver run --config x.yaml --dry-run`
+
+### **📚 Documentation**
+
+#### **Added**
+- `docs/CHECKPOINT_ARCHITECTURE_ANALYSIS.md` - Complete checkpoint design rationale and implementation guide
+- `docs/GENERATE_COMMAND_PATTERNS.md` - Data generation patterns and best practices
+- `docs/WORKFLOW_PHASES_STATUS.md` - Status of all 4 DLIO workflow phases
+
+#### **Updated**
+- Phase 3 (checkpoint) marked as fully implemented
+- Removed speculative version numbers (staying on 0.8.x branch)
+
+### **🐛 Bug Fixes**
+- Fixed test configuration to include new DatasetConfig fields (`directory_tree`, `num_subfolders_train`)
+
+### **🔨 Code Changes**
+- Added `plugins` field to WorkloadRunner
+- Added `with_plugins()` builder method for plugin integration
+- Plugin hooks integrated into training loop (3 call sites)
+- Epoch-based checkpointing logic implemented in CheckpointPlugin
+- Total: ~200 lines added, ~270 lines removed (net reduction)
+
 ---
 
 ## [0.8.2] - 2025-11-02 - **Directory Tree Modes & Configuration Validation**
