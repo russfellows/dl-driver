@@ -206,10 +206,25 @@ impl WorkloadRunner {
                 };
                 
                 // Use s3dlio's mkdir (added in v0.9.11)
-                store.mkdir(&full_dir_uri).await
-                    .with_context(|| format!("Failed to create directory: {}", full_dir_uri))?;
+                // Some backends (like direct://) don't support mkdir, so tolerate failures
+                match store.mkdir(&full_dir_uri).await {
+                    Ok(_) => {
+                        debug!("Created directory: {}", full_dir_uri);
+                    }
+                    Err(e) => {
+                        // If it's a "not implemented" error, that's OK for backends like direct://
+                        let err_msg = e.to_string();
+                        if err_msg.contains("not implemented") || err_msg.contains("Not implemented") {
+                            info!("Directory creation not supported for {} backend (expected for direct://)", 
+                                if data_folder.starts_with("direct://") { "direct://" } else { "this" });
+                        } else {
+                            // For other errors, propagate them
+                            return Err(e).with_context(|| format!("Failed to create directory: {}", full_dir_uri));
+                        }
+                    }
+                }
             }
-            info!("Directory structure created successfully");
+            info!("Directory structure setup completed");
         }
 
         // Determine number of files to generate
