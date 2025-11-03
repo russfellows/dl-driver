@@ -152,24 +152,6 @@ enum Commands {
         #[arg(long)]
         skip_existing: bool,
     },
-    /// Aggregate results from multiple rank JSON files
-    Aggregate {
-        /// Pattern or paths to rank result files (e.g., "/results/rank*.json")
-        #[arg(short, long)]
-        inputs: String,
-
-        /// Output aggregated results to file
-        #[arg(short, long)]
-        output: std::path::PathBuf,
-
-        /// Enable strict AU mode - fail if global AU is below threshold
-        #[arg(long)]
-        strict_au: bool,
-
-        /// Expected metric AU threshold (default from first rank config)
-        #[arg(long)]
-        au_threshold: Option<f64>,
-    },
     /// Run distributed DLIO workload across multiple agents
     Distributed {
         #[command(subcommand)]
@@ -325,12 +307,6 @@ async fn main() -> Result<()> {
             verbose,
             skip_existing,
         } => run_generate_only(&config, verbose, skip_existing).await,
-        Commands::Aggregate {
-            inputs,
-            output,
-            strict_au,
-            au_threshold,
-        } => aggregate_rank_results(&inputs, &output, strict_au, au_threshold).await,
         Commands::Distributed { command } => match command {
             DistributedCommands::Run {
                 config,
@@ -1135,143 +1111,6 @@ fn apply_sharding_strategy(
 }
 
 /// Aggregate results from multiple rank JSON files
-async fn aggregate_rank_results(
-    inputs: &str,
-    output: &std::path::Path,
-    strict_au: bool,
-    au_threshold: Option<f64>,
-) -> Result<()> {
-    use glob::glob;
-    use serde_json::Value;
-    
-    info!("Aggregating results from pattern: {}", inputs);
-    
-    // Find all matching files
-    let paths: Vec<_> = glob(inputs)
-        .with_context(|| format!("Failed to glob pattern: {}", inputs))?
-        .collect::<Result<Vec<_>, _>>()?;
-        
-    if paths.is_empty() {
-        return Err(anyhow::anyhow!("No files found matching pattern: {}", inputs));
-    }
-    
-    info!("Found {} result files to aggregate", paths.len());
-    
-    let mut aggregated = serde_json::json!({
-        "aggregated_results": {
-            "total_ranks": paths.len(),
-            "global_metrics": {},
-            "rank_details": []
-        }
-    });
-    
-    let mut total_throughput = 0.0_f64;
-    let mut total_files_processed = 0u64;
-    let mut total_bytes_read = 0u64;
-    let mut min_start_time = f64::MAX;
-    let mut max_end_time = 0.0_f64;
-    
-    // Process each rank result file
-    for (rank_idx, path) in paths.iter().enumerate() {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read result file: {:?}", path))?;
-        let rank_data: Value = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse JSON from: {:?}", path))?;
-            
-        // Extract metrics from rank data
-        if let Some(metrics) = rank_data.get("metrics") {
-            if let Some(throughput) = metrics.get("storage_throughput_gib_s").and_then(|v| v.as_f64()) {
-                total_throughput += throughput;
-            }
-            if let Some(files) = metrics.get("files_processed").and_then(|v| v.as_u64()) {
-                total_files_processed += files;
-            }
-            if let Some(bytes) = metrics.get("bytes_read").and_then(|v| v.as_u64()) {
-                total_bytes_read += bytes;
-            }
-        }
-        
-        // Track timing for global AU calculation
-        if let Some(start) = rank_data.get("start_time").and_then(|v| v.as_f64()) {
-            min_start_time = min_start_time.min(start);
-        }
-        if let Some(end) = rank_data.get("end_time").and_then(|v| v.as_f64()) {
-            max_end_time = max_end_time.max(end);
-        }
-        
-        // Add rank details to aggregated results
-        aggregated["aggregated_results"]["rank_details"].as_array_mut().unwrap()
-            .push(serde_json::json!({
-                "rank": rank_idx,
-                "file": path.file_name().unwrap_or_default().to_string_lossy(),
-                "metrics": rank_data.get("metrics").cloned().unwrap_or(Value::Null)
-            }));
-    }
-    
-    // Calculate global metrics
-    let global_runtime = max_end_time - min_start_time;
-    
-    // Plan A1: Multi-GPU AU aggregation - sum compute times and wall clock times across all GPUs
-    let mut total_compute_time = 0.0;
-    let mut total_wall_clock_time = 0.0;
-    let mut gpu_count = 0u32;
-    
-    // Re-read rank files to aggregate AU calculation data
-    for path in &paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(rank_data) = serde_json::from_str::<Value>(&content) {
-                if let Some(metrics) = rank_data.get("metrics") {
-                    // Sum total compute time from all GPUs
-                    if let Some(compute_ms) = metrics.get("total_compute_time_ms").and_then(|v| v.as_f64()) {
-                        total_compute_time += compute_ms / 1000.0; // Convert to seconds
-                    }
-                    // Sum wall clock time from all GPUs
-                    if let Some(wall_ms) = metrics.get("wall_clock_time_ms").and_then(|v| v.as_f64()) {
-                        total_wall_clock_time += wall_ms / 1000.0; // Convert to seconds
-                    }
-                    gpu_count += 1;
-                }
-            }
-        }
-    }
-    
-    // Plan A1: Global AU = Total GPU compute time / (Total wall clock time across all GPUs)
-    let global_au = if total_wall_clock_time > 0.0 && gpu_count > 0 {
-        // Multi-GPU AU: aggregate utilization across all GPUs
-        let average_wall_clock = total_wall_clock_time / gpu_count as f64;
-        (total_compute_time / average_wall_clock).min(1.0) // Cap at 100%
-    } else {
-        0.0
-    };
-    
-    info!("Plan A1 Multi-GPU AU: {:.1}% across {} GPUs (total_compute={:.3}s, avg_wall_clock={:.3}s)", 
-          global_au * 100.0, gpu_count, total_compute_time, total_wall_clock_time / gpu_count.max(1) as f64);
-    
-    aggregated["aggregated_results"]["global_metrics"] = serde_json::json!({
-        "total_throughput_gib_s": total_throughput,
-        "total_files_processed": total_files_processed,
-        "total_bytes_read": total_bytes_read,
-        "global_runtime_seconds": global_runtime,
-        "global_au": global_au,
-        "pass": !strict_au || global_au >= au_threshold.unwrap_or(0.9)
-    });
-    
-    // Write aggregated results
-    std::fs::write(output, serde_json::to_string_pretty(&aggregated)?)
-        .with_context(|| format!("Failed to write aggregated results to: {:?}", output))?;
-        
-    info!("✅ Aggregated results written to: {:?}", output);
-    info!("Global metrics: {:.2} GiB/s throughput, {} files, {:.2}s runtime", 
-          total_throughput, total_files_processed, global_runtime);
-    
-    if strict_au && global_au < au_threshold.unwrap_or(0.9) {
-        return Err(anyhow::anyhow!("Global AU {:.3} below threshold {:.3}", 
-                                  global_au, au_threshold.unwrap_or(0.9)));
-    }
-    
-    Ok(())
-}
-
 /// Plan A1: Set GPU affinity and environment for realistic multi-GPU scaling
 fn setup_gpu_affinity(rank: u32, world_size: u32, simulated_gpus: Option<u32>, use_real_gpus: bool) -> Result<()> {
     let effective_gpu_count = simulated_gpus.unwrap_or(world_size);
