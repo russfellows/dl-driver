@@ -1,0 +1,69 @@
+# Example configuration for checkpoint save and reload
+# This demonstrates:
+# 1. Saving checkpoints to various storage backends
+# 2. Resuming training from saved checkpoints
+#
+# Usage:
+#   # First run - save checkpoints
+#   dl-driver run --config checkpoint_reload_example.yaml
+#
+#   # Resume from checkpoint (replace with actual checkpoint filename)
+#   dl-driver run --config checkpoint_reload_example.yaml \
+#     --resume-from-checkpoint file:///tmp/checkpoints/checkpoint_epoch_3_step_300.bin
+
+model: unet3d
+
+dataset:
+  num_files_train: 1000
+  num_samples_per_file: 1
+  record_length: 10485760  # 10 MiB per sample
+  record_length_stdev: 0
+  record_length_resize: 10485760
+
+reader:
+  data_loader: tensorflow
+  batch_size: 8
+  read_threads: 4
+  file_shuffle: seed
+  sample_shuffle: seed
+
+storage:
+  storage_root: file:///tmp/dl_driver_checkpoint_example
+  storage_type: local_fs
+
+workflow:
+  generate_data: false  # Set to true for first run if data doesn't exist
+  train: true
+  checkpoint: true
+
+train:
+  epochs: 5
+  computation_time: 0.01  # Simulated compute time in seconds
+
+# Checkpoint configuration
+# Checkpoints will be saved:
+# - After epoch 1 (checkpoint_after_epoch)
+# - Then every 2 epochs (epochs_between_checkpoints)
+# - Or every 100 steps (steps_between_checkpoints)
+checkpoint:
+  # Multi-backend examples (choose one):
+  checkpoint_folder: file:///tmp/checkpoints                          # Local filesystem
+  # checkpoint_folder: direct:///nvme/checkpoints                     # Direct I/O
+  # checkpoint_folder: s3://my-bucket/training-run-001/checkpoints    # Amazon S3
+  # checkpoint_folder: gs://my-bucket/ml-checkpoints                  # Google Cloud Storage
+  # checkpoint_folder: az://myaccount/container/checkpoints           # Azure Blob Storage
+  
+  checkpoint_after_epoch: 1         # Start checkpointing after epoch 1
+  epochs_between_checkpoints: 2     # Save every 2 epochs
+  steps_between_checkpoints: 100    # Save every 100 steps (if epoch takes >100 steps)
+
+# Checkpoint reload behavior (when using --resume-from-checkpoint):
+# - Training resumes at the START of the next epoch after the checkpoint
+# - Example: If checkpoint was saved at epoch 3, step 300
+#   → Training resumes at epoch 4, step 0
+# - This avoids mid-epoch complexities and ensures clean batch boundaries
+# - All checkpoint metadata is validated on load
+
+# Testing checkpoint reload:
+# See crates/cli/tests/checkpoint_multibackend_test.rs for automated tests
+# See tests/manual_checkpoint_test.sh for real-world validation script

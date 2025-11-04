@@ -1,256 +1,317 @@
-# Migration Quick Start Guide
+# dl-driver Quick Start Guide
 
-**For the new agent**: Start here, then read the detailed migration plan.
-
----
-
-## 📋 Pre-Flight Checklist
-
-- [ ] Read `HANDOFF_SUMMARY.md` (5 min read)
-- [ ] Read `MIGRATION_PLAN_S3DLIO_0.8.19.md` (full details)
-- [ ] Review current build status: ✅ 61/61 tests passing
-- [ ] Understand hybrid approach: Use s3dlio-oplog for parsing, keep dl-driver features
+**Get up and running with dl-driver in 10 minutes**
 
 ---
 
-## 🚀 Quick Start (30 minutes)
+## 📋 What You'll Learn
 
-### Step 1: Create Branch (1 min)
+- ✅ Install and build dl-driver
+- ✅ Run your first workload
+- ✅ Test with different storage backends
+- ✅ Use checkpointing features
+- ✅ Explore execution modes
+
+**Current Version**: v0.8.4 (November 2025)  
+**Prerequisites**: Rust 1.89.0+, Git, 15GB disk space
+
+---
+
+## 🚀 Installation (2 minutes)
+
+### Clone and Build
+### Clone and Build
+
 ```bash
-cd /home/eval/Documents/Code/dl-driver
-git checkout -b feature/s3dlio-0.8.19-migration
-git status  # Ensure clean state
+# Clone repository
+git clone https://github.com/russfellows/dl-driver.git
+cd dl-driver
+
+# Build release version
+cargo build --release
+
+# Verify installation
+./target/release/dl-driver --version
+# Output: dl-driver 0.8.4
 ```
 
-### Step 2: Update Root Cargo.toml (2 min)
-**File**: `Cargo.toml`
+**Build time**: ~3-5 minutes on modern hardware  
+**Binary location**: `target/release/dl-driver`
 
-**REMOVE** (lines 11-15):
-```toml
-[patch.crates-io]
-# Use s3dlio's patched version to expose hyper_builder methods for HTTP connection pool configuration
-# Note: This still uses path dependency as the patch is in a subdirectory of s3dlio
-# TODO: Consider copying the patch locally or publishing it separately
-aws-smithy-http-client = { path = "../s3dlio/fork-patches/aws-smithy-http-client" }
-```
+---
 
-### Step 3: Update Core Crate (3 min)
-**File**: `crates/core/Cargo.toml`
+## 🎯 Your First Workload (3 minutes)
 
-**CHANGE** line 42:
-```toml
-# Old:
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
+### Single-Process Execution
 
-# New:
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.8.19" }
-```
+Run a simple test with local filesystem storage:
 
-**ADD** after line 42:
-```toml
-# s3dlio-oplog for shared operation log parsing/replay
-s3dlio-oplog = { path = "../../../s3dlio/crates/s3dlio-oplog" }
-```
-
-### Step 4: Update Other Crates (5 min)
-Update s3dlio dependency in:
-- `crates/cli/Cargo.toml` line 22
-- `crates/formats/Cargo.toml` line 18
-- `crates/frameworks/Cargo.toml` line 13
-
-**Same change**:
-```toml
-# Old:
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", rev = "cd4ee2e" }
-
-# New:
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.8.19" }
-```
-
-### Step 5: Test Compilation (5 min)
 ```bash
-cargo clean
-cargo build --release 2>&1 | tee build.log
+# Create minimal config
+cat > quick_test.yaml << 'EOF'
+model: unet3d
+dataset:
+  num_files_train: 100
+  num_samples_per_file: 1
+  record_length: 1048576  # 1 MiB per sample
+reader:
+  data_loader: tensorflow
+  batch_size: 4
+  read_threads: 2
+storage:
+  storage_root: file:///tmp/dl_driver_quickstart
+  storage_type: local_fs
+workflow:
+  generate_data: true
+  train: true
+train:
+  epochs: 2
+  computation_time: 0.001
+EOF
 
-# Expected: Clean build with possible warnings
-# Any errors? Check build.log
+# Run the workload
+./target/release/dl-driver run --config quick_test.yaml
+
+# Check results
+ls /tmp/dl_driver_quickstart/
 ```
 
-### Step 6: Run Tests (10 min)
-```bash
-cargo test 2>&1 | tee test.log
+**What just happened?**
+- Generated 100 synthetic NPZ files (1 MiB each)
+- Simulated 2 epochs of training
+- Produced metrics in TSV format
+- Total time: ~10-30 seconds
 
-# Expected: 61/61 tests passing
-# Any failures? Check test.log and investigate
+---
+
+## 🔧 Try Different Features (5 minutes)
+
+### 1. Different Storage Backends
+
+**Amazon S3 / MinIO:**
+```bash
+# Set credentials in .env file
+cat > .env << 'EOF'
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+AWS_REGION=us-east-1
+AWS_ENDPOINT_URL=http://localhost:9000  # For MinIO
+EOF
+
+# Update config
+storage:
+  storage_root: s3://my-bucket/dl-driver-test
+  storage_type: s3
 ```
 
-### Step 7: Verify CLI (2 min)
+**Google Cloud Storage:**
 ```bash
-./target/release/dl-driver --help
-./target/release/dl-driver replay --help
+# Authenticate
+gcloud auth application-default login
 
-# Expected: Help text displays correctly
+# Update config
+storage:
+  storage_root: gs://my-bucket/dl-driver-test
+  storage_type: gcs
 ```
 
-### Step 8: Commit Phase 1 (2 min)
+**Azure Blob Storage:**
 ```bash
-git add Cargo.toml crates/*/Cargo.toml
-git commit -m "Phase 1: Update s3dlio dependency to v0.8.19 and add s3dlio-oplog
+# Set environment variables
+export AZURE_STORAGE_ACCOUNT=myaccount
+export AZURE_STORAGE_KEY=mykey
 
-- Update s3dlio from v0.8.7 (rev cd4ee2e) to v0.8.19
-- Add s3dlio-oplog dependency for shared operation log functionality
-- Remove aws-smithy-http-client patch (no longer needed)
-- All tests passing (61/61)
-"
-git status
+# Update config
+storage:
+  storage_root: az://myaccount/container/test
+  storage_type: azure
+```
+
+### 2. Checkpoint Save & Reload
+
+**Save checkpoints during training:**
+```yaml
+workflow:
+  checkpoint: true
+
+checkpoint:
+  checkpoint_folder: file:///tmp/checkpoints
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+```
+
+**Resume from checkpoint:**
+```bash
+# First run - saves checkpoints
+./target/release/dl-driver run --config checkpoint_test.yaml
+
+# List checkpoints
+ls /tmp/checkpoints/
+
+# Resume from checkpoint
+./target/release/dl-driver run --config checkpoint_test.yaml \
+  --resume-from-checkpoint file:///tmp/checkpoints/checkpoint_epoch_2_step_200.bin
+```
+
+See `examples/checkpoint_reload_example.yaml` for complete example.
+
+### 3. Multi-Rank Execution (Shared Memory)
+
+Simulate multi-GPU training on single node:
+
+```bash
+# Run with 4 ranks (simulates 4 GPUs)
+./target/release/dl-driver run --config quick_test.yaml --num-ranks 4
+
+# Each rank processes its own subset of data
+# Shared memory coordination (no network overhead)
 ```
 
 ---
 
-## 🔄 Next Steps After Phase 1
+## � Understanding Output
 
-Once Phase 1 is complete and tested:
+After running a workload, you'll see:
 
-### Option A: Hybrid Approach (RECOMMENDED) 
-Continue to Phase 2 in migration plan:
-1. Add OpLogEntry ↔ OpLogRec conversion functions
-2. Integrate s3dlio-oplog::OpLogReader for parsing
-3. Keep SimpleReplayEngine with dl-driver features
-4. Test thoroughly
+```
+/tmp/dl_driver_quickstart/
+├── data/                          # Generated dataset files
+│   ├── train_000000.npz
+│   ├── train_000001.npz
+│   └── ...
+└── results/
+    ├── storage_metrics_0.tsv      # Storage I/O metrics
+    ├── ai_ml_metrics_0.tsv        # AI/ML framework metrics
+    └── consolidated_report.txt    # Human-readable summary
+```
 
-### Option B: Pause and Report
-If Phase 1 has issues:
-1. Document the error in build.log or test.log
-2. Check for version conflicts
-3. Verify s3dlio-oplog path is correct
-4. Consider using git dependency instead of path
+**Key metrics:**
+- **Storage metrics**: Throughput, latency, IOPS
+- **AI/ML metrics**: Samples/sec, epoch time, batch processing
+- **Percentiles**: p50, p95, p99 latencies
 
 ---
 
-## ⚠️ Common Issues & Solutions
+## 🎓 Next Steps
 
-### Issue: s3dlio-oplog not found
-**Error**: `couldn't read .../s3dlio/crates/s3dlio-oplog/Cargo.toml`
+### Learn More Features
 
-**Solution**: Verify relative path or use git dependency:
-```toml
-# Instead of path dependency:
-s3dlio-oplog = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.8.19" }
+1. **Distributed Multi-Agent Execution**  
+   Coordinate workloads across multiple hosts  
+   → See [USER_GUIDE.md - Distributed Execution](USER_GUIDE.md#3-distributed-multi-agent-execution)
+
+2. **Data Formats**  
+   NPZ, HDF5, TFRecord with numpy/h5py/TensorFlow compatibility  
+   → See [USER_GUIDE.md - Data Formats](USER_GUIDE.md#data-formats)
+
+3. **DLIO Configuration**  
+   Use existing DLIO benchmark configs  
+   → See [USER_GUIDE.md - Configuration](USER_GUIDE.md#configuration)
+
+4. **Advanced Checkpointing**  
+   Multi-backend checkpoint save/reload  
+   → See [USER_GUIDE.md - Checkpointing](USER_GUIDE.md#checkpointing)
+
+### Example Configurations
+
+Explore real-world examples in `tests/dlio_configs/`:
+- `cosmoflow_config.yaml` - CosmoFlow (cosmology)
+- `large_scale_threading_test.yaml` - High-throughput testing
+- `cosmoflow_4hosts.yaml` - Distributed 4-node setup
+
+### Full Documentation
+
+- **[USER_GUIDE.md](USER_GUIDE.md)** - Complete feature documentation
+- **[Changelog.md](Changelog.md)** - Version history and features
+- **[RESULTS_DIRECTORY_FORMAT.md](RESULTS_DIRECTORY_FORMAT.md)** - Metrics specification
+- **[DUAL_METRICS_REPORTING.md](DUAL_METRICS_REPORTING.md)** - Storage vs AI/ML metrics
+
+---
+
+## 🧪 Run Test Suite
+
+Validate your installation:
+
+```bash
+# Run all tests (takes ~2 minutes)
+cargo test --release
+
+# Expected: 123/123 tests passing ✅
+
+# Run specific test module
+cargo test --release checkpoint
+
+# Run with verbose output
+cargo test --release -- --nocapture
 ```
 
-### Issue: Compilation errors
-**Error**: Type mismatches or missing symbols
+---
 
-**Solution**: 
-1. Check if all crates updated to v0.8.19
-2. Run `cargo update`
-3. Clear cache: `cargo clean`
+## ⚡ Performance Tips
 
-### Issue: Test failures
-**Error**: Some tests fail after update
+1. **Use `--release` builds** for realistic performance measurements
+2. **Set appropriate `read_threads`** (typically 4-8 per process)
+3. **Use `direct://` backend** for O_DIRECT file I/O (bypasses page cache)
+4. **Enable checkpointing** to test realistic AI/ML workflows
+5. **Monitor metrics** in results directory for bottleneck identification
+
+---
+
+## 🆘 Common Issues
+
+### Build Errors
+
+**Problem**: Compilation fails with dependency errors
 
 **Solution**:
-1. Check if tests use oplog functionality
-2. Review test output carefully
-3. May need Phase 2 changes before tests pass
-
----
-
-## 📊 Success Indicators
-
-After Phase 1 completion:
-
-✅ **Green Indicators**:
-- Zero compilation errors
-- Minimal or zero warnings
-- All dependency updates successful
-- Build completes in < 2 minutes
-- Tests run (even if some fail - expected before Phase 2)
-
-⚠️ **Yellow Indicators** (acceptable):
-- Some tests fail (expected - need Phase 2 integration)
-- Deprecation warnings
-- Unused import warnings
-
-🔴 **Red Indicators** (need attention):
-- Compilation errors
-- Dependency resolution failures
-- Segfaults or panics
-- Complete test suite failure
-
----
-
-## 🆘 Rollback Plan
-
-If Phase 1 fails critically:
-
 ```bash
-# Discard all changes
-git checkout .
-git clean -fd
-
-# Or rollback specific files
-git checkout Cargo.toml
-git checkout crates/core/Cargo.toml
-# etc.
-
-# Rebuild with old dependencies
 cargo clean
+cargo update
 cargo build --release
 ```
 
----
+### Storage Authentication
 
-## 📚 Reference Documentation
+**S3 not working**: Check `.env` file has credentials  
+**GCS not working**: Run `gcloud auth application-default login`  
+**Azure not working**: Set `AZURE_STORAGE_ACCOUNT` and `AZURE_STORAGE_KEY`
 
-**Must Read**:
-1. `HANDOFF_SUMMARY.md` - Context and overview
-2. `MIGRATION_PLAN_S3DLIO_0.8.19.md` - Complete technical plan
+### Permission Errors
 
-**Optional Reference**:
-3. `../s3dlio/docs/S3DLIO_OPLOG_INTEGRATION.md` - s3dlio-oplog API
-4. `../s3dlio/docs/v0.8.19-RELEASE-NOTES.md` - What's new
+**Problem**: Can't write to storage location
 
-**Source Code**:
-5. `../s3dlio/crates/s3dlio-oplog/src/lib.rs` - API documentation
-6. `crates/core/src/replay.rs` - Current implementation
-
----
-
-## 💡 Pro Tips
-
-1. **Test frequently**: Run `cargo test` after each major change
-2. **Commit early**: Commit after each successful phase
-3. **Read errors carefully**: Rust compiler errors are detailed and helpful
-4. **Use clippy**: `cargo clippy --all-targets` for code quality
-5. **Check warnings**: Fix warnings before proceeding to next phase
-6. **Keep notes**: Document any deviations from the plan
+**Solution**: Ensure directory exists and is writable:
+```bash
+mkdir -p /tmp/dl_driver_quickstart
+chmod 755 /tmp/dl_driver_quickstart
+```
 
 ---
 
-## ⏱️ Time Estimates
+## 📚 Additional Resources
 
-- **Phase 1** (dependency updates): 30 minutes
-- **Phase 2** (integration): 2-3 hours
-- **Phase 3** (CLI updates): 1 hour
-- **Phase 4** (testing): 1-2 hours
-- **Phase 5** (documentation): 30 minutes
-- **Total**: 5-7 hours for complete migration
+- **GitHub Repository**: https://github.com/russfellows/dl-driver
+- **s3dlio Library**: https://github.com/russfellows/s3dlio (storage engine)
+- **Issues/Questions**: Open GitHub issue
+- **License**: GPL v3
 
 ---
 
-## ✅ Ready to Start?
+## ✅ Success Checklist
 
-1. ✅ Read this quick start guide
-2. ✅ Read HANDOFF_SUMMARY.md
-3. ✅ Read MIGRATION_PLAN_S3DLIO_0.8.19.md
-4. ✅ Create feature branch
-5. ✅ Start with Phase 1 above
+After completing this guide, you should have:
 
-**Good luck! The detailed plan has all the answers you'll need.**
+- ✅ Built dl-driver from source
+- ✅ Run a simple workload successfully
+- ✅ Generated synthetic dataset and metrics
+- ✅ Understood basic configuration options
+- ✅ Explored checkpoint features
+- ✅ Know where to find detailed documentation
+
+**Ready for production testing?** → Read [USER_GUIDE.md](USER_GUIDE.md) for complete documentation.
 
 ---
 
-**Quick Start Version**: 1.0  
-**Date**: October 3, 2025  
-**Estimated Time**: 30 minutes for Phase 1
+**Quick Start Version**: 2.0  
+**Last Updated**: November 3, 2025  
+**dl-driver Version**: 0.8.4

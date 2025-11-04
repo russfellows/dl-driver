@@ -508,15 +508,66 @@ Optimize for specific ML frameworks:
 
 ### Checkpointing
 
+dl-driver supports **saving** and **reloading** checkpoints across all storage backends (file://, direct://, s3://, az://, gs://).
+
+#### Saving Checkpoints
+
 Enable periodic checkpoints during training:
 
 ```yaml
 checkpoint:
-  checkpoint_folder: file:///checkpoints
-  checkpoint_after_epoch: 1
-  epochs_between_checkpoints: 2
-  steps_between_checkpoints: 100
+  checkpoint_folder: file:///checkpoints  # Any backend supported
+  checkpoint_after_epoch: 1               # Start checkpointing after epoch 1
+  epochs_between_checkpoints: 2           # Save every 2 epochs
+  steps_between_checkpoints: 100          # Save every 100 steps
 ```
+
+**Multi-Backend Examples:**
+```yaml
+# Local filesystem
+checkpoint_folder: file:///mnt/checkpoints
+
+# Direct I/O
+checkpoint_folder: direct:///nvme/checkpoints
+
+# Amazon S3
+checkpoint_folder: s3://my-bucket/training-run-001/checkpoints
+
+# Google Cloud Storage
+checkpoint_folder: gs://my-bucket/ml-checkpoints
+
+# Azure Blob Storage
+checkpoint_folder: az://myaccount/container/checkpoints
+```
+
+#### Reloading Checkpoints (v0.8.4+)
+
+Resume training from a saved checkpoint:
+
+```bash
+# Resume from local checkpoint
+dl-driver run --config config.yaml --resume-from-checkpoint file:///checkpoints/checkpoint_epoch_5_step_500.bin
+
+# Resume from S3
+dl-driver run --config config.yaml --resume-from-checkpoint s3://bucket/checkpoints/checkpoint_epoch_3.bin
+
+# Resume from GCS  
+dl-driver run --config config.yaml --resume-from-checkpoint gs://bucket/ckpt/checkpoint_epoch_10.bin
+
+# Resume from Azure
+dl-driver run --config config.yaml --resume-from-checkpoint az://account/container/checkpoint_epoch_2.bin
+```
+
+**Resume Behavior:**
+- Training resumes at the **start of the next epoch** after the checkpoint
+- Example: Checkpoint saved at epoch 5, step 500 → resumes at epoch 6, step 0
+- Avoids mid-epoch complexities and ensures clean batch boundaries
+- All checkpoint metadata is validated on load
+
+**Testing Examples:**
+- See `crates/cli/tests/checkpoint_multibackend_test.rs` for 5-backend integration tests
+- See `crates/cli/tests/checkpoint_scenarios_test.rs` for 4 comprehensive reload scenarios
+- See `tests/manual_checkpoint_test.sh` for real-world validation script
 
 ---
 
