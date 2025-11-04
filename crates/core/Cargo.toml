@@ -49,9 +49,7 @@ ndarray = "0.15"
 ndarray-npy = "0.8"
 tempfile = "3.0"
 
-# s3dlio integration - temporarily using local path for testing GCS fixes
-s3dlio = { path = "../../../s3dlio" }
-# s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.11" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.12" }
 
 # Local formats crate
 dl-driver-formats = { path = "../formats" }
