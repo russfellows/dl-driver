@@ -133,6 +133,10 @@ enum Commands {
         /// Export metrics summary to CSV file
         #[arg(long)]
         metrics_csv: Option<std::path::PathBuf>,
+        
+        /// Resume from checkpoint (path/URI to checkpoint file)
+        #[arg(long)]
+        resume_from_checkpoint: Option<String>,
     },
     /// Validate a DLIO config without running it
     Validate {
@@ -266,6 +270,7 @@ async fn main() -> Result<()> {
             profile,
             metrics_json,
             metrics_csv,
+            resume_from_checkpoint,
         } => run_unified_dlio(
             &config, 
             pretty,
@@ -292,6 +297,7 @@ async fn main() -> Result<()> {
             profile.as_deref(),
             metrics_json.as_deref(),
             metrics_csv.as_deref(),
+            resume_from_checkpoint.as_deref(),
         ).await,
         Commands::Validate { config, to_json } => validate_dlio_config(&config, to_json).await,
         Commands::Distributed { command } => match command {
@@ -350,6 +356,7 @@ async fn run_unified_dlio(
     profile: Option<&str>,
     metrics_json: Option<&std::path::Path>,
     metrics_csv: Option<&std::path::Path>,
+    resume_from_checkpoint: Option<&str>,
 ) -> Result<()> {
     info!("Loading DLIO config from: {:?}", config_path);
 
@@ -386,7 +393,51 @@ async fn run_unified_dlio(
 
     // Load DLIO configuration
     let yaml_content = std::fs::read_to_string(config_path)?;
-    let dlio_config = DlioConfig::from_yaml(&yaml_content)?;
+    let mut dlio_config = DlioConfig::from_yaml(&yaml_content)?;
+    
+    // Load checkpoint if resume requested
+    let checkpoint_state = if let Some(checkpoint_path) = resume_from_checkpoint {
+        info!("Loading checkpoint from: {}", checkpoint_path);
+        let state = dl_driver_core::plugins::checkpoint::CheckpointPlugin::load_checkpoint(checkpoint_path).await
+            .context("Failed to load checkpoint")?;
+        
+        info!("✅ Checkpoint loaded: run_id={}, step={}, epoch={:?}, timestamp={}",
+              state.run_id, state.step, state.epoch, state.timestamp);
+        
+        // Validate config if requested
+        if dlio_config.resume.as_ref().map_or(true, |r| r.validate_config) {
+            info!("Validating loaded checkpoint config against current config...");
+            // TODO: Add deep config comparison logic
+            warn!("Config validation not yet implemented - skipping validation");
+        }
+        
+        // Merge resume config into dlio_config if not already present
+        if dlio_config.resume.is_none() {
+            dlio_config.resume = Some(dl_driver_core::dlio_compat::ResumeConfig {
+                checkpoint_path: checkpoint_path.to_string(),
+                validate_config: true,
+                allow_minor_version_mismatch: true,
+            });
+        }
+        
+        Some(state)
+    } else if let Some(resume_config) = &dlio_config.resume {
+        // Resume config specified in YAML file
+        info!("Loading checkpoint from config: {}", resume_config.checkpoint_path);
+        let state = dl_driver_core::plugins::checkpoint::CheckpointPlugin::load_checkpoint(&resume_config.checkpoint_path).await
+            .context("Failed to load checkpoint from config")?;
+        
+        info!("✅ Checkpoint loaded: run_id={}, step={}, epoch={:?}, timestamp={}",
+              state.run_id, state.step, state.epoch, state.timestamp);
+        
+        Some(state)
+    } else {
+        None
+    };
+    
+    if let Some(ref state) = checkpoint_state {
+        info!("🔄 Resuming from checkpoint: step {} (epoch {:?})", state.step, state.epoch);
+    }
 
     // Dry-run mode: display config summary and exit
     if dry_run {
@@ -510,6 +561,11 @@ async fn run_unified_dlio(
             .with_plugins(plugins)
             .with_accelerator_config(accelerator_count, strict_au)
             .with_rank_config(current_rank, total_ranks, sharded_file_list.clone());
+        
+        // Resume from checkpoint if loaded
+        if let Some(checkpoint) = checkpoint_state {
+            workload_runner = workload_runner.with_checkpoint(checkpoint);
+        }
 
         // Workstream A: Apply realistic framework profile if specified
         if let Some(profile_name) = profile {

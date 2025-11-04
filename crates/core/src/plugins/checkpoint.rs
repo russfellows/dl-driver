@@ -26,6 +26,18 @@ pub struct CheckpointData {
     pub metadata: CheckpointMetadata,
 }
 
+/// State loaded from a checkpoint for resuming training
+#[derive(Debug, Clone)]
+pub struct CheckpointState {
+    pub run_id: String,
+    pub step: u32,
+    pub epoch: Option<u32>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub checkpoint_version: String,
+    pub config_snapshot: DlioConfig,
+    pub metadata: CheckpointMetadata,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMetadata {
     pub total_samples_processed: u64,
@@ -83,24 +95,22 @@ impl CheckpointPlugin {
 
     /// Create a new CheckpointPlugin from DlioConfig if checkpointing is enabled
     pub async fn new(config: &DlioConfig) -> Result<Option<Self>> {
-        println!("DEBUG: CheckpointPlugin::new() called");
-        println!("DEBUG: config.checkpointing = {:?}", config.checkpointing);
+        debug!("CheckpointPlugin::new() called");
+        debug!("config.checkpointing = {:?}", config.checkpointing);
 
         let checkpoint_cfg = match config.checkpointing.as_ref() {
             Some(cfg) => {
-                println!("DEBUG: Found checkpoint config: folder = {:?}", cfg.checkpoint_folder);
+                debug!("Found checkpoint config: folder = {:?}", cfg.checkpoint_folder);
                 if cfg.checkpoint_folder.is_some() {
-                    println!("DEBUG: Checkpointing is enabled!");
+                    debug!("Checkpointing is enabled!");
                     cfg
                 } else {
-                    println!("DEBUG: Checkpointing disabled in config (enabled = false)");
-                    debug!("Checkpointing not enabled in config");
+                    debug!("Checkpointing disabled in config (enabled = false)");
                     return Ok(None);
                 }
             },
             None => {
-                println!("DEBUG: No checkpoint config found");
-                debug!("Checkpointing not enabled in config");
+                debug!("No checkpoint config found");
                 return Ok(None);
             }
         };
@@ -149,9 +159,10 @@ impl CheckpointPlugin {
 
     /// Write checkpoint for the given step
     async fn write_checkpoint(&self, step: u32) -> Result<()> {
-        println!("DEBUG: write_checkpoint() started for step {}", step);
+        debug!("write_checkpoint() started for step {}", step);
         
-        let checkpoint_data = CheckpointData {
+        // First pass: Create checkpoint with placeholder metadata to calculate size
+        let mut checkpoint_data = CheckpointData {
             run_id: self.run_id.clone(),
             step,
             epoch: None, // TODO: Add epoch tracking when available
@@ -163,25 +174,46 @@ impl CheckpointPlugin {
                 total_bytes_read: 0,        // TODO: Get from metrics when available
                 elapsed_time_secs: 0.0,     // TODO: Get from metrics when available
                 compression_enabled: self.use_compression(),
-                compressed_size_bytes: None,
-                uncompressed_size_bytes: 0,
+                compressed_size_bytes: None, // Will be updated in second pass if compression enabled
+                uncompressed_size_bytes: 0,  // Will be updated in second pass
             },
         };
 
-        // Serialize checkpoint data to JSON
-        let json_data = serde_json::to_vec_pretty(&checkpoint_data)
-            .context("Failed to serialize checkpoint data")?;
+        // Serialize checkpoint data to JSON (first pass)
+        let json_data_first_pass = serde_json::to_vec_pretty(&checkpoint_data)
+            .context("Failed to serialize checkpoint data (first pass)")?;
 
-        let uncompressed_size = json_data.len();
+        let uncompressed_size = json_data_first_pass.len();
         
-        // Apply compression if enabled
+        // Second pass: Update metadata with actual sizes and re-serialize
+        checkpoint_data.metadata.uncompressed_size_bytes = uncompressed_size;
+        
+        // Apply compression if enabled and update compressed size
         let (final_data, compressed_size) = if self.use_compression() {
-            let compressed = zstd::encode_all(json_data.as_slice(), self.compression_level())
+            // Compress the first-pass data to get compressed size
+            let compressed = zstd::encode_all(json_data_first_pass.as_slice(), self.compression_level())
                 .context("Failed to compress checkpoint data with zstd")?;
-            let size = compressed.len();
-            (Bytes::from(compressed), Some(size))
+            let compressed_size = compressed.len();
+            
+            // Update metadata with compressed size
+            checkpoint_data.metadata.compressed_size_bytes = Some(compressed_size);
+            
+            // Re-serialize with updated metadata
+            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
+                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
+            
+            // Compress the final version
+            let compressed_final = zstd::encode_all(json_data_final.as_slice(), self.compression_level())
+                .context("Failed to compress final checkpoint data with zstd")?;
+            let compressed_final_len = compressed_final.len();
+            
+            (Bytes::from(compressed_final), Some(compressed_final_len))
         } else {
-            (Bytes::from(json_data), None)
+            // No compression: re-serialize with updated uncompressed_size_bytes
+            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
+                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
+            
+            (Bytes::from(json_data_final), None)
         };
 
         // Create checkpoint file path: {run_id}/step_{step:08}.ckpt
@@ -194,20 +226,21 @@ impl CheckpointPlugin {
             format!("{}/{}", self.base_uri, checkpoint_relative_path)
         };
         
-        println!("DEBUG: base_uri = {}", self.base_uri);
-        println!("DEBUG: checkpoint_relative_path = {}", checkpoint_relative_path);
-        println!("DEBUG: checkpoint_full_uri = {}", checkpoint_full_uri);
-        println!("DEBUG: final_data.len() = {}", final_data.len());
+        debug!("base_uri = {}", self.base_uri);
+        debug!("checkpoint_relative_path = {}", checkpoint_relative_path);
+        debug!("checkpoint_full_uri = {}", checkpoint_full_uri);
+        debug!("final_data.len() = {}", final_data.len());
         
         // Write to object store using full URI
-        println!("DEBUG: About to call store.put()...");
+        debug!("About to call store.put()...");
         let result = self.store
             .put(&checkpoint_full_uri, &final_data)
             .await;
             
-        match &result {
-            Ok(_) => println!("DEBUG: store.put() succeeded!"),
-            Err(e) => println!("DEBUG: store.put() failed: {}", e),
+        if let Err(e) = &result {
+            debug!("store.put() failed: {}", e);
+        } else {
+            debug!("store.put() succeeded!");
         }
         
         result.with_context(|| format!("Failed to write checkpoint to {}", checkpoint_relative_path))?;
@@ -230,9 +263,10 @@ impl CheckpointPlugin {
 
     /// Write checkpoint for the given epoch
     async fn write_epoch_checkpoint(&self, epoch: u32) -> Result<()> {
-        println!("DEBUG: write_epoch_checkpoint() started for epoch {}", epoch);
+        debug!("write_epoch_checkpoint() started for epoch {}", epoch);
         
-        let checkpoint_data = CheckpointData {
+        // First pass: Create checkpoint with placeholder metadata to calculate size
+        let mut checkpoint_data = CheckpointData {
             run_id: self.run_id.clone(),
             step: 0, // Step not meaningful for epoch-based checkpointing
             epoch: Some(epoch),
@@ -244,25 +278,46 @@ impl CheckpointPlugin {
                 total_bytes_read: 0,        // TODO: Get from metrics when available
                 elapsed_time_secs: 0.0,     // TODO: Get from metrics when available
                 compression_enabled: self.use_compression(),
-                compressed_size_bytes: None,
-                uncompressed_size_bytes: 0,
+                compressed_size_bytes: None, // Will be updated in second pass if compression enabled
+                uncompressed_size_bytes: 0,  // Will be updated in second pass
             },
         };
 
-        // Serialize checkpoint data to JSON
-        let json_data = serde_json::to_vec_pretty(&checkpoint_data)
-            .context("Failed to serialize checkpoint data")?;
+        // Serialize checkpoint data to JSON (first pass)
+        let json_data_first_pass = serde_json::to_vec_pretty(&checkpoint_data)
+            .context("Failed to serialize checkpoint data (first pass)")?;
 
-        let uncompressed_size = json_data.len();
+        let uncompressed_size = json_data_first_pass.len();
         
-        // Apply compression if enabled
+        // Second pass: Update metadata with actual sizes and re-serialize
+        checkpoint_data.metadata.uncompressed_size_bytes = uncompressed_size;
+        
+        // Apply compression if enabled and update compressed size
         let (final_data, compressed_size) = if self.use_compression() {
-            let compressed = zstd::encode_all(json_data.as_slice(), self.compression_level())
+            // Compress the first-pass data to get compressed size
+            let compressed = zstd::encode_all(json_data_first_pass.as_slice(), self.compression_level())
                 .context("Failed to compress checkpoint data with zstd")?;
-            let size = compressed.len();
-            (Bytes::from(compressed), Some(size))
+            let compressed_size = compressed.len();
+            
+            // Update metadata with compressed size
+            checkpoint_data.metadata.compressed_size_bytes = Some(compressed_size);
+            
+            // Re-serialize with updated metadata
+            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
+                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
+            
+            // Compress the final version
+            let compressed_final = zstd::encode_all(json_data_final.as_slice(), self.compression_level())
+                .context("Failed to compress final checkpoint data with zstd")?;
+            let compressed_final_len = compressed_final.len();
+            
+            (Bytes::from(compressed_final), Some(compressed_final_len))
         } else {
-            (Bytes::from(json_data), None)
+            // No compression: re-serialize with updated uncompressed_size_bytes
+            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
+                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
+            
+            (Bytes::from(json_data_final), None)
         };
 
         // Create checkpoint file path: {run_id}/epoch_{epoch:04}.ckpt
@@ -275,9 +330,9 @@ impl CheckpointPlugin {
             format!("{}/{}", self.base_uri, checkpoint_relative_path)
         };
         
-        println!("DEBUG: Epoch checkpoint - base_uri = {}", self.base_uri);
-        println!("DEBUG: Epoch checkpoint - checkpoint_relative_path = {}", checkpoint_relative_path);
-        println!("DEBUG: Epoch checkpoint - checkpoint_full_uri = {}", checkpoint_full_uri);
+        debug!("Epoch checkpoint - base_uri = {}", self.base_uri);
+        debug!("Epoch checkpoint - checkpoint_relative_path = {}", checkpoint_relative_path);
+        debug!("Epoch checkpoint - checkpoint_full_uri = {}", checkpoint_full_uri);
         
         // Write to object store using full URI
         self.store
@@ -312,6 +367,92 @@ impl CheckpointPlugin {
         let interval = self.step_interval();
         self.next_checkpoint_step = ((step / interval) + 1) * interval;
     }
+
+    /// Load checkpoint from a specific URI
+    /// 
+    /// Supports both step-based and epoch-based checkpoints:
+    /// - Step: checkpoint_folder/run_id/step_00000100.ckpt
+    /// - Epoch: checkpoint_folder/run_id/epoch_0001.ckpt
+    /// 
+    /// Returns CheckpointState with restored training state
+    pub async fn load_checkpoint(checkpoint_uri: &str) -> Result<CheckpointState> {
+        info!("Loading checkpoint from: {}", checkpoint_uri);
+
+        // Create object store for the checkpoint URI
+        let store = store_for_uri(checkpoint_uri)
+            .with_context(|| format!("Failed to create object store for checkpoint URI: {}", checkpoint_uri))?;
+
+        // Read checkpoint file
+        let data = store.get(checkpoint_uri)
+            .await
+            .with_context(|| format!("Failed to read checkpoint file from: {}", checkpoint_uri))?;
+
+        // Try to decompress if it's zstd compressed (check magic header)
+        let json_data = if data.len() > 4 && &data[0..4] == b"\x28\xb5\x2f\xfd" {
+            // zstd magic number detected
+            info!("Decompressing zstd-compressed checkpoint");
+            zstd::decode_all(data.as_ref())
+                .context("Failed to decompress zstd checkpoint data")?
+        } else {
+            // Uncompressed JSON
+            data.to_vec()
+        };
+
+        // Deserialize checkpoint data
+        let checkpoint_data: CheckpointData = serde_json::from_slice(&json_data)
+            .context("Failed to deserialize checkpoint JSON")?;
+
+        // Parse config snapshot
+        let config_snapshot: DlioConfig = serde_json::from_str(&checkpoint_data.config_snapshot)
+            .context("Failed to deserialize config snapshot from checkpoint")?;
+
+        // Validate checkpoint version compatibility
+        let current_version = env!("CARGO_PKG_VERSION");
+        if checkpoint_data.dl_driver_version != current_version {
+            warn!(
+                "Checkpoint version mismatch: checkpoint={}, current={}",
+                checkpoint_data.dl_driver_version, current_version
+            );
+            // Continue anyway - minor version differences should be compatible
+        }
+
+        info!(
+            "Checkpoint loaded: run_id={}, step={}, epoch={:?}, timestamp={}",
+            checkpoint_data.run_id,
+            checkpoint_data.step,
+            checkpoint_data.epoch,
+            checkpoint_data.timestamp
+        );
+
+        Ok(CheckpointState {
+            run_id: checkpoint_data.run_id,
+            step: checkpoint_data.step,
+            epoch: checkpoint_data.epoch,
+            timestamp: checkpoint_data.timestamp,
+            checkpoint_version: checkpoint_data.dl_driver_version,
+            config_snapshot,
+            metadata: checkpoint_data.metadata,
+        })
+    }
+
+    /// Restore plugin state from loaded checkpoint
+    /// 
+    /// Used when resuming training to restore the checkpoint counter
+    pub fn restore_from_checkpoint(&mut self, state: &CheckpointState) {
+        info!(
+            "Restoring CheckpointPlugin state: step={}, epoch={:?}",
+            state.step, state.epoch
+        );
+        
+        // Update next checkpoint step to be after the resumed step
+        let interval = self.step_interval();
+        self.next_checkpoint_step = ((state.step / interval) + 1) * interval;
+        
+        info!(
+            "Next checkpoint will be at step: {}",
+            self.next_checkpoint_step
+        );
+    }
 }
 
 #[async_trait]
@@ -322,12 +463,11 @@ impl Plugin for CheckpointPlugin {
     }
 
     async fn after_step(&mut self, step: u32) -> Result<()> {
-        println!("DEBUG: CheckpointPlugin::after_step() called with step = {}", step);
-        println!("DEBUG: should_checkpoint({}) = {}", step, self.should_checkpoint(step));
-        println!("DEBUG: next_checkpoint_step = {}", self.next_checkpoint_step);
+        debug!("CheckpointPlugin::after_step() called with step = {}", step);
+        debug!("should_checkpoint({}) = {}", step, self.should_checkpoint(step));
+        debug!("next_checkpoint_step = {}", self.next_checkpoint_step);
         
         if self.should_checkpoint(step) {
-            println!("DEBUG: Writing checkpoint at step {}", step);
             debug!("Writing checkpoint at step {}", step);
             self.write_checkpoint(step).await?;
             self.update_next_checkpoint(step);
@@ -362,10 +502,227 @@ impl Plugin for CheckpointPlugin {
         info!("CheckpointPlugin finalized for run_id: {}", self.run_id);
         Ok(())
     }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::dlio_compat::{DlioConfig, DatasetConfig, ReaderConfig, CheckpointingConfig, TrainConfig};
+    use tempfile::tempdir;
+    use std::fs;
+
+    /// Helper to create a minimal test config
+    fn create_test_config(checkpoint_folder: &str, steps_between: usize) -> DlioConfig {
+        // Ensure checkpoint_folder has file:// scheme
+        let checkpoint_uri = if checkpoint_folder.starts_with("file://") {
+            checkpoint_folder.to_string()
+        } else {
+            format!("file://{}", checkpoint_folder)
+        };
+        
+        DlioConfig {
+            model: None,
+            framework: None,
+            workflow: None,
+            dataset: DatasetConfig {
+                data_folder: "file:///tmp/test_data".to_string(),
+                format: Some("npz".to_string()),
+                num_files_train: Some(10),
+                num_files_eval: None,
+                record_length_bytes: Some(1024),
+                num_samples_per_file: Some(100),
+                compression: None,
+                num_subfolders_train: None,
+                directory_tree: None,
+            },
+            reader: ReaderConfig {
+                data_loader: None,
+                batch_size: Some(32),
+                prefetch: Some(2),
+                shuffle: Some(false),
+                read_threads: Some(4),
+                compute_threads: Some(4),
+                transfer_size: None,
+                file_access_type: None,
+                seed: Some(42),
+            },
+            train: Some(TrainConfig {
+                epochs: Some(3),
+                computation_time: Some(0.1),
+                computation_time_stdev: None,
+                total_training_steps: None,
+            }),
+            metric: None,
+            checkpointing: Some(CheckpointingConfig {
+                checkpoint_folder: Some(checkpoint_uri),
+                checkpoint_after_epoch: None,
+                epochs_between_checkpoints: None,
+                steps_between_checkpoints: Some(steps_between),
+            }),
+            profiling: None,
+            resume: None,
+            pytorch_config: None,
+            tensorflow_config: None,
+            jax_config: None,
+            framework_profiles: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_save_and_load_basic() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(temp_dir.path().to_str().unwrap(), 100);
+        
+        // Create plugin and write a checkpoint
+        let plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        plugin.write_checkpoint(100).await.unwrap();
+        
+        // Construct the actual checkpoint path (includes run_id subdirectory)
+        let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 100));
+        let checkpoint_uri = format!("file://{}", checkpoint_path.display());
+        
+        // Load the checkpoint
+        let loaded_state = CheckpointPlugin::load_checkpoint(&checkpoint_uri).await.unwrap();
+        
+        // Verify loaded state
+        assert_eq!(loaded_state.step, 100);
+        assert_eq!(loaded_state.epoch, None);
+        assert_eq!(loaded_state.run_id, plugin.run_id);
+        assert_eq!(loaded_state.checkpoint_version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_epoch_save_and_load() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(temp_dir.path().to_str().unwrap(), 100);
+        
+        // Create plugin and write an epoch checkpoint
+        let plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        plugin.write_epoch_checkpoint(2).await.unwrap();
+        
+        // Construct epoch checkpoint path
+        let epoch_checkpoint_path = temp_dir.path().join(format!("{}/epoch_{:04}.ckpt", plugin.run_id, 2));
+        let epoch_checkpoint_uri = format!("file://{}", epoch_checkpoint_path.display());
+        
+        // Load the checkpoint
+        let loaded_state = CheckpointPlugin::load_checkpoint(&epoch_checkpoint_uri).await.unwrap();
+        
+        // Verify loaded state
+        assert_eq!(loaded_state.epoch, Some(2));
+        assert_eq!(loaded_state.run_id, plugin.run_id);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_restore_updates_next_step() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(temp_dir.path().to_str().unwrap(), 50);
+        
+        // Create plugin and write checkpoint at step 125
+        let plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        plugin.write_checkpoint(125).await.unwrap();
+        
+        // Load checkpoint (construct path with run_id)
+        let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 125));
+        let checkpoint_uri = format!("file://{}", checkpoint_path.display());
+        let loaded_state = CheckpointPlugin::load_checkpoint(&checkpoint_uri).await.unwrap();
+        
+        // Create new plugin and restore from checkpoint
+        let mut new_plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        assert_eq!(new_plugin.next_checkpoint_step, 50); // Initial value
+        
+        new_plugin.restore_from_checkpoint(&loaded_state);
+        
+        // Verify next_checkpoint_step is updated correctly
+        // Step 125 with interval 50: next should be 150 (125/50 = 2, (2+1)*50 = 150)
+        assert_eq!(new_plugin.next_checkpoint_step, 150);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_load_nonexistent_fails() {
+        let result = CheckpointPlugin::load_checkpoint("file:///nonexistent/checkpoint.ckpt").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_load_invalid_json_fails() {
+        let temp_dir = tempdir().unwrap();
+        let bad_checkpoint = temp_dir.path().join("bad.ckpt");
+        fs::write(&bad_checkpoint, b"not valid json").unwrap();
+        
+        let checkpoint_uri = format!("file://{}", bad_checkpoint.display());
+        let result = CheckpointPlugin::load_checkpoint(&checkpoint_uri).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_version_mismatch_warning() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(temp_dir.path().to_str().unwrap(), 100);
+        
+        // Create and write checkpoint
+        let plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        plugin.write_checkpoint(100).await.unwrap();
+        
+        // Manually modify checkpoint to have different version (construct path with run_id)
+        let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 100));
+        let checkpoint_data = fs::read(&checkpoint_path).unwrap();
+        let mut checkpoint_json: serde_json::Value = serde_json::from_slice(&checkpoint_data).unwrap();
+        checkpoint_json["checkpoint_version"] = serde_json::Value::String("99.99.99".to_string());
+        fs::write(&checkpoint_path, serde_json::to_vec(&checkpoint_json).unwrap()).unwrap();
+        
+        // Load should succeed but log warning
+        let checkpoint_uri = format!("file://{}", checkpoint_path.display());
+        let result = CheckpointPlugin::load_checkpoint(&checkpoint_uri).await;
+        assert!(result.is_ok()); // Should still succeed despite version mismatch
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_config_snapshot_preserved() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(temp_dir.path().to_str().unwrap(), 100);
+        
+        // Create plugin and write checkpoint
+        let plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        plugin.write_checkpoint(100).await.unwrap();
+        
+        // Load checkpoint (construct path with run_id)
+        let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 100));
+        let checkpoint_uri = format!("file://{}", checkpoint_path.display());
+        let loaded_state = CheckpointPlugin::load_checkpoint(&checkpoint_uri).await.unwrap();
+        
+        // Verify config snapshot matches original
+        assert_eq!(loaded_state.config_snapshot.dataset.data_folder, config.dataset.data_folder);
+        assert_eq!(loaded_state.config_snapshot.reader.batch_size, config.reader.batch_size);
+        assert_eq!(loaded_state.config_snapshot.checkpointing.as_ref().unwrap().steps_between_checkpoints,
+                   config.checkpointing.as_ref().unwrap().steps_between_checkpoints);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_metadata_preserved() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(temp_dir.path().to_str().unwrap(), 100);
+        
+        // Create plugin and write checkpoint
+        let plugin = CheckpointPlugin::new(&config).await.unwrap().unwrap();
+        plugin.write_checkpoint(100).await.unwrap();
+        
+        // Load checkpoint (construct path with run_id)
+        let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 100));
+        let checkpoint_uri = format!("file://{}", checkpoint_path.display());
+        let loaded_state = CheckpointPlugin::load_checkpoint(&checkpoint_uri).await.unwrap();
+        
+        // Verify metadata exists and has correct values
+        assert!(loaded_state.metadata.uncompressed_size_bytes > 0, 
+                "Expected uncompressed_size_bytes > 0, got {}", 
+                loaded_state.metadata.uncompressed_size_bytes);
+        assert_eq!(loaded_state.metadata.compression_enabled, false); // Default is disabled
+        assert!(loaded_state.metadata.compressed_size_bytes.is_none());
+    }
+    
     // Tests temporarily disabled during config unification
     // TODO: Update tests to use dlio_compat::DlioConfig structure
     /*

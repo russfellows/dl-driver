@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1418,12 +1418,13 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "tracing-test",
+ "uuid",
  "walkdir",
 ]
 
 [[package]]
 name = "dl-driver-core"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1465,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-formats"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1483,7 +1484,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-frameworks"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1501,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-py-api"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1513,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-storage"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "tempfile",
 ]
@@ -3776,7 +3777,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.12.1",
  "log",
  "multimap",
@@ -3796,7 +3797,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -4315,8 +4316,8 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "s3dlio"
-version = "0.9.11"
-source = "git+https://github.com/russfellows/s3dlio.git?tag=v0.9.11#a61a31fbd8a1566847fe8b5fe0a07ab925faca1c"
+version = "0.9.12"
+source = "git+https://github.com/russfellows/s3dlio.git?tag=v0.9.12#3113c363d884d399082d225c7421f4e79d9818ce"
 dependencies = [
  "anyhow",
  "async-stream",

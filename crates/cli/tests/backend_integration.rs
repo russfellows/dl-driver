@@ -29,6 +29,11 @@ async fn test_file_backend() -> Result<()> {
 /// Integration test for DirectIO backend (always available)
 #[tokio::test]
 async fn test_directio_backend() -> Result<()> {
+    // DirectIO doesn't support mkdir, so we need to pre-create the directory structure
+    // using the file:// backend first
+    let test_dir = "/tmp/real-dlio-directio-test";
+    std::fs::create_dir_all(format!("{}/train", test_dir))?;
+    
     let config = DlioConfig::from_yaml_file("tests/configs/test_directio_config.yaml")?;
     let mut runner = WorkloadRunner::new(config);
     runner.run().await?;
@@ -37,6 +42,9 @@ async fn test_directio_backend() -> Result<()> {
     assert!(metrics.files_processed() > 0, "Should process files");
     assert!(metrics.bytes_read() > 0, "Should read bytes");
     assert!(metrics.bytes_written() > 0, "Should write bytes");
+
+    // Cleanup
+    std::fs::remove_dir_all(test_dir).ok();
 
     println!(
         "✅ DirectIO backend test passed - {} files, {} bytes",

@@ -26,6 +26,7 @@ pub struct WorkloadRunner {
     world_size: u32,
     file_list: Option<Vec<String>>,
     plugins: Option<PluginManager>,
+    checkpoint_state: Option<crate::plugins::checkpoint::CheckpointState>,
 }
 
 impl WorkloadRunner {
@@ -44,12 +45,21 @@ impl WorkloadRunner {
             world_size: 1, // Default to single-process mode
             file_list: None,
             plugins: None, // Plugins are optional, passed via with_plugins()
+            checkpoint_state: None,
         }
     }
 
     /// Set plugin manager for checkpoint and other plugin functionality
     pub fn with_plugins(mut self, plugins: PluginManager) -> Self {
         self.plugins = Some(plugins);
+        self
+    }
+    
+    /// Set checkpoint state for resuming from a previous run
+    pub fn with_checkpoint(mut self, checkpoint_state: crate::plugins::checkpoint::CheckpointState) -> Self {
+        info!("🔄 WorkloadRunner configured to resume from step {} (epoch {:?})", 
+              checkpoint_state.step, checkpoint_state.epoch);
+        self.checkpoint_state = Some(checkpoint_state);
         self
     }
 
@@ -206,10 +216,25 @@ impl WorkloadRunner {
                 };
                 
                 // Use s3dlio's mkdir (added in v0.9.11)
-                store.mkdir(&full_dir_uri).await
-                    .with_context(|| format!("Failed to create directory: {}", full_dir_uri))?;
+                // Some backends (like direct://) don't support mkdir, so tolerate failures
+                match store.mkdir(&full_dir_uri).await {
+                    Ok(_) => {
+                        debug!("Created directory: {}", full_dir_uri);
+                    }
+                    Err(e) => {
+                        // If it's a "not implemented" error, that's OK for backends like direct://
+                        let err_msg = e.to_string();
+                        if err_msg.contains("not implemented") || err_msg.contains("Not implemented") {
+                            info!("Directory creation not supported for {} backend (expected for direct://)", 
+                                if data_folder.starts_with("direct://") { "direct://" } else { "this" });
+                        } else {
+                            // For other errors, propagate them
+                            return Err(e).with_context(|| format!("Failed to create directory: {}", full_dir_uri));
+                        }
+                    }
+                }
             }
-            info!("Directory structure created successfully");
+            info!("Directory structure setup completed");
         }
 
         // Determine number of files to generate
@@ -300,7 +325,32 @@ impl WorkloadRunner {
                total_files, batch_size, estimated_batches_per_epoch);
         trace!("Full dataset path: {}", data_folder);
 
-        for epoch in 0..epochs {
+        // Determine starting epoch from checkpoint if resuming
+        // Note: We resume at the START of the next epoch after the checkpoint
+        // This avoids complexity of mid-epoch resumption and matches common ML framework behavior
+        let start_epoch = if let Some(ref checkpoint) = self.checkpoint_state {
+            let checkpoint_epoch = checkpoint.epoch.unwrap_or(0) as usize;
+            // Resume at the next epoch after the checkpoint
+            let resume_epoch = checkpoint_epoch + 1;
+            info!("🔄 Resuming from checkpoint: completed epoch {}, resuming at epoch {} (step {})", 
+                  checkpoint_epoch, resume_epoch, checkpoint.step);
+            
+            // Restore checkpoint state in plugins
+            if let Some(ref mut plugins) = self.plugins {
+                if let Some(checkpoint_plugin) = plugins.get_checkpoint_plugin_mut() {
+                    checkpoint_plugin.restore_from_checkpoint(checkpoint);
+                    info!("✅ CheckpointPlugin state restored");
+                } else {
+                    warn!("⚠️  CheckpointPlugin not found - checkpoint state not restored in plugin");
+                }
+            }
+            
+            resume_epoch
+        } else {
+            0
+        };
+
+        for epoch in start_epoch..epochs as usize {
             let epoch_start = Instant::now();
             println!("🏃 Epoch {}/{} starting...", epoch + 1, epochs);
             info!("Epoch {}/{} - Starting TRUE parallel I/O + compute", epoch + 1, epochs);
