@@ -7,11 +7,14 @@ use async_trait::async_trait;
 use crate::dlio_compat::DlioConfig;
 
 #[async_trait]
-pub trait Plugin: Send + Sync {
+pub trait Plugin: Send + Sync + std::any::Any {
     async fn initialize(&mut self, _cfg: &DlioConfig) -> Result<()> { Ok(()) }
     async fn after_step(&mut self, _step: u32) -> Result<()> { Ok(()) }
     async fn after_epoch(&mut self, _epoch: u32) -> Result<()> { Ok(()) }
     async fn finalize(&mut self) -> Result<()> { Ok(()) }
+    
+    /// Support for downcasting to concrete plugin types
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 pub struct PluginManager {
@@ -67,6 +70,17 @@ impl PluginManager {
             p.finalize().await?; 
         }
         Ok(())
+    }
+    
+    /// Get mutable reference to CheckpointPlugin for state restoration
+    pub fn get_checkpoint_plugin_mut(&mut self) -> Option<&mut CheckpointPlugin> {
+        for plugin in self.plugins.iter_mut() {
+            // Use as_any_mut trait method for downcasting
+            if let Some(checkpoint_plugin) = plugin.as_any_mut().downcast_mut::<CheckpointPlugin>() {
+                return Some(checkpoint_plugin);
+            }
+        }
+        None
     }
 }
 

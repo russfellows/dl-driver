@@ -156,6 +156,9 @@ pub struct DlioConfig {
     pub metric: Option<MetricConfig>,
     pub checkpointing: Option<CheckpointingConfig>,
     pub profiling: Option<ProfilingConfig>,
+    
+    /// Resume configuration for checkpoint reload
+    pub resume: Option<ResumeConfig>,
 
     // Framework-specific configurations for M4 integration
     pub pytorch_config: Option<PyTorchFrameworkConfig>,
@@ -229,6 +232,28 @@ pub struct ProfilingConfig {
     pub profiler: Option<String>,
     pub profile_folder: Option<String>,
     pub iostat: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ResumeConfig {
+    /// Path/URI to checkpoint to resume from (file://, s3://, az://, gs://, direct://)
+    pub checkpoint_path: String,
+    
+    /// Whether to validate that the loaded config matches current config
+    #[serde(default = "default_validate_config")]
+    pub validate_config: bool,
+    
+    /// Allow minor version mismatches (default: true)
+    #[serde(default = "default_allow_minor_version_mismatch")]
+    pub allow_minor_version_mismatch: bool,
+}
+
+fn default_validate_config() -> bool {
+    true
+}
+
+fn default_allow_minor_version_mismatch() -> bool {
+    true
 }
 
 /// Framework-specific configuration structures for M4 integration

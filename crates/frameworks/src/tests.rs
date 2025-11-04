@@ -38,6 +38,7 @@ fn create_test_dlio_config() -> DlioConfig {
         metric: None,
         checkpointing: None,
         profiling: None,
+        resume: None,
         pytorch_config: None,
         tensorflow_config: None,
         jax_config: None,
