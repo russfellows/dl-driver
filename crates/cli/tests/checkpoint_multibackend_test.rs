@@ -277,7 +277,7 @@ async fn test_azure_backend_checkpoint_roundtrip() -> Result<()> {
     let test_prefix = format!("dl-driver-test-{}", Uuid::new_v4());
     let checkpoint_uri = format!("az://{}/{}/{}", account, container, test_prefix);
     
-    println!("Testing Azure backend: {}", checkpoint_uri);
+    println!("Testing Azure backend: az://<redacted>/{}/{}", container, test_prefix);
     
     let config = create_test_config(
         data_folder.to_str().unwrap(),
