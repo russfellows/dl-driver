@@ -505,7 +505,11 @@ async fn run_unified_dlio(
     if dlio_config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
         println!("\n📁 Phase 1: Data Generation");
         info!("Phase 1: Generating data");
-        run_data_generation(&dlio_config).await
+        
+        // v0.8.6: Use WorkloadRunner for data generation to ensure consistent live stats
+        // This provides the same live performance monitoring as training phase
+        let mut generation_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone());
+        generation_runner.run_data_generation().await
             .context("Data generation failed")?;
     }
 
@@ -722,6 +726,11 @@ async fn run_unified_dlio(
 /// 1. Flat: All files in single directory (Mode 1)
 /// 2. DLIO-style sharding: Files distributed across train/NNNN subdirectories (Mode 2)
 /// 3. Hierarchical: Multi-level nested directory tree (Mode 3)
+/// 
+/// DEPRECATED (v0.8.6): This function is no longer used by the CLI.
+/// Use WorkloadRunner::run_data_generation() instead for consistent live stats monitoring.
+/// This function is kept temporarily for backward compatibility but will be removed in v0.9.0.
+#[deprecated(since = "0.8.6", note = "Use WorkloadRunner::run_data_generation() for consistent live stats")]
 async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     use s3dlio::object_store::store_for_uri;
     use std::sync::Arc;
@@ -896,14 +905,14 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
                 slowest_write = slowest_write.max(write_time);
                 
                 // Update progress bar message with throughput info
-                let throughput = bytes as f64 / 1024.0 / 1024.0 / write_time.as_secs_f64();
-                progress.set_message(format!("{:.1} MB/s", throughput));
+                let throughput = bytes as f64 / 1_048_576.0 / write_time.as_secs_f64();
+                progress.set_message(format!("{:.1} MiB/s", throughput));
                 
                 // Debug logging for troubleshooting - show which specific files complete
                 debug!(
-                    "File {:06} generated: {:.1}MB in {:?} ({:.1} MB/s)",
+                    "File {:06} generated: {:.1}MiB in {:?} ({:.1} MiB/s)",
                     file_idx,
-                    bytes as f64 / 1024.0 / 1024.0,
+                    bytes as f64 / 1_048_576.0,
                     write_time,
                     throughput
                 );
@@ -919,13 +928,13 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     progress.finish();
 
     let generation_time = start_time.elapsed();
-    let throughput_mbps = (total_bytes as f64 / 1024.0 / 1024.0) / generation_time.as_secs_f64();
+    let throughput_mbps = (total_bytes as f64 / 1_048_576.0) / generation_time.as_secs_f64();
     
     // User-facing summary
     println!(
-        "✅ Generated {} files ({:.2} GB) in {:.2}s @ {:.1} MB/s",
+        "✅ Generated {} files ({:.2} GB) in {:.2}s @ {:.1} MiB/s",
         completed, 
-        total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
+        total_bytes as f64 / 1_073_741_824.0,
         generation_time.as_secs_f64(),
         throughput_mbps
     );
@@ -933,9 +942,9 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     info!("PARALLEL data generation completed!");
     info!("📊 Performance Summary:");
     info!("   • Files: {} generated", completed);
-    info!("   • Data: {:.2} GB written", total_bytes as f64 / 1024.0 / 1024.0 / 1024.0);
+    info!("   • Data: {:.2} GB written", total_bytes as f64 / 1_073_741_824.0);
     info!("   • Time: {:?}", generation_time);
-    info!("   • Throughput: {:.1} MB/s", throughput_mbps);
+    info!("   • Throughput: {:.1} MiB/s", throughput_mbps);
     info!("   • Write times: {:.2?} (fastest) to {:.2?} (slowest)", fastest_write, slowest_write);
     info!("   • Speedup: ~{}x faster than sequential", concurrency);
     
