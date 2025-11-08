@@ -335,9 +335,11 @@ pub struct WorkloadRunner {
         info!("🚀 TRUE DLIO PARALLEL MODEL: {} epochs, batch_size={}, read_threads={}, prefetch_queue={}", 
               epochs, batch_size, read_threads, prefetch_size);
 
-        // Create s3dlio dataset
-        let data_folder = &self.config.dataset.data_folder;
-        let dataset = self.create_multi_backend_dataset(data_folder).await?;
+        // Create s3dlio dataset with the SAME store used for generation
+        // This ensures multi-endpoint configuration is respected during training
+        let data_folder = self.config.dataset.data_folder.clone();
+        let store = self.create_object_store()?;  // Reuse our multi-endpoint store
+        let dataset = self.create_multi_backend_dataset_with_store(&data_folder, store).await?;
         let total_files = dataset.len();
         
         let estimated_batches_per_epoch = (total_files + batch_size - 1) / batch_size;
@@ -682,10 +684,33 @@ pub struct WorkloadRunner {
     }
 
     /// Create MultiBackendDataset for unified access across all storage backends
+    /// Create dataset using provided store (supports multi-endpoint configuration)
+    /// This is the CORRECT method - it reuses the store we created with multi-endpoint support
+    async fn create_multi_backend_dataset_with_store(
+        &self, 
+        data_folder: &str, 
+        store: Arc<dyn ObjectStore>
+    ) -> Result<MultiBackendDataset> {
+        info!("Creating MultiBackendDataset for folder: {}", data_folder);
+
+        // List URIs using our multi-endpoint store
+        let uris = store.list(data_folder, true).await
+            .with_context(|| format!("Failed to list files from: {}", data_folder))?;
+
+        info!("Successfully created dataset with {} files", uris.len());
+        
+        // Construct dataset directly with our store (preserves multi-endpoint config)
+        Ok(MultiBackendDataset { uris, store })
+    }
+    
+    /// DEPRECATED: Creates its own single-endpoint store, ignoring multi-endpoint config
+    /// Kept for reference but should not be used
+    #[allow(dead_code)]
     async fn create_multi_backend_dataset(&self, data_folder: &str) -> Result<MultiBackendDataset> {
         info!("Creating MultiBackendDataset for folder: {}", data_folder);
 
-        // Use s3dlio's prefix-based dataset creation for automatic backend detection
+        // WARNING: This calls from_prefix() which creates a NEW single-endpoint store
+        // Multi-endpoint configuration is IGNORED!
         let dataset = MultiBackendDataset::from_prefix(data_folder)
             .await
             .with_context(|| format!("Failed to create dataset from prefix: {}", data_folder))?;
