@@ -358,7 +358,28 @@ async fn run_unified_dlio(
     metrics_csv: Option<&std::path::Path>,
     resume_from_checkpoint: Option<&str>,
 ) -> Result<()> {
+    use std::time::Instant;
+    let run_start_time = Instant::now();
+    
     info!("Loading DLIO config from: {:?}", config_path);
+
+    // v0.8.6: Create results directory (only for rank 0 in multi-rank mode)
+    let mut results_dir = if rank.unwrap_or(0) == 0 {
+        use dl_driver_core::results_dir::ResultsDir;
+        let results_dir = ResultsDir::create(
+            config_path, 
+            None,  // Use config filename as test name
+            results_path,  // Optional base directory
+            world_size.unwrap_or(1) as usize  // Number of ranks/agents
+        ).context("Failed to create results directory")?;
+        
+        let msg = format!("Running workload from: {:?}", config_path);
+        println!("{}", msg);
+        Some(results_dir)
+    } else {
+        info!("Rank {}: Worker rank, results directory managed by rank 0", rank.unwrap());
+        None
+    };
 
     // Multi-rank validation and setup
     let (current_rank, total_ranks) = match (rank, world_size) {
@@ -503,7 +524,11 @@ async fn run_unified_dlio(
 
     // Phase 1: Data Generation (if enabled)
     if dlio_config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
-        println!("\n📁 Phase 1: Data Generation");
+        let msg = "\n📁 Phase 1: Data Generation";
+        println!("{}", msg);
+        if let Some(ref mut rd) = results_dir {
+            rd.write_console(msg)?;
+        }
         info!("Phase 1: Generating data");
         
         // v0.8.6: Use WorkloadRunner for data generation to ensure consistent live stats
@@ -515,7 +540,11 @@ async fn run_unified_dlio(
 
     // Phase 2: Training workload using WorkloadRunner for DLIO compliance measurement
     if dlio_config.workflow.as_ref().map_or(true, |w| w.train.unwrap_or(true)) {
-        println!("\n🚀 Phase 2: Training");
+        let msg = "\n🚀 Phase 2: Training";
+        println!("{}", msg);
+        if let Some(ref mut rd) = results_dir {
+            rd.write_console(msg)?;
+        }
         info!("Phase 2: Training workload (MEASURED for AU calculation)");
         
         // Use WorkloadRunner ONLY for training phase measurement (data generation already done)
@@ -625,6 +654,40 @@ async fn run_unified_dlio(
         // Get final metrics from WorkloadRunner
         let workload_metrics = workload_runner.get_metrics();
 
+        // v0.8.6: Export TSV metrics to results directory (rank 0 only)
+        if current_rank == 0 {
+            if let Some(ref mut rd) = results_dir {
+                let msg = "\n📊 Exporting metrics...";
+                println!("{}", msg);
+                rd.write_console(msg)?;
+                
+                // Export training metrics TSV
+                use dl_driver_core::tsv_export::StorageTsvExporter;
+                let training_tsv_path = rd.training_tsv_path();
+                let training_exporter = StorageTsvExporter::new(&training_tsv_path);
+                
+                let read_hists = workload_metrics.get_read_histograms();
+                let write_hists = workload_metrics.get_write_histograms();
+                
+                // Get wall time (or use epoch times sum as fallback)
+                let wall_seconds = workload_metrics.total_time()
+                    .unwrap_or_else(|| std::time::Duration::from_secs(0))
+                    .as_secs_f64();
+                
+                training_exporter.export_results(
+                    &read_hists,
+                    &write_hists,
+                    workload_metrics.bytes_read(),
+                    workload_metrics.bytes_written(),
+                    wall_seconds,
+                ).context("Failed to export training metrics to TSV")?;
+                
+                let export_msg = format!("Training metrics exported to: {}", training_tsv_path.display());
+                println!("{}", export_msg);
+                rd.write_console(&export_msg)?;
+            }
+        }
+
         // Workstream A: Export metrics if requested
         if let Some(json_path) = metrics_json {
             info!("📄 Exporting metrics to JSON: {:?}", json_path);
@@ -675,7 +738,18 @@ async fn run_unified_dlio(
         }
     }
 
-    println!("✅ DLIO workload completed successfully");
+    let msg = "✅ DLIO workload completed successfully";
+    println!("{}", msg);
+    if let Some(ref mut rd) = results_dir {
+        rd.write_console(msg)?;
+    }
+
+    // v0.8.6: Finalize results directory
+    if let Some(mut rd) = results_dir {
+        let duration_secs = run_start_time.elapsed().as_secs_f64();
+        rd.finalize(duration_secs, total_ranks as usize)?;
+        println!("📊 Results saved to: {}", rd.path().display());
+    }
 
     // Output results based on mode
     if mlperf_mode {
@@ -731,6 +805,7 @@ async fn run_unified_dlio(
 /// Use WorkloadRunner::run_data_generation() instead for consistent live stats monitoring.
 /// This function is kept temporarily for backward compatibility but will be removed in v0.9.0.
 #[deprecated(since = "0.8.6", note = "Use WorkloadRunner::run_data_generation() for consistent live stats")]
+#[allow(dead_code)]
 async fn run_data_generation(config: &DlioConfig) -> Result<()> {
     use s3dlio::object_store::store_for_uri;
     use std::sync::Arc;
@@ -952,6 +1027,7 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
 }
 
 /// Generate synthetic data for testing (shared utility)
+#[allow(dead_code)]
 fn generate_synthetic_data(samples: usize, record_size: usize) -> Vec<u8> {
     let total_size = samples * record_size;
     let mut data = vec![0u8; total_size];

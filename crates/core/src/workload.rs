@@ -421,7 +421,7 @@ impl WorkloadRunner {
         // v0.8.6: Display performance summary with latency percentiles (like sai3-bench)
         let total_ops = self.live_ops.load(Ordering::Relaxed);
         let total_bytes_atomic = self.live_bytes.load(Ordering::Relaxed);
-        let ops_per_sec = total_ops as f64 / generation_time.as_secs_f64();
+        let _ops_per_sec = total_ops as f64 / generation_time.as_secs_f64();
         let throughput_mibs = (total_bytes_atomic as f64 / 1_048_576.0) / generation_time.as_secs_f64();
         
         // Get latency percentiles from write histograms
@@ -429,11 +429,11 @@ impl WorkloadRunner {
         let combined = write_hists.combined_histogram();
         
         if combined.len() > 0 {
-            let mean_ms = combined.mean() / 1_000.0;
-            let p50_ms = combined.value_at_quantile(0.50) as f64 / 1_000.0;
-            let p90_ms = combined.value_at_quantile(0.90) as f64 / 1_000.0;
-            let p95_ms = combined.value_at_quantile(0.95) as f64 / 1_000.0;
-            let p99_ms = combined.value_at_quantile(0.99) as f64 / 1_000.0;
+            let mean_us = combined.mean();
+            let p50_us = combined.value_at_quantile(0.50) as f64;
+            let p90_us = combined.value_at_quantile(0.90) as f64;
+            let p95_us = combined.value_at_quantile(0.95) as f64;
+            let p99_us = combined.value_at_quantile(0.99) as f64;
             
             println!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
                 num_files, 
@@ -441,8 +441,8 @@ impl WorkloadRunner {
                 generation_time.as_secs_f64(),
                 throughput_mibs
             );
-            println!("   Latency: mean={:.2}ms, p50={:.2}ms, p90={:.2}ms, p95={:.2}ms, p99={:.2}ms",
-                mean_ms, p50_ms, p90_ms, p95_ms, p99_ms);
+            println!("   Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
+                mean_us, p50_us, p90_us, p95_us, p99_us);
         } else {
             println!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
                 num_files, 
@@ -698,16 +698,16 @@ impl WorkloadRunner {
 
             // v0.8.6: Get batch latency percentiles for this epoch
             let batch_hists = self.metrics.get_batch_histograms();
-            let (has_samples, mean_ms, p50_ms, p90_ms, p95_ms, p99_ms) = {
+            let (has_samples, mean_us, p50_us, p90_us, p95_us, p99_us) = {
                 let batch_hist_locked = batch_hists.hist.lock().unwrap();
                 if batch_hist_locked.len() > 0 {
                     (
                         true,
-                        batch_hist_locked.mean() / 1_000.0,
-                        batch_hist_locked.value_at_quantile(0.50) as f64 / 1_000.0,
-                        batch_hist_locked.value_at_quantile(0.90) as f64 / 1_000.0,
-                        batch_hist_locked.value_at_quantile(0.95) as f64 / 1_000.0,
-                        batch_hist_locked.value_at_quantile(0.99) as f64 / 1_000.0,
+                        batch_hist_locked.mean(),
+                        batch_hist_locked.value_at_quantile(0.50) as f64,
+                        batch_hist_locked.value_at_quantile(0.90) as f64,
+                        batch_hist_locked.value_at_quantile(0.95) as f64,
+                        batch_hist_locked.value_at_quantile(0.99) as f64,
                     )
                 } else {
                     (false, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -723,8 +723,8 @@ impl WorkloadRunner {
                     epoch + 1, epochs, batch_count, total_samples, 
                     total_bytes as f64 / 1_048_576.0, epoch_total_time.as_secs_f64(), throughput_mibs
                 );
-                println!("   Latency: mean={:.2}ms, p50={:.2}ms, p90={:.2}ms, p95={:.2}ms, p99={:.2}ms",
-                    mean_ms, p50_ms, p90_ms, p95_ms, p99_ms);
+                println!("   Batch Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
+                    mean_us, p50_us, p90_us, p95_us, p99_us);
             } else {
                 let throughput_mibs = (total_bytes as f64 / 1_048_576.0) / epoch_total_time.as_secs_f64();
                 println!(
