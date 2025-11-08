@@ -7,8 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.8.5
+### Planned for v0.8.6
 - MLPerf Storage compliance reporting (--mlperf flag implementation)
+
+---
+
+## [0.8.5] - 2025-11-07 - **Multi-Endpoint Load Balancing** 🚀
+
+### **✨ Added - Multi-Endpoint Configuration**
+- **Multi-endpoint support** for dataset and checkpoint storage backends
+- **`endpoint_uris`** config field - List of URIs for load balancing across multiple storage endpoints
+- **`load_balance_strategy`** config field - Choose "round_robin" or "least_connections"
+  - `round_robin`: Simple rotation through endpoints (lowest overhead, even distribution)
+  - `least_connections`: Routes to endpoint with fewest active connections (adaptive)
+- **Per-endpoint statistics** - Request counts, bytes read/written, errors, active connections
+- **Arc<MultiEndpointStore>** pattern - Correct Rust implementation for typed + trait object access
+
+### **🔄 Changed - s3dlio Integration**
+- Updated s3dlio dependency: v0.9.12 → v0.9.16 (MultiEndpointStore, LoadBalanceStrategy)
+- Updated ndarray: 0.15/0.16 → 0.17.1 (latest stable, required by hdf5-metno 0.10.2)
+- Updated ndarray-npy: 0.8 → 0.9.1 (latest, file-path-only API)
+
+### **🔄 Changed - NPZ Format Implementation**
+- **Custom .npy serialization** - Zero-copy in-memory implementation (48 lines, NPY 1.0 format)
+- Replaces ndarray-npy 0.9's file-path-only API with direct Vec<u8> output
+- Pre-allocated buffers, no temporary files
+- Validated with Python numpy - all checks passing ✅
+
+### **🐛 Fixed - CRITICAL: Training Phase Store Reuse**
+- **Training phase now uses multi-endpoint store** - Previously created single-endpoint store
+- Root cause: `MultiBackendDataset::from_prefix()` called `store_for_uri()`, ignoring config
+- Solution: New `create_multi_backend_dataset_with_store()` accepts `Arc<dyn ObjectStore>`
+- Impact: Multi-endpoint config now works for BOTH generation AND training phases
+- Verification: Round-robin shows even distribution (21/20/20), least-connections shows adaptive routing (32/29/0)
+
+### **📦 Configuration Examples**
+- `multi_endpoint_simple.yaml` - 2 S3 endpoints with round_robin
+- `multi_endpoint_advanced.yaml` - 3 S3 endpoints with least_connections + checkpointing
+- `test_multi_endpoint_hierarchical.yaml` - 4 endpoints + hierarchical directory tree
+- `test_format_hdf5.yaml` - HDF5 format testing
+- `test_format_tfrecord.yaml` - TFRecord format testing
+
+### **🧪 Testing**
+- ✅ All 133 tests passing (4 ignored)
+- ✅ Zero warnings (production quality standard)
+- ✅ Verified round-robin distribution (file:// backend, 30 files, 3 endpoints)
+- ✅ Verified least-connections routing (file:// backend, adaptive)
+- ✅ Tested all directory modes: Flat, DLIO sharding (32 subfolders), Hierarchical (584 dirs)
+- ✅ Tested all formats: NPZ (custom serializer), HDF5, TFRecord
+- ✅ Dry-run validated for: file://, s3://, az://, gs://
 
 ---
 
