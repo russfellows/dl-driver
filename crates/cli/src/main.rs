@@ -536,6 +536,34 @@ async fn run_unified_dlio(
         let mut generation_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone());
         generation_runner.run_data_generation().await
             .context("Data generation failed")?;
+        
+        // v0.8.6: Export generation metrics TSV (rank 0 only)
+        if current_rank == 0 {
+            if let Some(ref mut rd) = results_dir {
+                use dl_driver_core::tsv_export::StorageTsvExporter;
+                let generation_tsv_path = rd.generation_tsv_path();
+                let generation_exporter = StorageTsvExporter::new(&generation_tsv_path);
+                
+                let generation_metrics = generation_runner.get_metrics();
+                let write_hists = generation_metrics.get_write_histograms();
+                let read_hists = generation_metrics.get_read_histograms();
+                
+                let wall_seconds = generation_metrics.total_time()
+                    .unwrap_or_else(|| std::time::Duration::from_secs(0))
+                    .as_secs_f64();
+                
+                generation_exporter.export_results(
+                    &read_hists,
+                    &write_hists,
+                    generation_metrics.bytes_read(),
+                    generation_metrics.bytes_written(),
+                    wall_seconds,
+                ).context("Failed to export generation metrics to TSV")?;
+                
+                let export_msg = format!("Generation metrics exported to: {}", generation_tsv_path.display());
+                rd.write_console(&export_msg)?;
+            }
+        }
     }
 
     // Phase 2: Training workload using WorkloadRunner for DLIO compliance measurement
