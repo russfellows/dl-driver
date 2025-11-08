@@ -1,0 +1,50 @@
+# Test Configuration: Multi-Endpoint with Hierarchical Directory Structure
+# Combines multi-endpoint load balancing with complex nested directories
+
+model:
+  name: "cosmoflow"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "s3://cosmology-data/training"
+  
+  # Multi-endpoint configuration for distributed S3 storage
+  endpoint_uris:
+    - "s3://node1.ceph.local:9000/cosmology-data/training"
+    - "s3://node2.ceph.local:9000/cosmology-data/training"
+    - "s3://node3.ceph.local:9000/cosmology-data/training"
+    - "s3://node4.ceph.local:9000/cosmology-data/training"
+  load_balance_strategy: "least_connections"
+  
+  format: "hdf5"
+  
+  # Hierarchical directory tree (realistic large-scale scientific dataset)
+  directory_tree:
+    width: 8           # 8 subdirs per level
+    depth: 3           # 3 levels deep
+    files_per_dir: 50  # 50 files per leaf directory
+    distribution: "bottom"
+    directory_mask: "cosmos_run%d_batch%d.dir"
+  
+  record_length_bytes: 4194304  # 4 MB per sample (3D cosmology simulations)
+  num_samples_per_file: 5
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 4
+  prefetch: 12
+  shuffle: true
+  read_threads: 32  # High thread count benefits from multi-endpoint
+  compute_threads: 16
+  seed: 42
+
+train:
+  epochs: 10
+  computation_time: 0.3  # 300ms per batch (heavy 3D convolutions)

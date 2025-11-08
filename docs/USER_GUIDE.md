@@ -1,7 +1,7 @@
 # dl-driver User Guide
 
-**Version:** 0.8.2  
-**Last Updated:** November 2, 2025
+**Version:** 0.8.5  
+**Last Updated:** November 7, 2025
 
 ## Table of Contents
 
@@ -362,6 +362,185 @@ export AZURE_STORAGE_KEY=your_key
 
 **Distributed Usage:**
 - Shared storage - no path template needed
+
+---
+
+### Multi-Endpoint Load Balancing ⚡ (v0.8.5+)
+
+**Overview:**
+Distribute storage requests across multiple endpoints to maximize throughput and balance load. Ideal for on-premises S3 deployments with multiple storage nodes.
+
+**Supported Strategies:**
+- **`round_robin`**: Simple rotation through endpoints (lowest overhead, even distribution)
+- **`least_connections`**: Routes to endpoint with fewest active connections (adaptive, performance-aware)
+
+#### Basic Multi-Endpoint Configuration
+
+```yaml
+dataset:
+  # Primary data folder (used if endpoint_uris is not set)
+  data_folder: "s3://my-bucket/data"
+  
+  # Multi-endpoint configuration (overrides data_folder for load balancing)
+  endpoint_uris:
+    - "s3://node1.example.com:9000/my-bucket/data"
+    - "s3://node2.example.com:9000/my-bucket/data"
+    - "s3://node3.example.com:9000/my-bucket/data"
+  
+  # Load balancing strategy
+  load_balance_strategy: "round_robin"  # or "least_connections"
+```
+
+**Important:** All URIs must use the same scheme (all `s3://`, all `file://`, etc.)
+
+#### Strategy Comparison
+
+| Strategy | Best For | Distribution | Overhead |
+|----------|----------|--------------|----------|
+| `round_robin` | Uniform workloads, stable endpoints | Even (equal requests per endpoint) | Minimal |
+| `least_connections` | Variable performance, mixed workloads | Adaptive (faster endpoints get more) | Low |
+
+**Example: Round-robin behavior (30 files, 3 endpoints):**
+```
+Endpoint 1: 10 requests  ← Even distribution
+Endpoint 2: 10 requests
+Endpoint 3: 10 requests
+```
+
+**Example: Least-connections behavior (fast local storage):**
+```
+Endpoint 1: 15 requests  ← Fastest endpoint gets more
+Endpoint 2: 12 requests
+Endpoint 3:  3 requests  ← Slower endpoint gets less
+```
+
+#### Multi-Endpoint with Checkpointing
+
+Both dataset and checkpointing support multi-endpoint:
+
+```yaml
+dataset:
+  data_folder: "s3://training-bucket/data"
+  endpoint_uris:
+    - "s3://node1.example.com:9000/training-bucket/data"
+    - "s3://node2.example.com:9000/training-bucket/data"
+  load_balance_strategy: "round_robin"
+
+checkpointing:
+  checkpoint_folder: "s3://checkpoint-bucket/checkpoints"
+  endpoint_uris:
+    - "s3://node1.example.com:9000/checkpoint-bucket/checkpoints"
+    - "s3://node2.example.com:9000/checkpoint-bucket/checkpoints"
+  load_balance_strategy: "least_connections"  # Can use different strategy
+  steps_between_checkpoints: 100
+```
+
+#### Per-Endpoint Statistics
+
+After workload completion, view detailed statistics for each endpoint:
+
+```
+╔═══════════════════════════════════════════════════════════════════════╗
+║              MULTI-ENDPOINT PERFORMANCE STATISTICS                    ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+Endpoint [1]: s3://node1.example.com:9000/my-bucket/data
+  Requests:      342
+  Bytes Read:    3.4 GB
+  Bytes Written: 0.0 GB
+  Errors:        0
+  Active Conns:  0
+
+Endpoint [2]: s3://node2.example.com:9000/my-bucket/data
+  Requests:      338
+  Bytes Read:    3.4 GB
+  Bytes Written: 0.0 GB
+  Errors:        0
+  Active Conns:  0
+
+Endpoint [3]: s3://node3.example.com:9000/my-bucket/data
+  Requests:      320
+  Bytes Read:    3.2 GB
+  Bytes Written: 0.0 GB
+  Errors:        0
+  Active Conns:  0
+```
+
+#### Testing Multi-Endpoint with File Backend
+
+Use local directories to verify load balancing before testing with S3:
+
+```yaml
+dataset:
+  data_folder: "file:///tmp/test/data"
+  endpoint_uris:
+    - "file:///tmp/test/endpoint1/data"
+    - "file:///tmp/test/endpoint2/data"
+    - "file:///tmp/test/endpoint3/data"
+  load_balance_strategy: "round_robin"
+```
+
+Create test directories:
+```bash
+mkdir -p /tmp/test/{endpoint1,endpoint2,endpoint3}/data
+```
+
+#### Complete Example Configuration
+
+See `tests/dlio_configs/multi_endpoint_advanced.yaml`:
+
+```yaml
+model:
+  name: "resnet50"
+
+framework: "pytorch"
+
+dataset:
+  data_folder: "s3://training-data/resnet50"
+  endpoint_uris:
+    - "s3://s3node1.local:9000/training-data/resnet50"
+    - "s3://s3node2.local:9000/training-data/resnet50"
+    - "s3://s3node3.local:9000/training-data/resnet50"
+  load_balance_strategy: "least_connections"
+  format: "npz"
+  num_files_train: 10000
+  record_length_bytes: 262144  # 256KB per sample
+  num_samples_per_file: 100
+
+reader:
+  batch_size: 32
+  read_threads: 8
+  prefetch: 4
+
+train:
+  epochs: 5
+  computation_time: 0.05  # 50ms per batch
+
+checkpointing:
+  checkpoint_folder: "s3://checkpoints/resnet50"
+  endpoint_uris:
+    - "s3://s3node1.local:9000/checkpoints/resnet50"
+    - "s3://s3node2.local:9000/checkpoints/resnet50"
+  load_balance_strategy: "round_robin"
+  steps_between_checkpoints: 500
+```
+
+#### Use Cases
+
+**On-Premises S3 Clusters:**
+- Multiple MinIO/Ceph nodes
+- Scale throughput beyond single-node limits
+- Achieve multi-GiB/s aggregate bandwidth
+
+**Testing & Development:**
+- Use `file://` endpoints to verify load distribution
+- Test failover behavior (remove endpoints)
+- Compare round-robin vs least-connections performance
+
+**Production ML Training:**
+- Maximize data loading throughput
+- Balance load across storage infrastructure
+- Monitor per-endpoint health and performance
 
 ---
 

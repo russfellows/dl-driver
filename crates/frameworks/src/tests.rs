@@ -22,6 +22,8 @@ fn create_test_dlio_config() -> DlioConfig {
             compression: None,
             directory_tree: None,
             num_subfolders_train: None,
+            endpoint_uris: None,
+            load_balance_strategy: "round_robin".to_string(),
         },
         reader: ReaderConfig {
             data_loader: Some("pytorch".to_string()),

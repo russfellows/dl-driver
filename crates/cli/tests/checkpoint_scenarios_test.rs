@@ -57,6 +57,8 @@ fn create_test_config(
             compression: None,
             num_subfolders_train: None,
             directory_tree: None,
+            endpoint_uris: None,
+            load_balance_strategy: "round_robin".to_string(),
         },
         reader: ReaderConfig {
             data_loader: None,
@@ -81,6 +83,8 @@ fn create_test_config(
             checkpoint_after_epoch: None,
             epochs_between_checkpoints: None,
             steps_between_checkpoints: Some(steps),
+            endpoint_uris: None,
+            load_balance_strategy: "round_robin".to_string(),
         }),
         profiling: None,
         resume: None,
@@ -347,6 +351,8 @@ async fn test_scenario_4_multiple_checkpoint_reloads() -> Result<()> {
         checkpoint_after_epoch: Some(0),
         epochs_between_checkpoints: Some(1), // Checkpoint after each epoch
         steps_between_checkpoints: None,
+        endpoint_uris: None,
+        load_balance_strategy: "round_robin".to_string(),
     });
     
     config.train = Some(dl_driver_core::dlio_compat::TrainConfig {

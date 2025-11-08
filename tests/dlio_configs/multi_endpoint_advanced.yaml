@@ -1,0 +1,73 @@
+# Multi-Endpoint Configuration Example - Least Connections Load Balancing
+#
+# This configuration demonstrates using multiple S3 endpoints with adaptive
+# load balancing based on connection count. This is useful for:
+# - Heterogeneous storage nodes with different performance characteristics
+# - Dynamic workloads where endpoint load varies over time
+# - Maximizing overall throughput by routing to less-busy endpoints
+#
+# Usage: dl-driver run --config tests/dlio_configs/multi_endpoint_advanced.yaml
+
+model:
+  name: "unet3d"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: true
+  evaluation: false
+
+dataset:
+  # Data folder is required even with multi-endpoint (used as fallback)
+  data_folder: "s3://ml-data/training"
+  
+  # Multi-endpoint configuration with 3 storage nodes
+  endpoint_uris:
+    - "s3://node1.storage.local:9000/ml-data/training"
+    - "s3://node2.storage.local:9000/ml-data/training"
+    - "s3://node3.storage.local:9000/ml-data/training"
+  
+  # Least connections strategy - routes to endpoint with fewest active operations
+  # This provides better load distribution when:
+  # - Endpoints have different performance (CPU, network, disk)
+  # - Some files take longer to read than others
+  # - System load varies during training
+  load_balance_strategy: "least_connections"
+  
+  format: "npz"
+  num_files_train: 5000
+  record_length_bytes: 1048576  # 1 MB per sample (large medical imaging data)
+  num_samples_per_file: 50
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 16
+  prefetch: 8
+  shuffle: true
+  read_threads: 16  # Higher thread count benefits from multi-endpoint
+  compute_threads: 8
+  seed: 42
+
+train:
+  epochs: 10
+  computation_time: 0.2  # 200ms per batch (heavy compute)
+
+checkpointing:
+  # Checkpoint folder is required even with multi-endpoint
+  checkpoint_folder: "s3://checkpoint-bucket/checkpoints"
+  
+  # Checkpoint writes also use multi-endpoint for balanced I/O
+  endpoint_uris:
+    - "s3://node1.storage.local:9000/checkpoint-bucket/checkpoints"
+    - "s3://node2.storage.local:9000/checkpoint-bucket/checkpoints"
+    - "s3://node3.storage.local:9000/checkpoint-bucket/checkpoints"
+  load_balance_strategy: "least_connections"
+  steps_between_checkpoints: 500
+
+# Expected behavior:
+# - Reads distributed across 3 endpoints based on active connection count
+# - Checkpoint writes load-balanced to least busy endpoint
+# - Per-endpoint statistics reported in metrics (requests, bytes, errors)
+# - Better utilization of aggregate storage bandwidth

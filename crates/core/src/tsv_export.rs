@@ -298,3 +298,60 @@ mod tests {
     }
 
 }
+
+/// Export multi-endpoint statistics to TSV file
+/// 
+/// This function writes per-endpoint metrics for multi-endpoint configurations.
+/// Each endpoint gets a row with its URI, request count, bytes transferred, errors, etc.
+pub fn export_endpoint_stats<P: AsRef<Path>>(
+    output_path: P,
+    endpoint_stats: &[(String, s3dlio::EndpointStatsSnapshot)],
+    wall_seconds: f64,
+) -> Result<()> {
+    let mut f = File::create(output_path.as_ref())
+        .with_context(|| format!("Failed to create {}", output_path.as_ref().display()))?;
+
+    // Write header
+    writeln!(
+        f,
+        "endpoint_uri\ttotal_requests\tbytes_read\tbytes_written\terror_count\tactive_requests\trequests_per_sec\tread_throughput_mibps\twrite_throughput_mibps"
+    )?;
+
+    // Write stats for each endpoint
+    for (uri, stats) in endpoint_stats {
+        let requests_per_sec = if wall_seconds > 0.0 {
+            stats.total_requests as f64 / wall_seconds
+        } else {
+            0.0
+        };
+
+        let read_throughput_mibps = if wall_seconds > 0.0 {
+            (stats.bytes_read as f64 / wall_seconds) / (1024.0 * 1024.0)
+        } else {
+            0.0
+        };
+
+        let write_throughput_mibps = if wall_seconds > 0.0 {
+            (stats.bytes_written as f64 / wall_seconds) / (1024.0 * 1024.0)
+        } else {
+            0.0
+        };
+
+        writeln!(
+            f,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}\t{:.2}",
+            uri,
+            stats.total_requests,
+            stats.bytes_read,
+            stats.bytes_written,
+            stats.error_count,
+            stats.active_requests,
+            requests_per_sec,
+            read_throughput_mibps,
+            write_throughput_mibps,
+        )?;
+    }
+
+    Ok(())
+}
+

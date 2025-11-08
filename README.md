@@ -2,11 +2,11 @@
 
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
-[![Rust](https://img.shields.io/badge/rust-1.89.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.4-green.svg)](./docs/Changelog.md)
+[![Rust](https://img.shields.io/badge/rust-1.81.0+-blue.svg)](https://www.rust-lang.org)
+[![Version](https://img.shields.io/badge/version-0.8.5-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
-[![Validation](https://img.shields.io/badge/tests-123%20passing-success.svg)](#testing--validation)
+[![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
 [![Storage](https://img.shields.io/badge/storage-4%20backends-orange.svg)](#storage-backends)
 [![Distributed](https://img.shields.io/badge/distributed-multi--agent-purple.svg)](#distributed-execution)
 [![Architecture](https://img.shields.io/badge/architecture-unified-blue.svg)](#architecture-overview)
@@ -22,7 +22,8 @@
 
 ## 🎯 Current Status
 
-**🎉 v0.8.4 RELEASED**: Checkpoint reload functionality complete
+**🎉 v0.8.5 RELEASED**: Multi-endpoint load balancing for distributed storage
+**⚡ MULTI-ENDPOINT**: Load balance across multiple S3/storage endpoints with round-robin or least-connections
 **♻️ CHECKPOINT RELOAD**: Resume training from saved checkpoints with --resume-from-checkpoint flag
 **🧪 COMPREHENSIVE TESTS**: Multi-backend checkpoint tests (file://, s3://, az://, gs://, direct://) 
 **💾 CHECKPOINT SUPPORT**: Step-based and epoch-based checkpointing across all storage backends
@@ -31,9 +32,10 @@
 **🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
 **📊 HISTOGRAM AGGREGATION**: Accurate percentile calculation with <1% error for distributed workloads
 **📁 RESULTS DIRECTORY**: Complete, reproducible results with per-agent and consolidated metrics
-**✅ 123/123 TESTS PASSING**: Full validation across all features and backends
+**✅ 133/133 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
+- **⚡ Multi-Endpoint Load Balancing**: Distribute requests across multiple storage endpoints (round-robin or least-connections)
 - **♻️ Checkpoint Reload**: Resume training from saved checkpoints with automatic state restoration
 - **💾 Checkpoint Plugin**: Step-based and epoch-based checkpointing with multi-backend support (file://, s3://, az://, gs://)
 - **🔧 Clean CLI**: Unified interface with validate and --dry-run as aliases, legacy commands removed

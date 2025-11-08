@@ -538,6 +538,8 @@ mod tests {
                 compression: None,
                 num_subfolders_train: None,
                 directory_tree: None,
+                endpoint_uris: None,
+                load_balance_strategy: "round_robin".to_string(),
             },
             reader: ReaderConfig {
                 data_loader: None,
@@ -562,6 +564,8 @@ mod tests {
                 checkpoint_after_epoch: None,
                 epochs_between_checkpoints: None,
                 steps_between_checkpoints: Some(steps_between),
+                endpoint_uris: None,
+                load_balance_strategy: "round_robin".to_string(),
             }),
             profiling: None,
             resume: None,
