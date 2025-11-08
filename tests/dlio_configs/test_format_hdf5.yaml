@@ -1,0 +1,33 @@
+# Test Configuration: HDF5 Format
+# HDF5 is commonly used in medical imaging and scientific computing
+
+model:
+  name: "unet3d"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///tmp/test_hdf5_data"
+  format: "hdf5"
+  num_files_train: 100
+  record_length_bytes: 524288  # 512 KB per sample (large 3D medical images)
+  num_samples_per_file: 10
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 8
+  prefetch: 4
+  shuffle: true
+  read_threads: 4
+  compute_threads: 4
+  seed: 42
+
+train:
+  epochs: 2
+  computation_time: 0.1  # 100ms per batch

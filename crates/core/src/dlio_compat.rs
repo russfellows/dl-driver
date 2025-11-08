@@ -204,6 +204,21 @@ pub struct DatasetConfig {
     // If specified, creates multi-level nested directory structure
     // Overrides num_subfolders_train if both are present
     pub directory_tree: Option<crate::directory_tree::DirectoryStructureConfig>,
+    
+    // Multi-endpoint support (s3dlio v0.9.14+)
+    /// List of endpoint URIs for multi-endpoint load balancing
+    /// Example: ["s3://192.168.1.10:9000/bucket", "s3://192.168.1.11:9000/bucket"]
+    /// If multiple URIs provided, uses s3dlio's MultiEndpointStore for load distribution
+    #[serde(default)]
+    pub endpoint_uris: Option<Vec<String>>,
+    
+    /// Load balancing strategy: "round_robin" or "least_connections" (default: "round_robin")
+    #[serde(default = "default_load_balance_strategy")]
+    pub load_balance_strategy: String,
+}
+
+fn default_load_balance_strategy() -> String {
+    "round_robin".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -225,6 +240,17 @@ pub struct CheckpointingConfig {
     pub checkpoint_after_epoch: Option<usize>,
     pub epochs_between_checkpoints: Option<usize>,
     pub steps_between_checkpoints: Option<usize>,
+    
+    // Multi-endpoint support (s3dlio v0.9.14+)
+    /// List of endpoint URIs for multi-endpoint checkpoint writes
+    /// Example: ["s3://192.168.1.10:9000/checkpoints", "s3://192.168.1.11:9000/checkpoints"]
+    /// If multiple URIs provided, uses s3dlio's MultiEndpointStore for load distribution
+    #[serde(default)]
+    pub endpoint_uris: Option<Vec<String>>,
+    
+    /// Load balancing strategy: "round_robin" or "least_connections" (default: "round_robin")
+    #[serde(default = "default_load_balance_strategy")]
+    pub load_balance_strategy: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

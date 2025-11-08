@@ -1,0 +1,62 @@
+# Multi-Endpoint Configuration Example - Simple Round-Robin Load Balancing
+#
+# This configuration demonstrates using multiple S3 endpoints for data loading
+# with simple round-robin load balancing. This is useful for:
+# - On-premises S3 systems with multiple storage nodes
+# - Testing load distribution across multiple endpoints
+# - Maximizing throughput with parallel connections
+#
+# Usage: dl-driver run --config tests/dlio_configs/multi_endpoint_simple.yaml
+
+model:
+  name: "resnet50"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false  # Data should already exist
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  # Primary data folder (used if endpoint_uris is not set)
+  data_folder: "s3://my-bucket/data"
+  
+  # Multi-endpoint configuration - when set, overrides data_folder for load balancing
+  # All URIs must use the same scheme (all s3://, all file://, etc.)
+  endpoint_uris:
+    - "s3://endpoint1.example.com:9000/my-bucket/data"
+    - "s3://endpoint2.example.com:9000/my-bucket/data"
+  
+  # Load balancing strategy: "round_robin" or "least_connections"
+  # - round_robin: Simple rotation through endpoints (default, lowest overhead)
+  # - least_connections: Routes to endpoint with fewest active connections (adaptive)
+  load_balance_strategy: "round_robin"
+  
+  format: "npz"
+  num_files_train: 1000
+  record_length_bytes: 262144  # 256 KB per sample
+  num_samples_per_file: 100
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 32
+  prefetch: 4
+  shuffle: true
+  read_threads: 8
+  compute_threads: 4
+  seed: 42
+
+train:
+  epochs: 3
+  computation_time: 0.05  # 50ms per batch
+
+# Note: Checkpointing also supports multi-endpoint configuration
+# checkpointing:
+#   checkpoint_folder: "s3://checkpoint-bucket/checkpoints"
+#   endpoint_uris:
+#     - "s3://endpoint1.example.com:9000/checkpoint-bucket/checkpoints"
+#     - "s3://endpoint2.example.com:9000/checkpoint-bucket/checkpoints"
+#   load_balance_strategy: "round_robin"
+#   steps_between_checkpoints: 100

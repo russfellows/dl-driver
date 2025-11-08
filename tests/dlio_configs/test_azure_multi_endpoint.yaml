@@ -1,0 +1,43 @@
+# Test Configuration: Azure Blob Storage with Multi-Endpoint
+# Tests Azure backend with load balancing across storage accounts
+
+model:
+  name: "resnet50"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "az://ml-training-data/imagenet"
+  
+  # Multi-endpoint configuration for Azure (multiple storage accounts)
+  endpoint_uris:
+    - "az://mlstorage1.blob.core.windows.net/ml-training-data/imagenet"
+    - "az://mlstorage2.blob.core.windows.net/ml-training-data/imagenet"
+  load_balance_strategy: "round_robin"
+  
+  format: "npz"
+  num_files_train: 1000
+  record_length_bytes: 196608  # 192 KB (typical ImageNet image)
+  num_samples_per_file: 100
+  
+  # DLIO sharding mode for better parallel access
+  num_subfolders_train: 16
+
+reader:
+  data_loader: "pytorch"
+  batch_size: 128
+  prefetch: 4
+  shuffle: true
+  read_threads: 16
+  compute_threads: 8
+  seed: 42
+
+train:
+  epochs: 90
+  computation_time: 0.15  # 150ms per batch

@@ -14,7 +14,7 @@ use crate::plugins::PluginManager;
 // Import s3dlio 0.8.0 functionality - using new advanced API
 use s3dlio::api::advanced::{AsyncPoolDataLoader, MultiBackendDataset, PoolConfig};
 use s3dlio::object_store::{store_for_uri, ObjectStore};
-use s3dlio::{LoaderOptions, ReaderMode, LoadingMode};
+use s3dlio::{LoaderOptions, ReaderMode, LoadingMode, LoadBalanceStrategy, MultiEndpointStore};
 
 /// Main workload execution engine using s3dlio capabilities
 pub struct WorkloadRunner {
@@ -27,9 +27,9 @@ pub struct WorkloadRunner {
     file_list: Option<Vec<String>>,
     plugins: Option<PluginManager>,
     checkpoint_state: Option<crate::plugins::checkpoint::CheckpointState>,
-}
-
-impl WorkloadRunner {
+    // v0.8.5: Keep typed reference to MultiEndpointStore for stats access
+    multi_endpoint_store: Option<Arc<MultiEndpointStore>>,
+}impl WorkloadRunner {
     pub fn new(config: DlioConfig) -> Self {
         // Load environment variables for S3 credentials
         if let Err(e) = dotenvy::dotenv() {
@@ -46,6 +46,7 @@ impl WorkloadRunner {
             file_list: None,
             plugins: None, // Plugins are optional, passed via with_plugins()
             checkpoint_state: None,
+            multi_endpoint_store: None,
         }
     }
 
@@ -98,6 +99,26 @@ impl WorkloadRunner {
         // Record training time (NOT total time) for AU calculation
         self.metrics.set_total_time(training_time);
         self.metrics.print_summary();
+        
+        // v0.8.5: Print per-endpoint statistics if using multi-endpoint store
+        if let Some(ref store) = self.multi_endpoint_store {
+            let endpoint_stats = store.get_all_stats();
+            if !endpoint_stats.is_empty() {
+                println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
+                println!("║              MULTI-ENDPOINT PERFORMANCE STATISTICS                    ║");
+                println!("╚═══════════════════════════════════════════════════════════════════════╝");
+                println!();
+                for (i, (uri, stats)) in endpoint_stats.iter().enumerate() {
+                    println!("Endpoint [{}]: {}", i + 1, uri);
+                    println!("  Requests:      {}", stats.total_requests);
+                    println!("  Bytes Read:    {} ({:.2} MB)", stats.bytes_read, stats.bytes_read as f64 / (1024.0 * 1024.0));
+                    println!("  Bytes Written: {} ({:.2} MB)", stats.bytes_written, stats.bytes_written as f64 / (1024.0 * 1024.0));
+                    println!("  Errors:        {}", stats.error_count);
+                    println!("  Active Conns:  {}", stats.active_requests);
+                    println!();
+                }
+            }
+        }
         
         // Calculate Accelerator Utilization (AU) if metric configuration is present
         debug!("Checking for metric configuration");
@@ -564,12 +585,46 @@ impl WorkloadRunner {
     }
 
     /// Create object store instance based on storage backend configuration
-    fn create_object_store(&self) -> Result<Box<dyn ObjectStore>> {
+    /// Supports multi-endpoint load balancing when multiple endpoint_uris are configured
+    /// 
+    /// Returns Arc<dyn ObjectStore> for shared ownership across async tasks.
+    /// For multi-endpoint stores, also saves typed Arc<MultiEndpointStore> for stats access.
+    fn create_object_store(&mut self) -> Result<Arc<dyn ObjectStore>> {
         let data_folder = &self.config.dataset.data_folder;
+        
+        // Check if multi-endpoint configuration is present
+        if let Some(endpoint_uris) = &self.config.dataset.endpoint_uris {
+            if endpoint_uris.len() > 1 {
+                info!("Creating multi-endpoint store with {} endpoints using {} strategy",
+                      endpoint_uris.len(), self.config.dataset.load_balance_strategy);
+                
+                // Parse strategy
+                let strategy = match self.config.dataset.load_balance_strategy.as_str() {
+                    "least_connections" => LoadBalanceStrategy::LeastConnections,
+                    _ => LoadBalanceStrategy::RoundRobin,
+                };
+                
+                // Create multi-endpoint store using s3dlio v0.9.16+ API
+                let store = Arc::new(MultiEndpointStore::new(
+                    endpoint_uris.clone(),
+                    strategy,
+                    None, // use default thread count
+                )?);
+                
+                // Keep typed reference for stats access (same allocation, two views)
+                self.multi_endpoint_store = Some(store.clone());
+                
+                // Return trait object view (unsize coercion: Arc<T> -> Arc<dyn Trait>)
+                return Ok(store as Arc<dyn ObjectStore>);
+            }
+        }
+        
+        // Single endpoint (default behavior)
         info!("Creating object store for: {}", data_folder);
-
-        store_for_uri(data_folder)
-            .with_context(|| format!("Failed to create object store for {}", data_folder))
+        let store = store_for_uri(data_folder)
+            .with_context(|| format!("Failed to create object store for {}", data_folder))?;
+        // Box<dyn ObjectStore> -> Arc<dyn ObjectStore> via Arc::from
+        Ok(Arc::from(store))
     }
 
     /// Generate data for a single file
@@ -651,4 +706,36 @@ impl WorkloadRunner {
         // If no computation_time specified, no artificial delay (matches DLIO behavior)
         Ok(())
     }
+    
+    /// Export multi-endpoint statistics to TSV file (if multi-endpoint store was used)
+    pub fn export_endpoint_stats<P: AsRef<std::path::Path>>(&self, output_path: P, wall_seconds: f64) -> Result<()> {
+        if let Some(ref store) = self.multi_endpoint_store {
+            let endpoint_stats = store.get_all_stats();
+            crate::tsv_export::export_endpoint_stats(output_path, &endpoint_stats, wall_seconds)?;
+            info!("Multi-endpoint statistics exported");
+        }
+        Ok(())
+    }
+    
+    /// Print multi-endpoint statistics to console (if multi-endpoint store was used)
+    pub fn print_endpoint_stats(&self) {
+        if let Some(ref store) = self.multi_endpoint_store {
+            let endpoint_stats = store.get_all_stats();
+            if !endpoint_stats.is_empty() {
+                println!("\n┌─ Multi-Endpoint Statistics ──────────────────────────────────────────┐");
+                println!("│ Endpoint Performance Summary:");
+                for (i, (uri, stats)) in endpoint_stats.iter().enumerate() {
+                    println!("│");
+                    println!("│ Endpoint [{}]: {}", i + 1, uri);
+                    println!("│   Requests:      {}", stats.total_requests);
+                    println!("│   Bytes Read:    {} ({:.2} MB)", stats.bytes_read, stats.bytes_read as f64 / (1024.0 * 1024.0));
+                    println!("│   Bytes Written: {} ({:.2} MB)", stats.bytes_written, stats.bytes_written as f64 / (1024.0 * 1024.0));
+                    println!("│   Errors:        {}", stats.error_count);
+                    println!("│   Active Conns:  {}", stats.active_requests);
+                }
+                println!("└──────────────────────────────────────────────────────────────────────┘");
+            }
+        }
+    }
 }
+

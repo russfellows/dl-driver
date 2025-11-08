@@ -1258,7 +1258,7 @@ fn display_config_summary(config: &DlioConfig, config_path: &std::path::Path) ->
         println!("│ Generate Data:  {}", if workflow.generate_data.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
         println!("│ Training:       {}", if workflow.train.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
         println!("│ Checkpoint:     {}", if workflow.checkpoint.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
-        println!("│ Evaluation:     {}", if workflow.evaluation.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
+        println!("│ Evaluation:     {} (future)", if workflow.evaluation.unwrap_or(false) { "✅ YES" } else { "❌ NO" });
         println!("└──────────────────────────────────────────────────────────────────────┘");
         println!();
     }
@@ -1284,6 +1284,20 @@ fn display_config_summary(config: &DlioConfig, config_path: &std::path::Path) ->
     println!("┌─ Dataset Configuration ──────────────────────────────────────────────┐");
     println!("│ Data Folder:  {}", data_folder);
     println!("│ Backend Type: {}", backend_type);
+    
+    // Display multi-endpoint configuration if present
+    if let Some(ref endpoint_uris) = config.dataset.endpoint_uris {
+        if endpoint_uris.len() > 1 {
+            println!("│");
+            println!("│ Multi-Endpoint Configuration:");
+            println!("│   Endpoints:  {} URIs", endpoint_uris.len());
+            for (i, uri) in endpoint_uris.iter().enumerate() {
+                println!("│     [{}] {}", i + 1, uri);
+            }
+            println!("│   Strategy:   {}", config.dataset.load_balance_strategy);
+        }
+    }
+    
     if let Some(ref format) = config.dataset.format {
         println!("│ Format:       {}", format);
     }
