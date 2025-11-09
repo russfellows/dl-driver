@@ -451,8 +451,8 @@ impl DistAgent for AgentService {
         // Create live stats tracker
         let tracker = Arc::new(crate::live_stats::LiveStatsTracker::new());
         
-        // Channel to signal completion
-        let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<(), String>>(1);
+        // Channel to signal completion with workload summary (v0.8.7)
+        let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<WorkloadSummary, String>>(1);
         
         // Spawn workload execution task
         let tracker_exec = tracker.clone();
@@ -462,9 +462,9 @@ impl DistAgent for AgentService {
         tokio::spawn(async move {
             // Execute the workload with live stats tracking
             match self_clone.execute_workload(config_exec, &agent_id_exec, Some(tracker_exec)).await {
-                Ok(_summary) => {
+                Ok(summary) => {
                     info!("Workload completed successfully for agent {}", agent_id_exec);
-                    let _ = tx_done.send(Ok(())).await;
+                    let _ = tx_done.send(Ok(summary)).await;
                 }
                 Err(e) => {
                     error!("Workload execution failed for agent {}: {:?}", agent_id_exec, e);
@@ -501,6 +501,7 @@ impl DistAgent for AgentService {
                             total_samples: snapshot.total_samples,
                             elapsed_s: snapshot.elapsed_secs(),
                             completed: false,
+                            final_summary: None,  // v0.8.7: Only in final message
                         };
                         yield Ok(stats);
                     }
@@ -508,8 +509,8 @@ impl DistAgent for AgentService {
                     result = rx_done.recv() => {
                         // Workload completed (or failed)
                         match result {
-                            Some(Ok(())) => {
-                                // Send final stats with completed=true
+                            Some(Ok(summary)) => {
+                                // v0.8.7: Send final stats with completed=true and complete summary
                                 let snapshot = tracker.snapshot();
                                 let final_stats = LiveStats {
                                     agent_id: agent_id_stream.clone(),
@@ -528,6 +529,7 @@ impl DistAgent for AgentService {
                                     total_samples: snapshot.total_samples,
                                     elapsed_s: snapshot.elapsed_secs(),
                                     completed: true,
+                                    final_summary: Some(summary),  // v0.8.7: Include complete results
                                 };
                                 yield Ok(final_stats);
                                 break;

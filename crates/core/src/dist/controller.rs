@@ -9,7 +9,7 @@
 use anyhow::{Context, Result};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::transport::Channel;
-use tracing::{info, warn, error};
+use tracing::{debug, info, warn, error};
 
 use crate::dlio_compat::DlioConfig;
 use crate::dist::proto::dist_agent_client::DistAgentClient;
@@ -509,6 +509,12 @@ impl Controller {
         let timeout_warn_secs = 5.0;
         let timeout_dead_secs = 10.0;
         
+        // v0.8.7: Collect final summaries for persistence (extracted from completed LiveStats messages)
+        let mut agent_summaries: Vec<WorkloadSummary> = Vec::new();
+        
+        // v0.8.7: Track last console.log write time (write every 1 second)
+        let mut last_console_log = std::time::Instant::now();
+        
         // Process live stats stream
         loop {
             // v0.8.7: Check for stalled agents (timeout detection)
@@ -542,11 +548,21 @@ impl Controller {
                     // v0.8.7: Update last seen timestamp for resilience
                     agent_last_seen.insert(stats.agent_id.clone(), std::time::Instant::now());
                     
-                    // Update aggregator
+                    // v0.8.7: Extract final summary if completed
                     if stats.completed {
                         aggregator.mark_completed(&stats.agent_id);
+                        
+                        // Extract and store final summary for persistence
+                        if let Some(summary) = stats.final_summary {
+                            debug!("Collected final summary from agent {}", summary.agent_id);
+                            agent_summaries.push(summary);
+                        } else {
+                            warn!("Agent {} completed but did not provide final summary", stats.agent_id);
+                        }
+                    } else {
+                        // Regular update (not completed yet)
+                        aggregator.update(stats);
                     }
-                    aggregator.update(stats);
                     
                     // Update display every 100ms (rate limiting)
                     if last_update.elapsed() > std::time::Duration::from_millis(100) {
@@ -556,8 +572,21 @@ impl Controller {
                         } else {
                             format!("{} (⚠️ {} dead)", agg.format_progress(), dead_agents.len())
                         };
-                        progress_bar.set_message(msg);
+                        progress_bar.set_message(msg.clone());
                         last_update = std::time::Instant::now();
+                        
+                        // v0.8.7: Write live stats to console.log every 1 second
+                        if last_console_log.elapsed() >= std::time::Duration::from_secs(1) {
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            let log_line = format!("[{}] {}", timestamp, msg);
+                            if let Err(e) = results_dir.write_console(&log_line) {
+                                warn!("Failed to write live stats to console.log: {}", e);
+                            }
+                            last_console_log = std::time::Instant::now();
+                        }
                     }
                     
                     // v0.8.7: Check if all agents completed or dead (graceful degradation)
@@ -618,12 +647,30 @@ impl Controller {
         println!("Elapsed: {:.2}s", final_stats.elapsed_s);
         println!();
         
-        // TODO: Handle agent results collection from streaming RPC
-        // For Phase 4, we'll skip detailed per-agent results and histogram aggregation
-        // This will be reimplemented in Phase 5 using a separate results collection mechanism
-        let _summaries: Vec<WorkloadSummary> = Vec::new();  // Placeholder
+        // v0.8.7: Write per-agent results and create consolidated TSV with histogram aggregation
+        if !agent_summaries.is_empty() {
+            info!("Writing results for {} agents", agent_summaries.len());
+            
+            // Write per-agent results to agents/{agent-id}/ subdirectory
+            for summary in &agent_summaries {
+                let result = WorkloadResult::from(summary.clone());
+                if let Err(e) = self.write_agent_results(&agents_dir, &summary.agent_id, &result, summary) {
+                    error!("Failed to write results for agent {}: {}", summary.agent_id, e);
+                }
+            }
+            
+            // Create consolidated histogram TSV with bucket-level aggregation
+            if let Err(e) = Self::write_consolidated_histogram_tsv(results_dir, &agent_summaries, final_stats.elapsed_s) {
+                error!("Failed to create consolidated histogram TSV: {}", e);
+            } else {
+                info!("✓ Consolidated storage_results.tsv created with accurate histogram aggregation");
+            }
+        } else {
+            warn!("No agent summaries collected - per-agent results and consolidated TSV not available");
+            warn!("This may indicate agents failed to return final_summary in completed LiveStats messages");
+        }
         
-        // Collect task results (errors only - we don't get WorkloadSummary from streaming)
+        // Collect task results (errors only)
         for (agent_id, task) in stream_tasks {
             match task.await {
                 Ok(Ok(())) => {
@@ -638,10 +685,13 @@ impl Controller {
             }
         }
         
-        // For Phase 4, return minimal aggregate results
-        // Phase 5 will implement proper result collection
+        // v0.8.7: Build aggregate results from collected summaries using From trait
+        let agent_results: Vec<WorkloadResult> = agent_summaries.iter()
+            .map(|s| WorkloadResult::from(s.clone()))
+            .collect();
+        
         let aggregate = AggregateResults {
-            agent_results: Vec::new(),  // Placeholder
+            agent_results,
             total_ops: total_ops,
             total_samples: final_stats.total_samples,
             total_ops_per_s: total_ops as f64 / final_stats.elapsed_s,
