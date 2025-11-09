@@ -341,10 +341,15 @@ impl Controller {
         agents_dir: &std::path::Path,
         agent_id: &str,
         result: &WorkloadResult,
-        _summary: &WorkloadSummary,
+        summary: &WorkloadSummary,
     ) -> Result<()> {
         
-        // Create agent metadata JSON
+        // Create agent subdirectory
+        let agent_dir = agents_dir.join(agent_id);
+        std::fs::create_dir_all(&agent_dir)
+            .with_context(|| format!("Failed to create agent directory: {}", agent_dir.display()))?;
+        
+        // Write metadata.json
         let metadata = serde_json::json!({
             "agent_id": agent_id,
             "ops_per_s": result.ops_per_s,
@@ -352,51 +357,26 @@ impl Controller {
             "total_ops": result.total_ops,
             "total_samples": result.total_samples,
             "epochs_completed": result.epochs_completed,
+            "p50_ms": result.p50_ms,
+            "p90_ms": result.p90_ms,
+            "p95_ms": result.p95_ms,
+            "p99_ms": result.p99_ms,
+            "duration_s": result.duration_s,
         });
         let metadata_json = serde_json::to_string_pretty(&metadata)?;
-        
-        // Generate storage TSV content (single-agent row)
-        let storage_tsv = format!(
-            "agent_id\tops_s\tmib_s\tp50_ms\tp90_ms\tp95_ms\tp99_ms\terrors\ttotal_ops\tduration_s\n{}\t{:.1}\t{:.1}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}\t{}\t{:.2}\n",
-            result.agent_id,
-            result.ops_per_s,
-            result.mib_per_s,
-            result.p50_ms,
-            result.p90_ms,
-            result.p95_ms,
-            result.p99_ms,
-            result.errors,
-            result.total_ops,
-            result.duration_s
-        );
-        
-        // Generate AI/ML TSV content (single-agent row)
-        let aiml_tsv = format!(
-            "agent_id\tsamples_s\ttotal_samples\tbatches_s\ttotal_batches\tsamples_per_batch\tavg_batch_ms\tepochs\tavg_epoch_s\tdata_load_s\tcompute_s\tpipeline_eff\n{}\t{:.1}\t{}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.3}\n",
-            result.agent_id,
-            result.samples_per_second,
-            result.total_samples,
-            result.batches_per_second,
-            result.total_batches,
-            result.samples_per_batch,
-            result.avg_batch_time_ms,
-            result.epochs_completed,
-            result.avg_epoch_time_s,
-            result.data_loading_time_s,
-            result.compute_time_s,
-            result.pipeline_efficiency,
-        );
-        
-        // Write to agents subdirectory (using ResultsDir helper method would be cleaner,
-        // but we can also do it directly here)
-        let agent_dir = agents_dir.join(agent_id);
-        std::fs::create_dir_all(&agent_dir)
-            .with_context(|| format!("Failed to create agent directory: {}", agent_dir.display()))?;
-        
-        std::fs::write(agent_dir.join("storage_results.tsv"), storage_tsv)?;
-        std::fs::write(agent_dir.join("aiml_results.tsv"), aiml_tsv)?;
         std::fs::write(agent_dir.join("metadata.json"), metadata_json)?;
         
+        // Write bucket-level storage TSV (from agent)
+        if !summary.storage_tsv_content.is_empty() {
+            std::fs::write(agent_dir.join("storage_results.tsv"), &summary.storage_tsv_content)?;
+        }
+        
+        // Write AI/ML TSV (if provided)
+        if !summary.aiml_tsv_content.is_empty() {
+            std::fs::write(agent_dir.join("aiml_results.tsv"), &summary.aiml_tsv_content)?;
+        }
+        
+        info!("Wrote agent {} results to: {}", agent_id, agent_dir.display());
         Ok(())
     }
 
