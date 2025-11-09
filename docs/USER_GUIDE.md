@@ -1,7 +1,7 @@
 # dl-driver User Guide
 
-**Version:** 0.8.5  
-**Last Updated:** November 7, 2025
+**Version:** 0.8.6  
+**Last Updated:** November 8, 2025
 
 ## Table of Contents
 
@@ -140,6 +140,13 @@ Number of ranks: 4
 
 **Use Case**: True multi-host workloads, enterprise-scale testing
 
+**Key Features (v0.8.6):**
+- **Bucket-level histogram aggregation**: 9-bucket HDR histograms per operation type
+- **Accurate percentile merging**: Not naively averaged, mathematically correct
+- **In-memory TSV generation**: No temp files, cleaner than sai3-bench pattern
+- **Per-agent and consolidated results**: Full bucket-level detail preserved
+- **Console.log improvements**: Captures all completion messages, latencies, throughput
+
 #### Step 1: Start Agent Processes
 
 On each host, start the agent service:
@@ -163,12 +170,53 @@ From any host, run the controller:
 ./target/release/dl-driver distributed run \
   --config tests/dlio_configs/distributed_2node_local.yaml \
   --agents http://host1:50051,http://host2:50051 \
-  --path-template "{id}/"
+  --path-template "agent-{id}/"
 ```
 
 **Path Template Options:**
-- `--path-template "{id}/"`: Agent-specific subdirectories (local storage)
+- `--path-template "agent-{id}/"`: Agent-specific subdirectories (local storage)
 - Omit for shared storage (GCS, S3, Azure)
+
+**Results Directory Structure (v0.8.6):**
+```
+dlio-20251108-1827-myconfig/
+├── config.yaml                          # Copy of input configuration
+├── console.log                          # Full execution log with statistics
+├── metadata.json                        # Run metadata
+├── storage_results.tsv                  # High-level aggregates
+├── aiml_results.tsv                     # AI/ML training metrics  
+├── consolidated_storage_results.tsv     # Bucket-level merged histograms
+└── agents/
+    ├── agent-0/
+    │   ├── metadata.json                # Agent execution metadata
+    │   └── storage_results.tsv          # Bucket-level histogram from agent-0
+    └── agent-1/
+        ├── metadata.json
+        └── storage_results.tsv          # Bucket-level histogram from agent-1
+```
+
+**Bucket-Level TSV Format:**
+```
+operation  size_bucket     bucket_idx  mean_us  p50_us  p90_us  p95_us  p99_us  max_us  ops_per_sec  count
+READ       512KiB-4MiB     4           0.00     0.00    0.00    0.00    0.00    0.00    3.88         2
+READ       4MiB-32MiB      5           0.08     0.00    0.00    1.00    1.00    1.00    23.27        12
+WRITE      512KiB-4MiB     4           1198.20  1155.00 1754.00 2159.00 2887.00 2951.00 387.78       200
+READ       ALL             98          0.07     0.00    0.00    1.00    1.00    1.00    27.14        14
+WRITE      ALL             99          1198.20  1155.00 1754.00 2159.00 2887.00 2951.00 387.78       200
+```
+
+**Size Buckets:**
+- Bucket 0: 0-4KiB
+- Bucket 1: 4-32KiB
+- Bucket 2: 32-128KiB
+- Bucket 3: 128-512KiB
+- Bucket 4: 512KiB-4MiB
+- Bucket 5: 4-32MiB
+- Bucket 6: 32-256MiB
+- Bucket 7: 256MiB-1GiB
+- Bucket 8: 1GiB+
+- Bucket 98: READ ALL (aggregate)
+- Bucket 99: WRITE ALL (aggregate)
 
 **Example Output:**
 ```
@@ -189,6 +237,20 @@ From any host, run the controller:
    Epochs Completed: 4
    Pipeline Efficiency: 37.8%
 ```
+
+**Local Testing:**
+Use `scripts/test_distributed_local.sh` to test distributed execution on localhost:
+```bash
+cd dl-driver
+./scripts/test_distributed_local.sh
+```
+
+This script:
+- Starts 2 agent processes on ports 50051-50052
+- Runs controller with agent list
+- Verifies per-agent and consolidated TSV files
+- Validates bucket-level histogram format
+- Confirms percentiles are correctly aggregated
 
 ---
 

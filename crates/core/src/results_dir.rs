@@ -145,6 +145,16 @@ impl ResultsDir {
         &self.path
     }
 
+    /// Get the path for the generation TSV results file
+    pub fn generation_tsv_path(&self) -> PathBuf {
+        self.path.join("generation_results.tsv")
+    }
+
+    /// Get the path for the training TSV results file  
+    pub fn training_tsv_path(&self) -> PathBuf {
+        self.path.join("training_results.tsv")
+    }
+
     /// Get the path for the storage TSV results file
     pub fn storage_tsv_path(&self) -> PathBuf {
         self.path.join("storage_results.tsv")

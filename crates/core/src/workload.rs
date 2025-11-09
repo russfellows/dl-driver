@@ -4,6 +4,7 @@
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn, trace};
 
@@ -29,7 +30,76 @@ pub struct WorkloadRunner {
     checkpoint_state: Option<crate::plugins::checkpoint::CheckpointState>,
     // v0.8.5: Keep typed reference to MultiEndpointStore for stats access
     multi_endpoint_store: Option<Arc<MultiEndpointStore>>,
-}impl WorkloadRunner {
+    // v0.8.6: Live performance statistics tracking
+    live_ops: Arc<AtomicU64>,
+    live_bytes: Arc<AtomicU64>,
+    // v0.8.6: Optional results directory for console.log output
+    results_dir: Option<std::sync::Arc<std::sync::Mutex<crate::results_dir::ResultsDir>>>,
+}
+
+/// Spawn a background task to monitor and display live performance statistics
+/// 
+/// This task updates the progress bar message every 0.5 seconds with:
+/// - Operations per second (ops/s)
+/// - Throughput in MiB/s
+/// - Average latency in milliseconds
+/// 
+/// The monitor exits when the progress bar reaches completion.
+fn spawn_live_stats_monitor(
+    pb: indicatif::ProgressBar,
+    ops_counter: Arc<AtomicU64>,
+    bytes_counter: Arc<AtomicU64>,
+    concurrency: usize,
+    total_items: u64,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut last_ops = 0u64;
+        let mut last_bytes = 0u64;
+        let mut last_time = Instant::now();
+        
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            
+            // Exit when all items processed
+            if pb.position() >= total_items {
+                break;
+            }
+            
+            let elapsed = last_time.elapsed();
+            if elapsed.as_secs_f64() >= 0.5 {
+                let current_ops = ops_counter.load(Ordering::Relaxed);
+                let current_bytes = bytes_counter.load(Ordering::Relaxed);
+                
+                let ops_delta = current_ops.saturating_sub(last_ops);
+                let bytes_delta = current_bytes.saturating_sub(last_bytes);
+                let time_delta = elapsed.as_secs_f64();
+                
+                if ops_delta > 0 {
+                    let ops_per_sec = ops_delta as f64 / time_delta;
+                    let mib_per_sec = (bytes_delta as f64 / 1_048_576.0) / time_delta;
+                    
+                    // Estimate average latency (rough approximation)
+                    let avg_latency_ms = if concurrency > 0 {
+                        (time_delta * 1000.0 * concurrency as f64) / ops_delta as f64
+                    } else {
+                        time_delta * 1000.0 / ops_delta as f64
+                    };
+                    
+                    pb.set_message(format!(
+                        "{:.0} ops/s | {:.1} MiB/s | avg {:.2}ms",
+                        ops_per_sec, mib_per_sec, avg_latency_ms
+                    ));
+                }
+                
+                last_ops = current_ops;
+                last_bytes = current_bytes;
+                last_time = Instant::now();
+            }
+        }
+    })
+}
+
+impl WorkloadRunner {
     pub fn new(config: DlioConfig) -> Self {
         // Load environment variables for S3 credentials
         if let Err(e) = dotenvy::dotenv() {
@@ -47,7 +117,16 @@ pub struct WorkloadRunner {
             plugins: None, // Plugins are optional, passed via with_plugins()
             checkpoint_state: None,
             multi_endpoint_store: None,
+            live_ops: Arc::new(AtomicU64::new(0)),
+            live_bytes: Arc::new(AtomicU64::new(0)),
+            results_dir: None,
         }
+    }
+    
+    /// Set results directory for console.log output
+    pub fn with_results_dir(mut self, results_dir: std::sync::Arc<std::sync::Mutex<crate::results_dir::ResultsDir>>) -> Self {
+        self.results_dir = Some(results_dir);
+        self
     }
 
     /// Set plugin manager for checkpoint and other plugin functionality
@@ -77,6 +156,16 @@ pub struct WorkloadRunner {
         self.world_size = world_size;
         self.file_list = file_list;
         self
+    }
+    
+    /// Print to stdout AND write to console.log (if results_dir is set)
+    fn println_and_log(&self, msg: &str) {
+        println!("{}", msg);
+        if let Some(ref rd) = self.results_dir {
+            if let Ok(mut rd_guard) = rd.lock() {
+                let _ = rd_guard.write_console(msg);
+            }
+        }
     }
 
     /// Execute ONLY the training phase for DLIO compliance measurement
@@ -189,7 +278,7 @@ pub struct WorkloadRunner {
     /// 1. Flat: All files in single directory (Mode 1)
     /// 2. DLIO-style sharding: Files distributed across train/NNNN subdirectories (Mode 2)
     /// 3. Hierarchical: Multi-level nested directory tree (Mode 3)
-    async fn run_data_generation(&mut self) -> Result<()> {
+    pub async fn run_data_generation(&mut self) -> Result<()> {
         use crate::directory_tree::DirectoryMode;
         
         let start_time = Instant::now();
@@ -279,6 +368,27 @@ pub struct WorkloadRunner {
             num_files, samples_per_file, record_size
         );
 
+        // v0.8.6: Reset live stats counters
+        self.live_ops.store(0, Ordering::Relaxed);
+        self.live_bytes.store(0, Ordering::Relaxed);
+
+        // v0.8.6: Create enhanced progress bar with live stats
+        use indicatif::{ProgressBar, ProgressStyle};
+        let pb = ProgressBar::new(num_files as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} files {msg}"
+        )?);
+        pb.set_message("starting generation...");
+
+        // v0.8.6: Spawn live stats monitor
+        let monitor_handle = spawn_live_stats_monitor(
+            pb.clone(),
+            self.live_ops.clone(),
+            self.live_bytes.clone(),
+            1,  // Single-threaded generation
+            num_files as u64,
+        );
+
         // Generate data files using directory mode for path resolution
         for file_idx in 0..num_files {
             // Get file path based on directory mode
@@ -306,24 +416,79 @@ pub struct WorkloadRunner {
             // v0.8.1: Record histogram data for accurate write percentiles
             self.metrics.record_write_with_histogram(bytes_written as usize, write_time);
             
-            if file_idx % 100 == 0 {
-                info!("Generated {}/{} files ({})", file_idx + 1, num_files, rel_path);
-            }
+            // v0.8.6: Update live counters AFTER successful write
+            self.live_ops.fetch_add(1, Ordering::Relaxed);
+            self.live_bytes.fetch_add(bytes_written, Ordering::Relaxed);
+            
+            // v0.8.6: Update progress bar position
+            pb.inc(1);
         }
 
+        // v0.8.6: Wait for monitor to complete
+        monitor_handle.await.ok();
+        
+        // v0.8.6: Finish progress bar with summary
+        let total_bytes = (num_files as u64) * (record_size as u64) * (samples_per_file as u64);
+        pb.finish_with_message(format!(
+            "generated {} files ({:.2} GiB total)",
+            num_files,
+            total_bytes as f64 / 1_073_741_824.0
+        ));
+
         let generation_time = start_time.elapsed();
+        
+        // v0.8.6: Display performance summary with latency percentiles (like sai3-bench)
+        let total_ops = self.live_ops.load(Ordering::Relaxed);
+        let total_bytes_atomic = self.live_bytes.load(Ordering::Relaxed);
+        let _ops_per_sec = total_ops as f64 / generation_time.as_secs_f64();
+        let throughput_mibs = (total_bytes_atomic as f64 / 1_048_576.0) / generation_time.as_secs_f64();
+        
+        // Get latency percentiles from write histograms
+        let write_hists = self.metrics.get_write_histograms();
+        let combined = write_hists.combined_histogram();
+        
+        if combined.len() > 0 {
+            let mean_us = combined.mean();
+            let p50_us = combined.value_at_quantile(0.50) as f64;
+            let p90_us = combined.value_at_quantile(0.90) as f64;
+            let p95_us = combined.value_at_quantile(0.95) as f64;
+            let p99_us = combined.value_at_quantile(0.99) as f64;
+            
+            let status_line = format!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
+                num_files, 
+                total_bytes as f64 / 1_073_741_824.0,
+                generation_time.as_secs_f64(),
+                throughput_mibs
+            );
+            let latency_line = format!("   Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
+                mean_us, p50_us, p90_us, p95_us, p99_us);
+            
+            self.println_and_log(&status_line);
+            self.println_and_log(&latency_line);
+        } else {
+            let status_line = format!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
+                num_files, 
+                total_bytes as f64 / 1_073_741_824.0,
+                generation_time.as_secs_f64(),
+                throughput_mibs
+            );
+            self.println_and_log(&status_line);
+        }
+        
         info!("Data generation completed in {:?}", generation_time);
-        info!("Generated {} files in {:?} ({:.2} MB/s)", 
+        info!("Generated {} files in {:?} ({:.2} MiB/s)", 
             num_files, 
             generation_time,
-            (num_files as f64 * record_size as f64 * samples_per_file as f64) / 
-            (1024.0 * 1024.0 * generation_time.as_secs_f64())
+            throughput_mibs
         );
         Ok(())
     }
 
     /// Training phase using DLIO-style parallel I/O with background workers
     /// TRUE DLIO PARALLEL I/O MODEL - Background workers + instant batch retrieval
+    /// 
+    /// v0.8.6: Uses per-epoch progress bars with live performance statistics
+    /// Each epoch shows its own progress bar with real-time ops/s, MiB/s, and avg latency
     async fn run_training(&mut self) -> Result<()> {
         use indicatif::{ProgressBar, ProgressStyle};
         
@@ -380,12 +545,26 @@ pub struct WorkloadRunner {
             debug!("Epoch {} configuration: read_threads={}, prefetch_size={}", epoch + 1, read_threads, prefetch_size);
             trace!("Epoch {} detailed timing started at {:?}", epoch + 1, epoch_start);
 
-            // Create progress bar for this epoch
+            // v0.8.6: Reset live stats counters for each epoch
+            self.live_ops.store(0, Ordering::Relaxed);
+            self.live_bytes.store(0, Ordering::Relaxed);
+
+            // v0.8.6: Create per-epoch progress bar with live stats
             let progress = ProgressBar::new(estimated_batches_per_epoch as u64);
             progress.set_style(
                 ProgressStyle::with_template(
                     "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} batches {msg}"
                 ).expect("Failed to set progress bar template")
+            );
+            progress.set_message("starting epoch...");
+
+            // v0.8.6: Spawn live stats monitor for this epoch
+            let monitor_handle = spawn_live_stats_monitor(
+                progress.clone(),
+                self.live_ops.clone(),
+                self.live_bytes.clone(),
+                read_threads,
+                estimated_batches_per_epoch as u64,
             );
 
             let mut batch_count = 0;
@@ -483,6 +662,10 @@ pub struct WorkloadRunner {
                         // v0.8.1: Record histogram data for accurate percentiles
                         self.metrics.record_read_with_histogram(batch_bytes, io_time);
 
+                        // v0.8.6: Update live counters after successful batch processing
+                        self.live_ops.fetch_add(1, Ordering::Relaxed);
+                        self.live_bytes.fetch_add(batch_bytes as u64, Ordering::Relaxed);
+
                         batch_count += 1;
                         total_samples += batch_size_actual;
                         total_bytes += batch_bytes;
@@ -493,7 +676,7 @@ pub struct WorkloadRunner {
                             plugins.after_step(global_step as u32).await?;
                         }
 
-                        // Update progress bar
+                        // v0.8.6: Update per-epoch progress bar
                         progress.inc(1);
 
                         // Show parallel processing effectiveness (less frequently with progress bar)
@@ -507,7 +690,10 @@ pub struct WorkloadRunner {
                         }
                     }
                     Err(e) => {
+                        // v0.8.6: Stop monitor and finish progress bar on error
+                        monitor_handle.abort();
                         progress.finish_with_message("❌ Failed");
+                        
                         error!("Background I/O error: {}", e);
                         return Err(e.into());
                     }
@@ -519,6 +705,8 @@ pub struct WorkloadRunner {
                 warn!("Background I/O task error: {:?}", e);
             }
             
+            // v0.8.6: Wait for monitor to complete and finish progress bar
+            monitor_handle.await.ok();
             progress.finish();
             
             // === EPOCH ANALYSIS ===
@@ -531,16 +719,51 @@ pub struct WorkloadRunner {
                 0.0
             };
 
-            // User-facing epoch summary
-            println!(
-                "✅ Epoch {}/{} complete: {} batches, {} samples, {:.1}MB in {:.2}s",
-                epoch + 1, epochs, batch_count, total_samples, 
-                total_bytes as f64 / 1_000_000.0, epoch_total_time.as_secs_f64()
-            );
+            // v0.8.6: Get batch latency percentiles for this epoch
+            let batch_hists = self.metrics.get_batch_histograms();
+            let (has_samples, mean_us, p50_us, p90_us, p95_us, p99_us) = {
+                let batch_hist_locked = batch_hists.hist.lock().unwrap();
+                if batch_hist_locked.len() > 0 {
+                    (
+                        true,
+                        batch_hist_locked.mean(),
+                        batch_hist_locked.value_at_quantile(0.50) as f64,
+                        batch_hist_locked.value_at_quantile(0.90) as f64,
+                        batch_hist_locked.value_at_quantile(0.95) as f64,
+                        batch_hist_locked.value_at_quantile(0.99) as f64,
+                    )
+                } else {
+                    (false, 0.0, 0.0, 0.0, 0.0, 0.0)
+                }
+            };
+            
+            // User-facing epoch summary with latency percentiles
+            if has_samples && batch_count > 0 {
+                let throughput_mibs = (total_bytes as f64 / 1_048_576.0) / epoch_total_time.as_secs_f64();
+                
+                let status_line = format!(
+                    "✅ Epoch {}/{} complete: {} batches, {} samples, {:.1}MiB in {:.2}s @ {:.1} MiB/s",
+                    epoch + 1, epochs, batch_count, total_samples, 
+                    total_bytes as f64 / 1_048_576.0, epoch_total_time.as_secs_f64(), throughput_mibs
+                );
+                let latency_line = format!("   Batch Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
+                    mean_us, p50_us, p90_us, p95_us, p99_us);
+                
+                self.println_and_log(&status_line);
+                self.println_and_log(&latency_line);
+            } else {
+                let throughput_mibs = (total_bytes as f64 / 1_048_576.0) / epoch_total_time.as_secs_f64();
+                let status_line = format!(
+                    "✅ Epoch {}/{} complete: {} batches, {} samples, {:.1}MiB in {:.2}s @ {:.1} MiB/s",
+                    epoch + 1, epochs, batch_count, total_samples, 
+                    total_bytes as f64 / 1_048_576.0, epoch_total_time.as_secs_f64(), throughput_mibs
+                );
+                self.println_and_log(&status_line);
+            }
             
             info!(
-                "Epoch {} COMPLETE | {} batches, {} samples, {:.1}MB in {:?}",
-                epoch + 1, batch_count, total_samples, total_bytes as f64 / 1_000_000.0, epoch_total_time
+                "Epoch {} COMPLETE | {} batches, {} samples, {:.1}MiB in {:?}",
+                epoch + 1, batch_count, total_samples, total_bytes as f64 / 1_048_576.0, epoch_total_time
             );
             
             if batch_count > 0 {

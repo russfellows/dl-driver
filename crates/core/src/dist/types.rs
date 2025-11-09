@@ -2,7 +2,7 @@
 /// 
 /// Provides ergonomic Rust types that wrap the protobuf-generated structs
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use super::proto;
@@ -138,9 +138,9 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
             aiml_tsv_content: String::new(),
             results_path: String::new(),
             // HDR histogram data (v0.8.1 enhancement - currently empty)
-            histogram_read_latency: vec![],
-            histogram_write_latency: vec![],
-            histogram_batch_time: vec![],
+            histogram_read: vec![],
+            histogram_write: vec![],
+            histogram_batch: vec![],
         }
     }
 }
@@ -244,9 +244,12 @@ impl AggregateResults {
     /// This method correctly handles unbalanced workloads by merging histograms before
     /// calculating percentiles, avoiding the statistical errors of naive averaging.
     /// 
+    /// Following sai3-bench pattern: Deserialize all 9 size-bucketed histograms from each
+    /// agent, merge them using accumulator.add(), then calculate percentiles from merged data.
+    /// 
     /// # Arguments
     /// * `results` - Vector of agent results
-    /// * `summaries` - Vector of proto summaries containing histogram data
+    /// * `summaries` - Vector of proto summaries containing histogram data (9 buckets each)
     /// 
     /// # Returns
     /// * `AggregateResults` with correctly computed percentiles from merged histograms
@@ -254,12 +257,13 @@ impl AggregateResults {
         results: Vec<WorkloadResult>,
         summaries: &[proto::WorkloadSummary],
     ) -> Result<Self> {
-        use super::histogram::{deserialize_histogram, merge_histograms, extract_percentiles};
+        use hdrhistogram::{Histogram, serialization::Deserializer};
         
         if results.is_empty() {
             anyhow::bail!("Cannot aggregate empty results");
         }
 
+        const NUM_BUCKETS: usize = 9;
         let count = results.len() as f64;
         
         // Storage metric aggregation (sums and counts)
@@ -268,7 +272,7 @@ impl AggregateResults {
         let total_errors: u32 = results.iter().map(|r| r.errors).sum();
         let total_ops: u64 = results.iter().map(|r| r.total_ops).sum();
 
-        // Percentile aggregation using HDR histogram merging
+        // Percentile aggregation using HDR histogram merging (sai3-bench pattern)
         let (avg_p50_ms, avg_p90_ms, avg_p95_ms, avg_p99_ms) = if summaries.is_empty() {
             // Fallback to naive averaging if no histogram data available
             (
@@ -278,28 +282,61 @@ impl AggregateResults {
                 results.iter().map(|r| r.p99_ms).sum::<f64>() / count,
             )
         } else {
-            // Deserialize and merge read latency histograms
-            let read_hists: Vec<_> = summaries
-                .iter()
-                .filter_map(|s| {
-                    if s.histogram_read_latency.is_empty() {
-                        None
-                    } else {
-                        deserialize_histogram(&s.histogram_read_latency).ok()
-                    }
-                })
-                .collect();
+            // Create accumulators for 9 size buckets (read operations)
+            let mut read_accumulators: Vec<Histogram<u64>> = Vec::new();
+            for _ in 0..NUM_BUCKETS {
+                read_accumulators.push(
+                    Histogram::new(3).context("Failed to create read histogram accumulator")?
+                );
+            }
             
-            if !read_hists.is_empty() {
-                // Merge histograms and extract correct percentiles
-                let read_hist_refs: Vec<_> = read_hists.iter().collect();
-                let merged = merge_histograms(read_hist_refs)?;
+            // Deserialize and merge read histograms from all agents
+            let mut deserializer = Deserializer::new();
+            let mut any_read_data = false;
+            
+            for (agent_idx, summary) in summaries.iter().enumerate() {
+                if summary.histogram_read.is_empty() {
+                    continue;
+                }
                 
-                // Convert from microseconds to milliseconds
-                let (p50, p90, p95, p99) = extract_percentiles(&merged);
-                (p50 / 1000.0, p90 / 1000.0, p95 / 1000.0, p99 / 1000.0)
+                any_read_data = true;
+                
+                // Deserialize all 9 bucket histograms for read operations
+                let mut cursor = &summary.histogram_read[..];
+                for bucket_idx in 0..NUM_BUCKETS {
+                    let hist: Histogram<u64> = deserializer.deserialize(&mut cursor)
+                        .with_context(|| format!(
+                            "Failed to deserialize READ histogram bucket {} from agent {}",
+                            bucket_idx, agent_idx
+                        ))?;
+                    
+                    read_accumulators[bucket_idx].add(hist)
+                        .with_context(|| format!(
+                            "Failed to merge READ histogram bucket {} from agent {}",
+                            bucket_idx, agent_idx
+                        ))?;
+                }
+            }
+            
+            if any_read_data {
+                // Calculate combined percentiles across all buckets
+                // Start with first bucket's histogram
+                let mut combined = read_accumulators[0].clone();
+                for bucket_accumulator in read_accumulators.iter().skip(1) {
+                    combined.add(bucket_accumulator)
+                        .context("Failed to combine read bucket histograms")?;
+                }
+                
+                // Extract percentiles (values are in microseconds)
+                let p50_us = combined.value_at_quantile(0.50) as f64;
+                let p90_us = combined.value_at_quantile(0.90) as f64;
+                let p95_us = combined.value_at_quantile(0.95) as f64;
+                let p99_us = combined.value_at_quantile(0.99) as f64;
+                
+                // Convert to milliseconds
+                (p50_us / 1000.0, p90_us / 1000.0, p95_us / 1000.0, p99_us / 1000.0)
             } else {
-                // Fallback if histograms couldn't be deserialized
+                // Fallback if no histogram data available
                 (
                     results.iter().map(|r| r.p50_ms).sum::<f64>() / count,
                     results.iter().map(|r| r.p90_ms).sum::<f64>() / count,

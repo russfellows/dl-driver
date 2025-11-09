@@ -7,8 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.8.6
+### Planned for Future Releases
 - MLPerf Storage compliance reporting (--mlperf flag implementation)
+- Streaming progress updates for distributed execution (gRPC streaming RPC)
+
+---
+
+## [0.8.6] - 2025-11-08 - **Production-Quality Distributed Histogram Aggregation** 🎯
+
+### **✨ Added - Distributed Execution Enhancements**
+- **Bucket-level histogram aggregation** across distributed agents - Mathematically correct percentile merging
+  - 9 size buckets per operation type: 0-4KiB, 4-32KiB, 32-128KiB, 128-512KiB, 512KiB-4MiB, 4-32MiB, 32-256MiB, 256MiB-1GiB, 1GiB+
+  - Aggregate rows with bucket_idx 98 (READ ALL) and 99 (WRITE ALL)
+  - Follows sai3-bench v0.6.4+ pattern - HDR histogram serialization via protobuf
+- **In-memory TSV generation** - Agents generate TSV content in-memory, send via gRPC
+  - `StorageTsvExporter::export_to_string()` - Static method returns formatted TSV string
+  - No temporary files (cleaner than sai3-bench's `/tmp` approach)
+  - Per-agent TSV written to `agents/{agent-id}/storage_results.tsv`
+- **Consolidated histogram TSV** - Controller merges agent histograms, writes `consolidated_storage_results.tsv`
+  - HDR histogram `.add()` for correct percentile aggregation (not naive averaging)
+  - Preserves bucket-level detail in consolidated output
+
+### **✨ Added - Results Directory Architecture**
+- **console.log improvements** - Captures ALL performance statistics during execution
+  - Generation completion: "✅ Generated X files (Y GiB) in Zs @ A MiB/s"
+  - Generation latency: "Latency: mean=...μs, p50=...μs, p90/p95/p99..."
+  - Epoch completion: "✅ Epoch X/Y complete: N batches, M samples..."
+  - Batch latency: "Batch Latency: mean=...μs, p50/p90/p95/p99..."
+- **WorkloadRunner.results_dir** field - `Arc<Mutex<ResultsDir>>` for shared access
+- **println_and_log() helper** - Writes to BOTH stdout and console.log simultaneously
+- **Distributed execution console.log** - Captures controller operations and agent completion messages
+
+### **✨ Added - Testing & Validation**
+- **scripts/test_distributed_local.sh** - Comprehensive distributed execution test
+  - Starts 2 `dl_driver_agent` processes on localhost:50051-50052
+  - Runs controller with agent list, verifies all results
+  - Production-quality: follows sai3-bench pattern, full verification
+- **TSV format verification** - Automated checks for correct columns
+  - Per-agent: operation, size_bucket, bucket_idx, mean_us, p50/p90/p95/p99/max_us, avg_bytes, ops_per_sec, throughput_mibps, count
+  - Consolidated: same minus avg_bytes/throughput_mibps (not meaningful when aggregated)
+
+### **🔄 Changed - Latency Units**
+- **Microsecond precision** throughout codebase - Previously milliseconds
+  - TSV exports: `mean_us`, `p50_us`, `p90_us`, `p95_us`, `p99_us`, `max_us`
+  - Aligns with sai3-bench for consistency
+  - Better precision for fast operations (sub-millisecond I/O)
+
+### **🐛 Fixed - Distributed Execution Bugs**
+- **CLI bug fix** - Controller now calls `run_distributed_with_results()` instead of `run_distributed()`
+  - Previous: Tried to create `/tmp/dummy_results` with hardcoded 'config.yaml' path
+  - Fixed: Passes actual config_path for proper results directory creation
+- **Results directory ignored** - Added `dlio-*-*/` pattern to .gitignore
+
+### **📦 Configuration & Architecture**
+- **Per-agent results in agents/ subdirectory** - Each agent gets `agents/{agent-id}/` folder
+  - storage_results.tsv - Full bucket-level histogram from agent
+  - metadata.json - Agent execution metadata
+- **Consolidated results at top level** - Controller merges and writes
+  - consolidated_storage_results.tsv - Merged bucket-level histograms
+  - storage_results.tsv - High-level aggregates (backward compatibility)
+  - aiml_results.tsv - AI/ML training metrics
+  - config.yaml - Copy of input configuration
+  - console.log - Full execution log with statistics
+  - metadata.json - Run metadata (timestamp, duration, agent count)
+
+### **🧪 Testing**
+- ✅ All distributed tests passing - 2 agents, localhost deployment
+- ✅ Per-agent TSV format verified - Correct columns, bucket-level detail
+- ✅ Consolidated TSV verified - Merged histograms, not naively averaged percentiles
+- ✅ Console.log verified - Contains all completion messages and latencies
+- ✅ Zero warnings (production quality standard maintained)
+
+### **📝 Documentation**
+- Test script with comprehensive verification
+- Pattern matches sai3-bench distributed execution architecture
+- No streaming progress updates (same as sai3-bench - agents run silently, report on completion)
 
 ---
 

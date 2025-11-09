@@ -62,6 +62,48 @@ impl AgentService {
         }
     }
 
+    /// UNUSED: Create temporary results directory and export TSV content (file-based approach)
+    /// 
+    /// This was an alternative implementation that writes to temp files (like sai3-bench does).
+    /// Currently NOT USED - we generate TSV content in-memory instead (see export_to_string).
+    /// Kept for reference in case we need file-based approach later.
+    #[allow(dead_code)]
+    fn _create_agent_tsv_content_via_file(
+        agent_id: &str,
+        read_hists: &crate::metrics::StorageOpHists,
+        write_hists: &crate::metrics::StorageOpHists,
+        bytes_read: u64,
+        bytes_written: u64,
+        duration_s: f64,
+    ) -> Result<String, Status> {
+        use std::fs;
+        use crate::tsv_export::StorageTsvExporter;
+        
+        // Create temp directory for agent results (with PID for uniqueness)
+        let pid = std::process::id();
+        let agent_results_dir = std::env::temp_dir()
+            .join(format!("dl-driver-agent-{}-{}", agent_id, pid));
+        
+        fs::create_dir_all(&agent_results_dir)
+            .map_err(|e| Status::internal(format!("Failed to create temp results dir: {}", e)))?;
+        
+        // Export storage TSV with bucket-level histograms
+        let tsv_path = agent_results_dir.join("storage_results.tsv");
+        let exporter = StorageTsvExporter::new(&tsv_path);
+        
+        exporter.export_results(read_hists, write_hists, bytes_read, bytes_written, duration_s)
+            .map_err(|e| Status::internal(format!("Failed to export results: {}", e)))?;
+        
+        // Read back the TSV content
+        let tsv_content = fs::read_to_string(&tsv_path)
+            .map_err(|e| Status::internal(format!("Failed to read TSV content: {}", e)))?;
+        
+        // Cleanup temp directory (optional - /tmp will be cleaned eventually)
+        let _ = fs::remove_dir_all(&agent_results_dir);
+        
+        Ok(tsv_content)
+    }
+
     /// Execute a DLIO workload and return metrics
     async fn execute_workload(
         &self,
@@ -187,26 +229,40 @@ impl AgentService {
 
         let errors = 0u32; // TODO: Get error count from metrics
 
-        // v0.8.1: Serialize histograms for accurate aggregation on controller
+        // v0.8.6: Serialize ALL bucket histograms for accurate aggregation (like sai3-bench)
+        // This allows controller to properly merge histograms across agents
         use crate::dist::histogram::serialize_histogram;
         
-        // Serialize read histogram (all size buckets combined)
-        let histogram_read_latency = serialize_histogram(&combined_read)
-            .unwrap_or_else(|e| {
-                warn!("Failed to serialize read histogram: {}", e);
-                vec![]
-            });
+        // Serialize read histograms (all 9 size buckets)
+        let mut histogram_read = Vec::new();
+        for bucket_hist in read_hists.buckets.iter() {
+            let hist = bucket_hist.lock().unwrap();
+            serialize_histogram(&*hist)
+                .and_then(|bytes| {
+                    histogram_read.extend_from_slice(&bytes);
+                    Ok(())
+                })
+                .unwrap_or_else(|e| {
+                    warn!("Failed to serialize read histogram bucket: {}", e);
+                });
+        }
 
-        // Serialize write histogram (all size buckets combined)
-        let combined_write = write_hists.combined_histogram();
-        let histogram_write_latency = serialize_histogram(&combined_write)
-            .unwrap_or_else(|e| {
-                warn!("Failed to serialize write histogram: {}", e);
-                vec![]
-            });
+        // Serialize write histograms (all 9 size buckets)
+        let mut histogram_write = Vec::new();
+        for bucket_hist in write_hists.buckets.iter() {
+            let hist = bucket_hist.lock().unwrap();
+            serialize_histogram(&*hist)
+                .and_then(|bytes| {
+                    histogram_write.extend_from_slice(&bytes);
+                    Ok(())
+                })
+                .unwrap_or_else(|e| {
+                    warn!("Failed to serialize write histogram bucket: {}", e);
+                });
+        }
 
-        // Serialize batch time histogram
-        let histogram_batch_time = if let Some(batch_hist) = batch_hists.get_histogram() {
+        // Serialize batch time histogram (single histogram)
+        let histogram_batch = if let Some(batch_hist) = batch_hists.get_histogram() {
             serialize_histogram(&batch_hist)
                 .unwrap_or_else(|e| {
                     warn!("Failed to serialize batch histogram: {}", e);
@@ -233,6 +289,21 @@ impl AgentService {
             total_samples, total_batches, total_ops, duration_s
         );
 
+        // v0.8.6: Generate bucket-level TSV content in memory (like sai3-bench)
+        // This allows controller to write per-agent TSV files
+        use crate::tsv_export::StorageTsvExporter;
+        
+        let storage_tsv_content = StorageTsvExporter::export_to_string(
+            &read_hists,
+            &write_hists,
+            bytes_read,
+            bytes_written,
+            duration_s,
+        ).unwrap_or_else(|e| {
+            warn!("Failed to generate storage TSV content: {}", e);
+            String::new()
+        });
+
         Ok(WorkloadSummary {
             agent_id: agent_id.to_string(),
             // Storage metrics
@@ -257,16 +328,17 @@ impl AgentService {
             data_loading_time_s,
             compute_time_s,
             pipeline_efficiency,
-            // Inline results (v0.8.1 enhancement - currently unused)
+            // Inline results (v0.8.6 enhancement - bucket-level TSV content)
             console_log: String::new(),
             metadata_json: String::new(),
-            storage_tsv_content: String::new(),
+            storage_tsv_content,
             aiml_tsv_content: String::new(),
             results_path: String::new(),
-            // HDR histogram data (v0.8.1) - serialized for accurate aggregation
-            histogram_read_latency,
-            histogram_write_latency,
-            histogram_batch_time,
+            // HDR histogram data (v0.8.6) - serialized for accurate aggregation
+            // Each histogram field contains 9 serialized bucket histograms (except batch which has 1)
+            histogram_read,
+            histogram_write,
+            histogram_batch,
         })
     }
 }

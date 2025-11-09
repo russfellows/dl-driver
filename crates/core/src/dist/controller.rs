@@ -317,6 +317,14 @@ impl Controller {
         info!("📊 Aggregating results from {} agents...", results.len());
         results_dir.write_console(&format!("📊 Aggregating results from {} agents...", results.len()))?;
         
+        // Calculate wall time (max duration across all agents)
+        let wall_seconds = results.iter()
+            .map(|r| r.duration_s)
+            .fold(0.0f64, f64::max);
+        
+        // Write consolidated bucket-level histogram TSV (sai3-bench pattern)
+        Self::write_consolidated_histogram_tsv(results_dir, &summaries, wall_seconds)?;
+        
         // Aggregate results using histogram merging for accurate percentiles
         let aggregate = AggregateResults::from_results_with_histograms(results, &summaries)?;
         
@@ -333,10 +341,15 @@ impl Controller {
         agents_dir: &std::path::Path,
         agent_id: &str,
         result: &WorkloadResult,
-        _summary: &WorkloadSummary,
+        summary: &WorkloadSummary,
     ) -> Result<()> {
         
-        // Create agent metadata JSON
+        // Create agent subdirectory
+        let agent_dir = agents_dir.join(agent_id);
+        std::fs::create_dir_all(&agent_dir)
+            .with_context(|| format!("Failed to create agent directory: {}", agent_dir.display()))?;
+        
+        // Write metadata.json
         let metadata = serde_json::json!({
             "agent_id": agent_id,
             "ops_per_s": result.ops_per_s,
@@ -344,51 +357,26 @@ impl Controller {
             "total_ops": result.total_ops,
             "total_samples": result.total_samples,
             "epochs_completed": result.epochs_completed,
+            "p50_ms": result.p50_ms,
+            "p90_ms": result.p90_ms,
+            "p95_ms": result.p95_ms,
+            "p99_ms": result.p99_ms,
+            "duration_s": result.duration_s,
         });
         let metadata_json = serde_json::to_string_pretty(&metadata)?;
-        
-        // Generate storage TSV content (single-agent row)
-        let storage_tsv = format!(
-            "agent_id\tops_s\tmib_s\tp50_ms\tp90_ms\tp95_ms\tp99_ms\terrors\ttotal_ops\tduration_s\n{}\t{:.1}\t{:.1}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}\t{}\t{:.2}\n",
-            result.agent_id,
-            result.ops_per_s,
-            result.mib_per_s,
-            result.p50_ms,
-            result.p90_ms,
-            result.p95_ms,
-            result.p99_ms,
-            result.errors,
-            result.total_ops,
-            result.duration_s
-        );
-        
-        // Generate AI/ML TSV content (single-agent row)
-        let aiml_tsv = format!(
-            "agent_id\tsamples_s\ttotal_samples\tbatches_s\ttotal_batches\tsamples_per_batch\tavg_batch_ms\tepochs\tavg_epoch_s\tdata_load_s\tcompute_s\tpipeline_eff\n{}\t{:.1}\t{}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.3}\n",
-            result.agent_id,
-            result.samples_per_second,
-            result.total_samples,
-            result.batches_per_second,
-            result.total_batches,
-            result.samples_per_batch,
-            result.avg_batch_time_ms,
-            result.epochs_completed,
-            result.avg_epoch_time_s,
-            result.data_loading_time_s,
-            result.compute_time_s,
-            result.pipeline_efficiency,
-        );
-        
-        // Write to agents subdirectory (using ResultsDir helper method would be cleaner,
-        // but we can also do it directly here)
-        let agent_dir = agents_dir.join(agent_id);
-        std::fs::create_dir_all(&agent_dir)
-            .with_context(|| format!("Failed to create agent directory: {}", agent_dir.display()))?;
-        
-        std::fs::write(agent_dir.join("storage_results.tsv"), storage_tsv)?;
-        std::fs::write(agent_dir.join("aiml_results.tsv"), aiml_tsv)?;
         std::fs::write(agent_dir.join("metadata.json"), metadata_json)?;
         
+        // Write bucket-level storage TSV (from agent)
+        if !summary.storage_tsv_content.is_empty() {
+            std::fs::write(agent_dir.join("storage_results.tsv"), &summary.storage_tsv_content)?;
+        }
+        
+        // Write AI/ML TSV (if provided)
+        if !summary.aiml_tsv_content.is_empty() {
+            std::fs::write(agent_dir.join("aiml_results.tsv"), &summary.aiml_tsv_content)?;
+        }
+        
+        info!("Wrote agent {} results to: {}", agent_id, agent_dir.display());
         Ok(())
     }
 
@@ -458,4 +446,204 @@ impl Controller {
         let result = WorkloadResult::from(summary.clone());
         Ok((result, summary))
     }
+    
+    /// Write consolidated bucket-level histogram TSV (sai3-bench pattern)
+    /// 
+    /// Deserializes and merges histograms from all agents, then exports bucket-level
+    /// percentiles to consolidated_storage_results.tsv
+    fn write_consolidated_histogram_tsv(
+        results_dir: &crate::results_dir::ResultsDir,
+        summaries: &[WorkloadSummary],
+        wall_seconds: f64,
+    ) -> Result<()> {
+        use hdrhistogram::{Histogram, serialization::Deserializer};
+        use crate::metrics::{NUM_SIZE_BUCKETS, SIZE_BUCKET_LABELS};
+        use std::io::Write;
+        
+        const NUM_BUCKETS: usize = NUM_SIZE_BUCKETS;
+        
+        if summaries.is_empty() {
+            return Ok(());
+        }
+        
+        // Create accumulators for read and write operations
+        let mut read_accumulators: Vec<Histogram<u64>> = Vec::new();
+        let mut write_accumulators: Vec<Histogram<u64>> = Vec::new();
+        
+        for _ in 0..NUM_BUCKETS {
+            read_accumulators.push(Histogram::new(3)?);
+            write_accumulators.push(Histogram::new(3)?);
+        }
+        
+        // Deserialize and merge histograms from all agents
+        let mut deserializer = Deserializer::new();
+        
+        for (agent_idx, summary) in summaries.iter().enumerate() {
+            // Deserialize READ histograms
+            if !summary.histogram_read.is_empty() {
+                let mut cursor = &summary.histogram_read[..];
+                for bucket_idx in 0..NUM_BUCKETS {
+                    let hist: Histogram<u64> = deserializer.deserialize(&mut cursor)
+                        .with_context(|| format!(
+                            "Failed to deserialize READ histogram bucket {} from agent {}",
+                            bucket_idx, agent_idx
+                        ))?;
+                    read_accumulators[bucket_idx].add(hist)
+                        .with_context(|| format!(
+                            "Failed to merge READ histogram bucket {} from agent {}",
+                            bucket_idx, agent_idx
+                        ))?;
+                }
+            }
+            
+            // Deserialize WRITE histograms
+            if !summary.histogram_write.is_empty() {
+                let mut cursor = &summary.histogram_write[..];
+                for bucket_idx in 0..NUM_BUCKETS {
+                    let hist: Histogram<u64> = deserializer.deserialize(&mut cursor)
+                        .with_context(|| format!(
+                            "Failed to deserialize WRITE histogram bucket {} from agent {}",
+                            bucket_idx, agent_idx
+                        ))?;
+                    write_accumulators[bucket_idx].add(hist)
+                        .with_context(|| format!(
+                            "Failed to merge WRITE histogram bucket {} from agent {}",
+                            bucket_idx, agent_idx
+                        ))?;
+                }
+            }
+        }
+        
+        // Write consolidated TSV with bucket-level detail
+        let tsv_path = results_dir.path().join("consolidated_storage_results.tsv");
+        let mut f = std::fs::File::create(&tsv_path)
+            .with_context(|| format!("Failed to create consolidated TSV: {}", tsv_path.display()))?;
+        
+        // Write header (matching sai3-bench format)
+        writeln!(f, "operation\tsize_bucket\tbucket_idx\tmean_us\tp50_us\tp90_us\tp95_us\tp99_us\tmax_us\tops_per_sec\tcount")?;
+        
+        // Collect rows for sorting
+        let mut rows: Vec<(usize, String)> = Vec::new();
+        
+        // Collect READ bucket rows
+        for (bucket_idx, hist) in read_accumulators.iter().enumerate() {
+            let count = hist.len();
+            if count == 0 {
+                continue;
+            }
+            
+            let mean_us = hist.mean();
+            let p50_us = hist.value_at_quantile(0.50) as f64;
+            let p90_us = hist.value_at_quantile(0.90) as f64;
+            let p95_us = hist.value_at_quantile(0.95) as f64;
+            let p99_us = hist.value_at_quantile(0.99) as f64;
+            let max_us = hist.max() as f64;
+            
+            let ops_per_sec = count as f64 / wall_seconds;
+            
+            let row = format!(
+                "READ\t{}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}",
+                SIZE_BUCKET_LABELS[bucket_idx],
+                bucket_idx,
+                mean_us, p50_us, p90_us, p95_us, p99_us, max_us,
+                ops_per_sec,
+                count
+            );
+            
+            rows.push((bucket_idx, row));
+        }
+        
+        // Collect WRITE bucket rows
+        for (bucket_idx, hist) in write_accumulators.iter().enumerate() {
+            let count = hist.len();
+            if count == 0 {
+                continue;
+            }
+            
+            let mean_us = hist.mean();
+            let p50_us = hist.value_at_quantile(0.50) as f64;
+            let p90_us = hist.value_at_quantile(0.90) as f64;
+            let p95_us = hist.value_at_quantile(0.95) as f64;
+            let p99_us = hist.value_at_quantile(0.99) as f64;
+            let max_us = hist.max() as f64;
+            
+            let ops_per_sec = count as f64 / wall_seconds;
+            
+            let row = format!(
+                "WRITE\t{}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}",
+                SIZE_BUCKET_LABELS[bucket_idx],
+                bucket_idx,
+                mean_us, p50_us, p90_us, p95_us, p99_us, max_us,
+                ops_per_sec,
+                count
+            );
+            
+            rows.push((bucket_idx + NUM_BUCKETS, row)); // Offset for WRITE to sort after READ
+        }
+        
+        // Add aggregate rows (combine all buckets)
+        let mut read_combined = Histogram::new(3)?;
+        for hist in read_accumulators.iter() {
+            if hist.len() > 0 {
+                read_combined.add(hist)?;
+            }
+        }
+        
+        if read_combined.len() > 0 {
+            let count = read_combined.len();
+            let mean_us = read_combined.mean();
+            let p50_us = read_combined.value_at_quantile(0.50) as f64;
+            let p90_us = read_combined.value_at_quantile(0.90) as f64;
+            let p95_us = read_combined.value_at_quantile(0.95) as f64;
+            let p99_us = read_combined.value_at_quantile(0.99) as f64;
+            let max_us = read_combined.max() as f64;
+            let ops_per_sec = count as f64 / wall_seconds;
+            
+            let row = format!(
+                "READ\tALL\t98\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}",
+                mean_us, p50_us, p90_us, p95_us, p99_us, max_us,
+                ops_per_sec,
+                count
+            );
+            rows.push((98, row));
+        }
+        
+        let mut write_combined = Histogram::new(3)?;
+        for hist in write_accumulators.iter() {
+            if hist.len() > 0 {
+                write_combined.add(hist)?;
+            }
+        }
+        
+        if write_combined.len() > 0 {
+            let count = write_combined.len();
+            let mean_us = write_combined.mean();
+            let p50_us = write_combined.value_at_quantile(0.50) as f64;
+            let p90_us = write_combined.value_at_quantile(0.90) as f64;
+            let p95_us = write_combined.value_at_quantile(0.95) as f64;
+            let p99_us = write_combined.value_at_quantile(0.99) as f64;
+            let max_us = write_combined.max() as f64;
+            let ops_per_sec = count as f64 / wall_seconds;
+            
+            let row = format!(
+                "WRITE\tALL\t99\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}",
+                mean_us, p50_us, p90_us, p95_us, p99_us, max_us,
+                ops_per_sec,
+                count
+            );
+            rows.push((99, row));
+        }
+        
+        // Sort by bucket index
+        rows.sort_by_key(|(idx, _)| *idx);
+        
+        // Write all rows
+        for (_, row) in rows {
+            writeln!(f, "{}", row)?;
+        }
+        
+        info!("Consolidated bucket-level TSV written to: {}", tsv_path.display());
+        Ok(())
+    }
 }
+

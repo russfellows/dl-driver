@@ -72,6 +72,42 @@ impl StorageTsvExporter {
         Ok(())
     }
 
+    /// Export storage results to in-memory String (for distributed agents)
+    /// 
+    /// Same as export_results but returns TSV content as String instead of writing to file.
+    /// Used by distributed agents to send TSV data via gRPC without temp files.
+    pub fn export_to_string(
+        read_hists: &StorageOpHists,
+        write_hists: &StorageOpHists,
+        total_read_bytes: u64,
+        total_write_bytes: u64,
+        wall_seconds: f64,
+    ) -> Result<String> {
+        let mut output = String::new();
+        
+        // Write header
+        output.push_str("operation\tsize_bucket\tbucket_idx\tmean_us\tp50_us\tp90_us\tp95_us\tp99_us\tmax_us\tavg_bytes\tops_per_sec\tthroughput_mibps\tcount\n");
+
+        // Collect all rows
+        let mut rows = Vec::new();
+        
+        Self::collect_op_buckets_static(&mut rows, "READ", read_hists, total_read_bytes, wall_seconds)?;
+        Self::collect_op_buckets_static(&mut rows, "WRITE", write_hists, total_write_bytes, wall_seconds)?;
+        Self::collect_aggregate_row_static(&mut rows, "READ", 98, read_hists, total_read_bytes, wall_seconds)?;
+        Self::collect_aggregate_row_static(&mut rows, "WRITE", 99, write_hists, total_write_bytes, wall_seconds)?;
+
+        // Sort by bucket_idx
+        rows.sort_by_key(|(bucket_idx, _)| *bucket_idx);
+
+        // Write sorted rows
+        for (_, row) in rows {
+            output.push_str(&row);
+            output.push('\n');
+        }
+
+        Ok(output)
+    }
+
     fn collect_op_buckets(
         &self,
         rows: &mut Vec<(usize, String)>,
@@ -125,6 +161,101 @@ impl StorageTsvExporter {
 
     fn collect_aggregate_row(
         &self,
+        rows: &mut Vec<(usize, String)>,
+        op: &str,
+        bucket_idx: usize,
+        hists: &StorageOpHists,
+        total_bytes: u64,
+        wall_seconds: f64,
+    ) -> Result<()> {
+        let combined_hist = hists.combined_histogram();
+        let count = combined_hist.len();
+
+        if count == 0 {
+            return Ok(());
+        }
+
+        let avg_bytes = if count > 0 {
+            total_bytes as f64 / count as f64
+        } else {
+            0.0
+        };
+
+        let ops_per_sec = count as f64 / wall_seconds;
+        let throughput_mibps = (total_bytes as f64 / 1_048_576.0) / wall_seconds;
+
+        let row = format!(
+            "{}\tALL\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.0}\t{:.2}\t{:.2}\t{}",
+            op,
+            bucket_idx,
+            combined_hist.mean(),
+            combined_hist.value_at_quantile(0.50) as f64,
+            combined_hist.value_at_quantile(0.90) as f64,
+            combined_hist.value_at_quantile(0.95) as f64,
+            combined_hist.value_at_quantile(0.99) as f64,
+            combined_hist.max() as f64,
+            avg_bytes,
+            ops_per_sec,
+            throughput_mibps,
+            count
+        );
+
+        rows.push((bucket_idx, row));
+
+        Ok(())
+    }
+    
+    // Static helpers for export_to_string (no self reference needed)
+    
+    fn collect_op_buckets_static(
+        rows: &mut Vec<(usize, String)>,
+        op: &str,
+        hists: &StorageOpHists,
+        _total_bytes: u64,
+        wall_seconds: f64,
+    ) -> Result<()> {
+        for (i, bucket_label) in SIZE_BUCKET_LABELS.iter().enumerate() {
+            let hist = hists.buckets[i].lock().unwrap();
+            let count = hist.len();
+
+            if count == 0 {
+                continue;
+            }
+
+            let (bucket_ops, bucket_bytes) = hists.size_bins.get_bucket_stats(i);
+            let avg_bytes = if bucket_ops > 0 {
+                bucket_bytes as f64 / bucket_ops as f64
+            } else {
+                0.0
+            };
+
+            let ops_per_sec = count as f64 / wall_seconds;
+            let throughput_mibps = (bucket_bytes as f64 / 1_048_576.0) / wall_seconds;
+
+            let row = format!(
+                "{}\t{}\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.0}\t{:.2}\t{:.2}\t{}",
+                op,
+                bucket_label,
+                i,
+                hist.mean(),
+                hist.value_at_quantile(0.50) as f64,
+                hist.value_at_quantile(0.90) as f64,
+                hist.value_at_quantile(0.95) as f64,
+                hist.value_at_quantile(0.99) as f64,
+                hist.max() as f64,
+                avg_bytes,
+                ops_per_sec,
+                throughput_mibps,
+                count
+            );
+
+            rows.push((i, row));
+        }
+
+        Ok(())
+    }
+    
+    fn collect_aggregate_row_static(
         rows: &mut Vec<(usize, String)>,
         op: &str,
         bucket_idx: usize,
