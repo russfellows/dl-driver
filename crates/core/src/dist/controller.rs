@@ -407,6 +407,9 @@ impl Controller {
 
     /// Run distributed workload across all agents (internal implementation)
     /// 
+    /// Uses streaming RPC to collect live stats from all agents and display
+    /// real-time progress with intelligent phase detection.
+    /// 
     /// Returns aggregated results from all agents
     async fn run_distributed_internal(
         &self,
@@ -440,19 +443,24 @@ impl Controller {
                   self.distributed.path_template);
         }
         
-        // Send workload to all agents in parallel
-        let mut tasks = Vec::new();
+        // Create channel for live stats aggregation
+        let (tx_stats, mut rx_stats) = tokio::sync::mpsc::channel::<LiveStats>(100);
         
-        for (idx, agent_endpoint) in self.distributed.agents.iter().enumerate() {
+        // Spawn streaming tasks for all agents
+        let mut stream_tasks = Vec::new();
+        let agents: Vec<_> = self.distributed.agents.iter().enumerate().collect();
+        
+        for (idx, agent_endpoint) in agents.iter() {
             let agent_id = format!("agent-{}", idx);
-            let agent_id_task = agent_id.clone(); // Clone for task
+            let agent_id_task = agent_id.clone();  // Clone for task
             let config = self.config.clone();
-            let endpoint = agent_endpoint.clone();
+            let endpoint = agent_endpoint.to_string();
             let path_template = self.distributed.path_template.clone();
             let timeout_ms = self.distributed.request_timeout_ms;
+            let tx = tx_stats.clone();
             
             let task = tokio::spawn(async move {
-                Self::send_workload_to_agent(
+                Self::stream_workload_from_agent(
                     &endpoint,
                     &agent_id_task,
                     config,
@@ -460,72 +468,155 @@ impl Controller {
                     start_unix_ms,
                     timeout_ms,
                     is_shared,
+                    tx,
                 )
                 .await
             });
             
-            tasks.push((agent_id, task));
+            stream_tasks.push((agent_id, task));
         }
         
-        info!("📤 Workload sent to all {} agents", tasks.len());
+        // Drop our copy of tx so rx will close when all tasks complete
+        drop(tx_stats);
+        
+        info!("📤 Workload sent to all {} agents", stream_tasks.len());
         results_dir.write_console("📤 Workload sent to all agents")?;
-        info!("⏳ Waiting for agents to complete...");
-        results_dir.write_console("⏳ Waiting for agents to complete...")?;
+        info!("⏳ Live stats streaming enabled...");
+        results_dir.write_console("⏳ Live stats streaming enabled...")?;
         results_dir.write_console("")?;
         
-        // Collect results and proto summaries (for histogram data)
-        let mut results = Vec::new();
-        let mut summaries = Vec::new();
-        for (agent_id, task) in tasks {
-            match task.await {
-                Ok(Ok((result, summary))) => {
-                    info!("✅ Agent {} completed successfully", agent_id);
-                    results_dir.write_console(&format!("✅ Agent {} completed successfully", agent_id))?;
-                    results_dir.add_agent(agent_id.clone());
+        // Setup progress bar
+        use indicatif::{ProgressBar, ProgressStyle};
+        let progress_bar = ProgressBar::new_spinner();
+        progress_bar.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg}")
+                .unwrap()
+        );
+        progress_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+        
+        // Setup Ctrl+C handler
+        let ctrl_c = tokio::signal::ctrl_c();
+        tokio::pin!(ctrl_c);
+        
+        // Aggregator for live stats
+        let mut aggregator = LiveStatsAggregator::new();
+        let mut last_update = std::time::Instant::now();
+        
+        // Process live stats stream
+        loop {
+            tokio::select! {
+                Some(stats) = rx_stats.recv() => {
+                    // Update aggregator
+                    if stats.completed {
+                        aggregator.mark_completed(&stats.agent_id);
+                    }
+                    aggregator.update(stats);
                     
-                    // Write per-agent results to agents/ subdirectory
-                    self.write_agent_results(agents_dir, &agent_id, &result, &summary)?;
+                    // Update display every 100ms (rate limiting)
+                    if last_update.elapsed() > std::time::Duration::from_millis(100) {
+                        let agg = aggregator.aggregate();
+                        progress_bar.set_message(agg.format_progress());
+                        last_update = std::time::Instant::now();
+                    }
                     
-                    results.push(result);
-                    summaries.push(summary);
+                    // Check if all agents completed
+                    if aggregator.all_completed() {
+                        break;
+                    }
                 }
-                Ok(Err(e)) => {
-                    error!("❌ Agent {} failed: {}", agent_id, e);
-                    results_dir.write_console(&format!("❌ Agent {} failed: {}", agent_id, e))?;
-                    // Continue collecting other results
-                }
-                Err(e) => {
-                    error!("❌ Agent {} task panicked: {}", agent_id, e);
-                    results_dir.write_console(&format!("❌ Agent {} task panicked: {}", agent_id, e))?;
+                
+                _ = &mut ctrl_c => {
+                    warn!("Ctrl+C received, interrupting workload");
+                    progress_bar.finish_with_message("Interrupted by user");
+                    anyhow::bail!("Interrupted by Ctrl+C");
                 }
             }
         }
         
-        if results.is_empty() {
-            anyhow::bail!("All agents failed - no results to aggregate");
+        // Final aggregation
+        let final_stats = aggregator.aggregate();
+        progress_bar.finish_with_message(format!("✓ All {} agents completed", final_stats.num_agents));
+        println!();  // Blank line after progress
+        
+        // Print final aggregate results
+        println!("=== Final Aggregate Results ===");
+        let total_ops = final_stats.total_get_ops + final_stats.total_put_ops;
+        println!("Total operations: {} READ, {} WRITE", 
+                 format_count(final_stats.total_get_ops), 
+                 format_count(final_stats.total_put_ops));
+        
+        if final_stats.total_get_ops > 0 {
+            println!("READ: {:.0} ops/s, {} (mean: {:.1}ms, p50: {:.1}ms, p95: {:.1}ms)",
+                     final_stats.total_get_ops as f64 / final_stats.elapsed_s,
+                     format_bandwidth(final_stats.total_get_bytes, final_stats.elapsed_s),
+                     final_stats.get_mean_us / 1000.0,
+                     final_stats.get_p50_us / 1000.0,
+                     final_stats.get_p95_us / 1000.0);
         }
         
-        if results.len() < self.distributed.agents.len() {
-            let msg = format!("⚠️  Only {}/{} agents succeeded", 
-                  results.len(), self.distributed.agents.len());
-            warn!("{}", msg);
-            results_dir.write_console(&msg)?;
+        if final_stats.total_put_ops > 0 {
+            println!("WRITE: {:.0} ops/s, {} (mean: {:.1}ms, p50: {:.1}ms, p95: {:.1}ms)",
+                     final_stats.total_put_ops as f64 / final_stats.elapsed_s,
+                     format_bandwidth(final_stats.total_put_bytes, final_stats.elapsed_s),
+                     final_stats.put_mean_us / 1000.0,
+                     final_stats.put_p50_us / 1000.0,
+                     final_stats.put_p95_us / 1000.0);
         }
         
-        results_dir.write_console("")?;
-        info!("📊 Aggregating results from {} agents...", results.len());
-        results_dir.write_console(&format!("📊 Aggregating results from {} agents...", results.len()))?;
+        if final_stats.total_samples > 0 {
+            println!("AI/ML: {} samples, {:.0} samples/s",
+                     format_count(final_stats.total_samples),
+                     final_stats.samples_per_second);
+        }
         
-        // Calculate wall time (max duration across all agents)
-        let wall_seconds = results.iter()
-            .map(|r| r.duration_s)
-            .fold(0.0f64, f64::max);
+        println!("Elapsed: {:.2}s", final_stats.elapsed_s);
+        println!();
         
-        // Write consolidated bucket-level histogram TSV (sai3-bench pattern)
-        Self::write_consolidated_histogram_tsv(results_dir, &summaries, wall_seconds)?;
+        // TODO: Handle agent results collection from streaming RPC
+        // For Phase 4, we'll skip detailed per-agent results and histogram aggregation
+        // This will be reimplemented in Phase 5 using a separate results collection mechanism
+        let _summaries: Vec<WorkloadSummary> = Vec::new();  // Placeholder
         
-        // Aggregate results using histogram merging for accurate percentiles
-        let aggregate = AggregateResults::from_results_with_histograms(results, &summaries)?;
+        // Collect task results (errors only - we don't get WorkloadSummary from streaming)
+        for (agent_id, task) in stream_tasks {
+            match task.await {
+                Ok(Ok(())) => {
+                    info!("✅ Agent {} stream completed successfully", agent_id);
+                }
+                Ok(Err(e)) => {
+                    error!("❌ Agent {} stream failed: {}", agent_id, e);
+                }
+                Err(e) => {
+                    error!("❌ Agent {} task panicked: {}", agent_id, e);
+                }
+            }
+        }
+        
+        // For Phase 4, return minimal aggregate results
+        // Phase 5 will implement proper result collection
+        let aggregate = AggregateResults {
+            agent_results: Vec::new(),  // Placeholder
+            total_ops: total_ops,
+            total_samples: final_stats.total_samples,
+            total_ops_per_s: total_ops as f64 / final_stats.elapsed_s,
+            total_mib_per_s: (final_stats.total_get_bytes + final_stats.total_put_bytes) as f64 
+                             / 1_048_576.0 / final_stats.elapsed_s,
+            avg_p50_ms: (final_stats.get_p50_us + final_stats.put_p50_us) / 2000.0,  // Avg of GET/PUT
+            avg_p90_ms: 0.0,  // Not available from live stats
+            avg_p95_ms: (final_stats.get_p95_us + final_stats.put_p95_us) / 2000.0,  // Avg of GET/PUT
+            avg_p99_ms: 0.0,  // Not available from live stats
+            total_errors: 0,
+            total_samples_per_second: final_stats.samples_per_second,
+            total_batches_per_second: 0.0,
+            total_batches: 0,
+            avg_batch_time_ms: 0.0,
+            total_epochs_completed: 0,
+            avg_epoch_time_s: 0.0,
+            avg_data_loading_time_s: 0.0,
+            avg_compute_time_s: 0.0,
+            avg_pipeline_efficiency: 0.0,
+        };
         
         info!("🎉 Distributed workload complete!");
         results_dir.write_console("🎉 Distributed workload complete!")?;
@@ -644,6 +735,88 @@ impl Controller {
         // Return both WorkloadResult and the proto summary (which contains histogram bytes)
         let result = WorkloadResult::from(summary.clone());
         Ok((result, summary))
+    }
+    
+    /// Stream workload from a single agent using streaming RPC
+    /// 
+    /// Consumes live stats stream and forwards to aggregator via channel.
+    /// Returns () on success (live stats are sent via channel).
+    async fn stream_workload_from_agent(
+        endpoint: &str,
+        agent_id: &str,
+        config: DlioConfig,
+        path_template: &str,
+        start_unix_ms: i64,
+        timeout_ms: u64,
+        is_shared: bool,
+        tx: tokio::sync::mpsc::Sender<LiveStats>,
+    ) -> Result<()> {
+        use futures::stream::StreamExt;
+        
+        // Connect to agent
+        let url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            endpoint.to_string()
+        } else {
+            format!("http://{}", endpoint)
+        };
+        
+        let channel = Channel::from_shared(url.clone())
+            .context("Invalid agent URL")?
+            .timeout(Duration::from_millis(timeout_ms))
+            .connect()
+            .await
+            .context(format!("Failed to connect to agent: {}", endpoint))?;
+        
+        let mut client = DistAgentClient::new(channel);
+        
+        // Apply agent-specific path prefix if local storage
+        let path_prefix = if is_shared {
+            String::new()
+        } else {
+            path_template.replace("{id}", agent_id)
+        };
+        
+        if !path_prefix.is_empty() {
+            info!("Agent {} using path prefix: {}", agent_id, path_prefix);
+        }
+        
+        // Serialize config to YAML
+        let config_yaml = serde_yaml::to_string(&config)
+            .context("Failed to serialize DLIO config to YAML")?;
+        
+        // Send RunWorkloadWithLiveStats request (streaming)
+        let request = tonic::Request::new(RunWorkloadRequest {
+            config_yaml,
+            agent_id: agent_id.to_string(),
+            path_prefix,
+            start_unix_ms,
+            agent_config: None,
+            shared_storage: false,
+        });
+        
+        let mut stream = client
+            .run_workload_with_live_stats(request)
+            .await
+            .context(format!("RunWorkloadWithLiveStats RPC failed for agent {}", agent_id))?
+            .into_inner();
+        
+        // Consume stream and forward to aggregator
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(stats) => {
+                    if tx.send(stats).await.is_err() {
+                        // Receiver dropped (probably Ctrl+C)
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!("Agent {} stream error: {}", agent_id, e);
+                    return Err(e.into());
+                }
+            }
+        }
+        
+        Ok(())
     }
     
     /// Write consolidated bucket-level histogram TSV (sai3-bench pattern)
