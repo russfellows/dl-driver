@@ -187,26 +187,40 @@ impl AgentService {
 
         let errors = 0u32; // TODO: Get error count from metrics
 
-        // v0.8.1: Serialize histograms for accurate aggregation on controller
+        // v0.8.6: Serialize ALL bucket histograms for accurate aggregation (like sai3-bench)
+        // This allows controller to properly merge histograms across agents
         use crate::dist::histogram::serialize_histogram;
         
-        // Serialize read histogram (all size buckets combined)
-        let histogram_read_latency = serialize_histogram(&combined_read)
-            .unwrap_or_else(|e| {
-                warn!("Failed to serialize read histogram: {}", e);
-                vec![]
-            });
+        // Serialize read histograms (all 9 size buckets)
+        let mut histogram_read = Vec::new();
+        for bucket_hist in read_hists.buckets.iter() {
+            let hist = bucket_hist.lock().unwrap();
+            serialize_histogram(&*hist)
+                .and_then(|bytes| {
+                    histogram_read.extend_from_slice(&bytes);
+                    Ok(())
+                })
+                .unwrap_or_else(|e| {
+                    warn!("Failed to serialize read histogram bucket: {}", e);
+                });
+        }
 
-        // Serialize write histogram (all size buckets combined)
-        let combined_write = write_hists.combined_histogram();
-        let histogram_write_latency = serialize_histogram(&combined_write)
-            .unwrap_or_else(|e| {
-                warn!("Failed to serialize write histogram: {}", e);
-                vec![]
-            });
+        // Serialize write histograms (all 9 size buckets)
+        let mut histogram_write = Vec::new();
+        for bucket_hist in write_hists.buckets.iter() {
+            let hist = bucket_hist.lock().unwrap();
+            serialize_histogram(&*hist)
+                .and_then(|bytes| {
+                    histogram_write.extend_from_slice(&bytes);
+                    Ok(())
+                })
+                .unwrap_or_else(|e| {
+                    warn!("Failed to serialize write histogram bucket: {}", e);
+                });
+        }
 
-        // Serialize batch time histogram
-        let histogram_batch_time = if let Some(batch_hist) = batch_hists.get_histogram() {
+        // Serialize batch time histogram (single histogram)
+        let histogram_batch = if let Some(batch_hist) = batch_hists.get_histogram() {
             serialize_histogram(&batch_hist)
                 .unwrap_or_else(|e| {
                     warn!("Failed to serialize batch histogram: {}", e);
@@ -264,9 +278,10 @@ impl AgentService {
             aiml_tsv_content: String::new(),
             results_path: String::new(),
             // HDR histogram data (v0.8.1) - serialized for accurate aggregation
-            histogram_read_latency,
-            histogram_write_latency,
-            histogram_batch_time,
+            // Each histogram field contains 9 serialized bucket histograms (except batch which has 1)
+            histogram_read,
+            histogram_write,
+            histogram_batch,
         })
     }
 }

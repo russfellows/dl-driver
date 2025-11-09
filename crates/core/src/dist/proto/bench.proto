@@ -88,12 +88,15 @@ message WorkloadSummary {
   string aiml_tsv_content = 25;     // AI/ML metrics TSV
   string results_path = 26;         // Local path where agent saved results
   
-  // === HDR HISTOGRAM DATA (v0.8.1) ===
+  // === HDR HISTOGRAM DATA (v0.8.6) ===
   // Serialized HDR histograms for accurate aggregation across agents
   // Using HDR histogram allows mathematically correct percentile merging
-  bytes histogram_read_latency = 27;   // Read operation latencies
-  bytes histogram_write_latency = 28;  // Write operation latencies
-  bytes histogram_batch_time = 29;     // Batch processing times (AI/ML)
+  // Each histogram type contains ALL size buckets serialized sequentially
+  // (9 buckets for read/write: 0-4KiB, 4-32KiB, 32-128KiB, 128-512KiB, 
+  //  512KiB-4MiB, 4-32MiB, 32-256MiB, 256MiB-1GiB, 1GiB+)
+  bytes histogram_read = 27;    // Read operation latencies (all size buckets)
+  bytes histogram_write = 28;   // Write operation latencies (all size buckets)
+  bytes histogram_batch = 29;   // Batch processing times (single histogram)
 }
 
 // Health check response
