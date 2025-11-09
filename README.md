@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.91.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.5-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.6-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
@@ -22,7 +22,10 @@
 
 ## 🎯 Current Status
 
-**🎉 v0.8.5 RELEASED**: Multi-endpoint load balancing for distributed storage
+**🎉 v0.8.6 RELEASED**: Production-quality distributed histogram aggregation
+**📊 BUCKET-LEVEL HISTOGRAMS**: 9-bucket histogram aggregation across distributed agents
+**🎯 ACCURATE PERCENTILES**: HDR histogram merging for mathematically correct aggregation
+**📁 CONSOLE.LOG IMPROVEMENTS**: Full performance statistics captured (completion, latencies, throughput)
 **⚡ MULTI-ENDPOINT**: Load balance across multiple S3/storage endpoints with round-robin or least-connections
 **♻️ CHECKPOINT RELOAD**: Resume training from saved checkpoints with --resume-from-checkpoint flag
 **🧪 COMPREHENSIVE TESTS**: Multi-backend checkpoint tests (file://, s3://, az://, gs://, direct://) 
@@ -35,6 +38,8 @@
 **✅ 133/133 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
+- **📊 Distributed Histogram Aggregation**: Bucket-level HDR histogram merging for accurate percentiles across agents
+- **📁 Enhanced Results Capture**: console.log includes all completion messages, latencies, and throughput statistics
 - **⚡ Multi-Endpoint Load Balancing**: Distribute requests across multiple storage endpoints (round-robin or least-connections)
 - **♻️ Checkpoint Reload**: Resume training from saved checkpoints with automatic state restoration
 - **💾 Checkpoint Plugin**: Step-based and epoch-based checkpointing with multi-backend support (file://, s3://, az://, gs://)
@@ -42,7 +47,7 @@
 - **🌐 Multi-Agent Orchestration**: Controller coordinates workloads across multiple agent instances
 - **💓 Coordinated Start**: Synchronized workload execution with health checking
 - **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents with histogram-based percentiles
-- **📁 Structured Results**: Complete results directory with per-agent TSV files and consolidated metrics
+- **📁 Structured Results**: Complete results directory with per-agent TSV files and consolidated bucket-level histograms
 - **🗂️ Path Isolation**: Agent-specific path prefixes for local storage isolation
 - **☁️ Shared Storage**: Automatic detection and handling of GCS/S3/Azure shared backends
 - **✅ E2E Validated**: 2-node and 4-node configurations tested (local + cloud storage)
