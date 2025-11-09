@@ -33,6 +33,8 @@ pub struct WorkloadRunner {
     // v0.8.6: Live performance statistics tracking
     live_ops: Arc<AtomicU64>,
     live_bytes: Arc<AtomicU64>,
+    // v0.8.6: Optional results directory for console.log output
+    results_dir: Option<std::sync::Arc<std::sync::Mutex<crate::results_dir::ResultsDir>>>,
 }
 
 /// Spawn a background task to monitor and display live performance statistics
@@ -117,7 +119,14 @@ impl WorkloadRunner {
             multi_endpoint_store: None,
             live_ops: Arc::new(AtomicU64::new(0)),
             live_bytes: Arc::new(AtomicU64::new(0)),
+            results_dir: None,
         }
+    }
+    
+    /// Set results directory for console.log output
+    pub fn with_results_dir(mut self, results_dir: std::sync::Arc<std::sync::Mutex<crate::results_dir::ResultsDir>>) -> Self {
+        self.results_dir = Some(results_dir);
+        self
     }
 
     /// Set plugin manager for checkpoint and other plugin functionality
@@ -147,6 +156,16 @@ impl WorkloadRunner {
         self.world_size = world_size;
         self.file_list = file_list;
         self
+    }
+    
+    /// Print to stdout AND write to console.log (if results_dir is set)
+    fn println_and_log(&self, msg: &str) {
+        println!("{}", msg);
+        if let Some(ref rd) = self.results_dir {
+            if let Ok(mut rd_guard) = rd.lock() {
+                let _ = rd_guard.write_console(msg);
+            }
+        }
     }
 
     /// Execute ONLY the training phase for DLIO compliance measurement
@@ -435,21 +454,25 @@ impl WorkloadRunner {
             let p95_us = combined.value_at_quantile(0.95) as f64;
             let p99_us = combined.value_at_quantile(0.99) as f64;
             
-            println!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
+            let status_line = format!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
                 num_files, 
                 total_bytes as f64 / 1_073_741_824.0,
                 generation_time.as_secs_f64(),
                 throughput_mibs
             );
-            println!("   Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
+            let latency_line = format!("   Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
                 mean_us, p50_us, p90_us, p95_us, p99_us);
+            
+            self.println_and_log(&status_line);
+            self.println_and_log(&latency_line);
         } else {
-            println!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
+            let status_line = format!("✅ Generated {} files ({:.2} GiB) in {:.2}s @ {:.1} MiB/s", 
                 num_files, 
                 total_bytes as f64 / 1_073_741_824.0,
                 generation_time.as_secs_f64(),
                 throughput_mibs
             );
+            self.println_and_log(&status_line);
         }
         
         info!("Data generation completed in {:?}", generation_time);
@@ -718,20 +741,24 @@ impl WorkloadRunner {
             if has_samples && batch_count > 0 {
                 let throughput_mibs = (total_bytes as f64 / 1_048_576.0) / epoch_total_time.as_secs_f64();
                 
-                println!(
+                let status_line = format!(
                     "✅ Epoch {}/{} complete: {} batches, {} samples, {:.1}MiB in {:.2}s @ {:.1} MiB/s",
                     epoch + 1, epochs, batch_count, total_samples, 
                     total_bytes as f64 / 1_048_576.0, epoch_total_time.as_secs_f64(), throughput_mibs
                 );
-                println!("   Batch Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
+                let latency_line = format!("   Batch Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
                     mean_us, p50_us, p90_us, p95_us, p99_us);
+                
+                self.println_and_log(&status_line);
+                self.println_and_log(&latency_line);
             } else {
                 let throughput_mibs = (total_bytes as f64 / 1_048_576.0) / epoch_total_time.as_secs_f64();
-                println!(
+                let status_line = format!(
                     "✅ Epoch {}/{} complete: {} batches, {} samples, {:.1}MiB in {:.2}s @ {:.1} MiB/s",
                     epoch + 1, epochs, batch_count, total_samples, 
                     total_bytes as f64 / 1_048_576.0, epoch_total_time.as_secs_f64(), throughput_mibs
                 );
+                self.println_and_log(&status_line);
             }
             
             info!(

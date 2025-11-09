@@ -364,9 +364,10 @@ async fn run_unified_dlio(
     info!("Loading DLIO config from: {:?}", config_path);
 
     // v0.8.6: Create results directory (only for rank 0 in multi-rank mode)
-    let mut results_dir = if rank.unwrap_or(0) == 0 {
+    // v0.8.6: Wrap results_dir in Arc<Mutex<>> at creation time for sharing with runners
+    let results_dir = if rank.unwrap_or(0) == 0 {
         use dl_driver_core::results_dir::ResultsDir;
-        let results_dir = ResultsDir::create(
+        let rd = ResultsDir::create(
             config_path, 
             None,  // Use config filename as test name
             results_path,  // Optional base directory
@@ -375,7 +376,7 @@ async fn run_unified_dlio(
         
         let msg = format!("Running workload from: {:?}", config_path);
         println!("{}", msg);
-        Some(results_dir)
+        Some(std::sync::Arc::new(std::sync::Mutex::new(rd)))
     } else {
         info!("Rank {}: Worker rank, results directory managed by rank 0", rank.unwrap());
         None
@@ -526,22 +527,30 @@ async fn run_unified_dlio(
     if dlio_config.workflow.as_ref().map_or(false, |w| w.generate_data.unwrap_or(false)) {
         let msg = "\n📁 Phase 1: Data Generation";
         println!("{}", msg);
-        if let Some(ref mut rd) = results_dir {
-            rd.write_console(msg)?;
+        if let Some(ref rd) = results_dir {
+            rd.lock().unwrap().write_console(msg)?;
         }
         info!("Phase 1: Generating data");
         
         // v0.8.6: Use WorkloadRunner for data generation to ensure consistent live stats
         // This provides the same live performance monitoring as training phase
         let mut generation_runner = dl_driver_core::WorkloadRunner::new(dlio_config.clone());
+        
+        // Pass results_dir to runner so completion messages go to console.log
+        if let Some(ref rd) = results_dir {
+            generation_runner = generation_runner.with_results_dir(
+                std::sync::Arc::clone(rd)
+            );
+        }
+        
         generation_runner.run_data_generation().await
             .context("Data generation failed")?;
         
         // v0.8.6: Export generation metrics TSV (rank 0 only)
         if current_rank == 0 {
-            if let Some(ref mut rd) = results_dir {
+            if let Some(ref rd) = results_dir {
                 use dl_driver_core::tsv_export::StorageTsvExporter;
-                let generation_tsv_path = rd.generation_tsv_path();
+                let generation_tsv_path = rd.lock().unwrap().generation_tsv_path();
                 let generation_exporter = StorageTsvExporter::new(&generation_tsv_path);
                 
                 let generation_metrics = generation_runner.get_metrics();
@@ -561,7 +570,7 @@ async fn run_unified_dlio(
                 ).context("Failed to export generation metrics to TSV")?;
                 
                 let export_msg = format!("Generation metrics exported to: {}", generation_tsv_path.display());
-                rd.write_console(&export_msg)?;
+                rd.lock().unwrap().write_console(&export_msg)?;
             }
         }
     }
@@ -570,8 +579,8 @@ async fn run_unified_dlio(
     if dlio_config.workflow.as_ref().map_or(true, |w| w.train.unwrap_or(true)) {
         let msg = "\n🚀 Phase 2: Training";
         println!("{}", msg);
-        if let Some(ref mut rd) = results_dir {
-            rd.write_console(msg)?;
+        if let Some(ref rd) = results_dir {
+            rd.lock().unwrap().write_console(msg)?;
         }
         info!("Phase 2: Training workload (MEASURED for AU calculation)");
         
@@ -622,6 +631,13 @@ async fn run_unified_dlio(
             .with_plugins(plugins)
             .with_accelerator_config(accelerator_count, strict_au)
             .with_rank_config(current_rank, total_ranks, sharded_file_list.clone());
+        
+        // Pass results_dir to runner so completion messages go to console.log
+        if let Some(ref rd) = results_dir {
+            workload_runner = workload_runner.with_results_dir(
+                std::sync::Arc::clone(rd)
+            );
+        }
         
         // Resume from checkpoint if loaded
         if let Some(checkpoint) = checkpoint_state {
@@ -684,14 +700,14 @@ async fn run_unified_dlio(
 
         // v0.8.6: Export TSV metrics to results directory (rank 0 only)
         if current_rank == 0 {
-            if let Some(ref mut rd) = results_dir {
+            if let Some(ref rd) = results_dir {
                 let msg = "\n📊 Exporting metrics...";
                 println!("{}", msg);
-                rd.write_console(msg)?;
+                rd.lock().unwrap().write_console(msg)?;
                 
                 // Export training metrics TSV
                 use dl_driver_core::tsv_export::StorageTsvExporter;
-                let training_tsv_path = rd.training_tsv_path();
+                let training_tsv_path = rd.lock().unwrap().training_tsv_path();
                 let training_exporter = StorageTsvExporter::new(&training_tsv_path);
                 
                 let read_hists = workload_metrics.get_read_histograms();
@@ -712,7 +728,7 @@ async fn run_unified_dlio(
                 
                 let export_msg = format!("Training metrics exported to: {}", training_tsv_path.display());
                 println!("{}", export_msg);
-                rd.write_console(&export_msg)?;
+                rd.lock().unwrap().write_console(&export_msg)?;
             }
         }
 
@@ -768,15 +784,15 @@ async fn run_unified_dlio(
 
     let msg = "✅ DLIO workload completed successfully";
     println!("{}", msg);
-    if let Some(ref mut rd) = results_dir {
-        rd.write_console(msg)?;
+    if let Some(ref rd) = results_dir {
+        rd.lock().unwrap().write_console(msg)?;
     }
 
     // v0.8.6: Finalize results directory
-    if let Some(mut rd) = results_dir {
+    if let Some(rd) = results_dir {
         let duration_secs = run_start_time.elapsed().as_secs_f64();
-        rd.finalize(duration_secs, total_ranks as usize)?;
-        println!("📊 Results saved to: {}", rd.path().display());
+        rd.lock().unwrap().finalize(duration_secs, total_ranks as usize)?;
+        println!("📊 Results saved to: {}", rd.lock().unwrap().path().display());
     }
 
     // Output results based on mode

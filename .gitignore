@@ -7,6 +7,9 @@ aws-env
 data/
 *.npz
 
+# Test result directories (dlio-YYYYMMDD-HHMM-testname format)
+dlio-*-*/
+
 # Python wheel contents and build artifacts
 s3dlio_wheel_contents/
 __pycache__/
