@@ -1298,9 +1298,12 @@ async fn run_distributed(
         return Ok(());
     }
     
-    // Run distributed workload
+    // Run distributed workload with results directory
     info!("🚀 Starting distributed workload execution...");
-    let aggregate_results = controller.run_distributed().await?;
+    let aggregate_results = controller.run_distributed_with_results(
+        Some(config_path),
+        None,  // Use default output directory (current directory)
+    ).await?;
     
     // Display results
     println!("\n╔════════════════════════════════════════════════╗");
