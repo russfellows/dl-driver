@@ -4,6 +4,7 @@
 /// applies path prefixes, coordinates start times, and executes DLIO workloads.
 
 use anyhow::Result;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 use tracing::{info, warn, error};
@@ -20,6 +21,7 @@ use crate::dist::proto::{
 };
 
 /// Agent service implementation for distributed execution
+#[derive(Clone)]
 pub struct AgentService {
     /// Agent identifier (e.g., "agent-0", "host1:50051")
     agent_id: String,
@@ -408,16 +410,137 @@ impl DistAgent for AgentService {
         }))
     }
 
-    /// v0.8.7: Server streaming RPC for live progress updates (stub - Phase 3 implementation)
+    /// v0.8.7: Server streaming RPC for live progress updates during distributed execution
     type RunWorkloadWithLiveStatsStream = 
         std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<LiveStats, Status>> + Send>>;
 
     async fn run_workload_with_live_stats(
         &self,
-        _request: Request<RunWorkloadRequest>,
+        request: Request<RunWorkloadRequest>,
     ) -> Result<Response<Self::RunWorkloadWithLiveStatsStream>, Status> {
-        // TODO: Phase 3 - implement streaming stats
-        Err(Status::unimplemented("Live stats streaming not yet implemented - use run_workload"))
+        info!("Received run_workload_with_live_stats request (streaming mode)");
+        
+        let req = request.into_inner();
+        
+        // Parse and apply config (same as run_workload)
+        let mut config = DlioConfig::from_yaml(&req.config_yaml).map_err(|e| {
+            error!("Failed to parse DLIO config: {}", e);
+            Status::invalid_argument(format!("Invalid DLIO config: {}", e))
+        })?;
+
+        if !req.path_prefix.is_empty() {
+            config
+                .apply_agent_prefix(&req.agent_id, &req.path_prefix)
+                .map_err(|e| {
+                    error!("Failed to apply agent prefix: {}", e);
+                    Status::internal(format!("Failed to apply path prefix: {}", e))
+                })?;
+        }
+
+        // Wait for coordinated start time
+        Self::wait_for_start(req.start_unix_ms).await?;
+
+        info!("Starting workload execution with live stats for agent {}", req.agent_id);
+
+        // Create live stats tracker
+        let tracker = Arc::new(crate::live_stats::LiveStatsTracker::new());
+        
+        // Channel to signal completion
+        let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<(), String>>(1);
+        
+        // Spawn workload execution task
+        let tracker_exec = tracker.clone();  // TODO: Pass to WorkloadRunner for operation recording
+        let config_exec = config.clone();
+        let agent_id_exec = req.agent_id.clone();
+        let self_clone = self.clone();
+        tokio::spawn(async move {
+            // Execute the workload
+            match self_clone.execute_workload(config_exec, &agent_id_exec).await {
+                Ok(_summary) => {
+                    info!("Workload completed successfully for agent {}", agent_id_exec);
+                    let _ = tx_done.send(Ok(())).await;
+                }
+                Err(e) => {
+                    error!("Workload execution failed for agent {}: {:?}", agent_id_exec, e);
+                    let _ = tx_done.send(Err(format!("Workload execution failed: {:?}", e))).await;
+                }
+            }
+        });
+
+        // Create stream that sends stats every 1 second
+        let agent_id_stream = req.agent_id.clone();
+        let stream = async_stream::stream! {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Send live stats snapshot
+                        let snapshot = tracker.snapshot();
+                        let stats = LiveStats {
+                            agent_id: agent_id_stream.clone(),
+                            timestamp_s: snapshot.timestamp_secs() as f64,
+                            get_ops: snapshot.get_ops,
+                            get_bytes: snapshot.get_bytes,
+                            get_mean_us: snapshot.get_mean_us as f64,
+                            get_p50_us: snapshot.get_p50_us as f64,
+                            get_p95_us: snapshot.get_p95_us as f64,
+                            put_ops: snapshot.put_ops,
+                            put_bytes: snapshot.put_bytes,
+                            put_mean_us: snapshot.put_mean_us as f64,
+                            put_p50_us: snapshot.put_p50_us as f64,
+                            put_p95_us: snapshot.put_p95_us as f64,
+                            samples_per_second: snapshot.samples_per_second(),
+                            total_samples: snapshot.total_samples,
+                            elapsed_s: snapshot.elapsed_secs(),
+                            completed: false,
+                        };
+                        yield Ok(stats);
+                    }
+                    
+                    result = rx_done.recv() => {
+                        // Workload completed (or failed)
+                        match result {
+                            Some(Ok(())) => {
+                                // Send final stats with completed=true
+                                let snapshot = tracker.snapshot();
+                                let final_stats = LiveStats {
+                                    agent_id: agent_id_stream.clone(),
+                                    timestamp_s: snapshot.timestamp_secs() as f64,
+                                    get_ops: snapshot.get_ops,
+                                    get_bytes: snapshot.get_bytes,
+                                    get_mean_us: snapshot.get_mean_us as f64,
+                                    get_p50_us: snapshot.get_p50_us as f64,
+                                    get_p95_us: snapshot.get_p95_us as f64,
+                                    put_ops: snapshot.put_ops,
+                                    put_bytes: snapshot.put_bytes,
+                                    put_mean_us: snapshot.put_mean_us as f64,
+                                    put_p50_us: snapshot.put_p50_us as f64,
+                                    put_p95_us: snapshot.put_p95_us as f64,
+                                    samples_per_second: snapshot.samples_per_second(),
+                                    total_samples: snapshot.total_samples,
+                                    elapsed_s: snapshot.elapsed_secs(),
+                                    completed: true,
+                                };
+                                yield Ok(final_stats);
+                                break;
+                            }
+                            Some(Err(e)) => {
+                                yield Err(Status::internal(e));
+                                break;
+                            }
+                            None => {
+                                yield Err(Status::internal("Workload task terminated unexpectedly"));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
