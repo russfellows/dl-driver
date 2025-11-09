@@ -14,6 +14,7 @@ use crate::dist::proto::{
     dist_agent_server::DistAgent, 
     HealthCheckRequest, 
     HealthCheckResponse,
+    LiveStats,
     RunWorkloadRequest, 
     WorkloadSummary,
 };
@@ -405,6 +406,18 @@ impl DistAgent for AgentService {
             status: "healthy".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }))
+    }
+
+    /// v0.8.7: Server streaming RPC for live progress updates (stub - Phase 3 implementation)
+    type RunWorkloadWithLiveStatsStream = 
+        std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<LiveStats, Status>> + Send>>;
+
+    async fn run_workload_with_live_stats(
+        &self,
+        _request: Request<RunWorkloadRequest>,
+    ) -> Result<Response<Self::RunWorkloadWithLiveStatsStream>, Status> {
+        // TODO: Phase 3 - implement streaming stats
+        Err(Status::unimplemented("Live stats streaming not yet implemented - use run_workload"))
     }
 }
 

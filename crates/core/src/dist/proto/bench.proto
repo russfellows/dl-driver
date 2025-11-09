@@ -108,6 +108,35 @@ message HealthCheckResponse {
 // Empty request for health check
 message HealthCheckRequest {}
 
+// v0.8.7: Live performance statistics for distributed execution
+// Sent every 1 second during workload execution for real-time visibility
+// Uses unified get/put terminology (same as sai3-bench) for consistency
+message LiveStats {
+  string agent_id = 1;
+  double timestamp_s = 2;        // Seconds since workload start
+  
+  // GET operations (read from storage - training phase)
+  uint64 get_ops = 3;
+  uint64 get_bytes = 4;
+  double get_mean_us = 5;
+  double get_p50_us = 6;
+  double get_p95_us = 7;
+  
+  // PUT operations (write to storage - data prep phase)
+  uint64 put_ops = 8;
+  uint64 put_bytes = 9;
+  double put_mean_us = 10;
+  double put_p50_us = 11;
+  double put_p95_us = 12;
+  
+  // AI/ML training metrics (active during training phase)
+  double samples_per_second = 13;
+  uint64 total_samples = 14;
+  
+  double elapsed_s = 15;
+  bool completed = 16;           // True on final message
+}
+
 // Distributed agent service
 service DistAgent {
   // Execute a DLIO workload and return metrics
@@ -115,4 +144,7 @@ service DistAgent {
   
   // Health check to verify agent is responsive
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // v0.8.7: Server streaming for live progress updates during distributed execution
+  rpc RunWorkloadWithLiveStats(RunWorkloadRequest) returns (stream LiveStats);
 }
