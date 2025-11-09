@@ -13,9 +13,208 @@ use tracing::{info, warn, error};
 
 use crate::dlio_compat::DlioConfig;
 use crate::dist::proto::dist_agent_client::DistAgentClient;
-use crate::dist::proto::{RunWorkloadRequest, HealthCheckRequest, WorkloadSummary};
+use crate::dist::proto::{RunWorkloadRequest, HealthCheckRequest, WorkloadSummary, LiveStats};
 use crate::dist::types::{AggregateResults, WorkloadResult};
 use crate::dist::path_utils::is_shared_storage;
+
+/// Aggregated live statistics across all agents
+#[derive(Debug, Clone)]
+struct AggregateStats {
+    num_agents: usize,
+    elapsed_s: f64,
+    
+    // GET operations
+    total_get_ops: u64,
+    total_get_bytes: u64,
+    get_mean_us: f64,
+    get_p50_us: f64,
+    get_p95_us: f64,
+    
+    // PUT operations
+    total_put_ops: u64,
+    total_put_bytes: u64,
+    put_mean_us: f64,
+    put_p50_us: f64,
+    put_p95_us: f64,
+    
+    // AI/ML metrics
+    samples_per_second: f64,
+    total_samples: u64,
+}
+
+impl AggregateStats {
+    /// Format progress message with intelligent phase detection
+    /// 
+    /// - >90% GET ops: Training phase (show samples/s)
+    /// - >90% PUT ops: Data prep phase (show PUT only)
+    /// - Mixed: Show both GET and PUT
+    fn format_progress(&self) -> String {
+        let total_ops = self.total_get_ops + self.total_put_ops;
+        if total_ops == 0 {
+            return "Waiting for operations...".to_string();
+        }
+        
+        let get_ratio = self.total_get_ops as f64 / total_ops as f64;
+        let put_ratio = self.total_put_ops as f64 / total_ops as f64;
+        
+        // Phase detection
+        if get_ratio > 0.90 {
+            // Training phase - emphasize samples/s
+            format!(
+                "Training: {} samples/s │ GET: {} ops, {} ({:.1}ms mean, {:.1}ms p95)",
+                format_count(self.samples_per_second as u64),
+                format_count(self.total_get_ops),
+                format_bandwidth(self.total_get_bytes, self.elapsed_s),
+                self.get_mean_us / 1000.0,
+                self.get_p95_us / 1000.0
+            )
+        } else if put_ratio > 0.90 {
+            // Data prep phase - show PUT only
+            format!(
+                "Data Prep: PUT {} ops, {} ({:.1}ms mean, {:.1}ms p95)",
+                format_count(self.total_put_ops),
+                format_bandwidth(self.total_put_bytes, self.elapsed_s),
+                self.put_mean_us / 1000.0,
+                self.put_p95_us / 1000.0
+            )
+        } else {
+            // Mixed phase - show both (multi-line via newline)
+            format!(
+                "GET: {} ops, {} ({:.1}ms mean) │ PUT: {} ops, {} ({:.1}ms mean)",
+                format_count(self.total_get_ops),
+                format_bandwidth(self.total_get_bytes, self.elapsed_s),
+                self.get_mean_us / 1000.0,
+                format_count(self.total_put_ops),
+                format_bandwidth(self.total_put_bytes, self.elapsed_s),
+                self.put_mean_us / 1000.0
+            )
+        }
+    }
+}
+
+/// Helper to format large counts with K/M/B suffixes
+fn format_count(n: u64) -> String {
+    if n >= 1_000_000_000 {
+        format!("{:.2}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
+        format!("{:.2}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.2}K", n as f64 / 1_000.0)
+    } else {
+        format!("{}", n)
+    }
+}
+
+/// Helper to format bandwidth (bytes/sec)
+fn format_bandwidth(bytes: u64, seconds: f64) -> String {
+    if seconds == 0.0 {
+        return "0 B/s".to_string();
+    }
+    
+    let bytes_per_sec = bytes as f64 / seconds;
+    if bytes_per_sec >= 1_073_741_824.0 {
+        format!("{:.2} GiB/s", bytes_per_sec / 1_073_741_824.0)
+    } else if bytes_per_sec >= 1_048_576.0 {
+        format!("{:.2} MiB/s", bytes_per_sec / 1_048_576.0)
+    } else if bytes_per_sec >= 1024.0 {
+        format!("{:.2} KiB/s", bytes_per_sec / 1024.0)
+    } else {
+        format!("{:.0} B/s", bytes_per_sec)
+    }
+}
+
+/// Aggregates live statistics from multiple agents
+struct LiveStatsAggregator {
+    latest_stats: std::collections::HashMap<String, LiveStats>,
+    completed_agents: std::collections::HashSet<String>,
+}
+
+impl LiveStatsAggregator {
+    fn new() -> Self {
+        Self {
+            latest_stats: std::collections::HashMap::new(),
+            completed_agents: std::collections::HashSet::new(),
+        }
+    }
+    
+    fn update(&mut self, stats: LiveStats) {
+        self.latest_stats.insert(stats.agent_id.clone(), stats);
+    }
+    
+    fn mark_completed(&mut self, agent_id: &str) {
+        self.completed_agents.insert(agent_id.to_string());
+    }
+    
+    fn all_completed(&self) -> bool {
+        if self.latest_stats.is_empty() {
+            return false;
+        }
+        self.latest_stats.len() == self.completed_agents.len()
+    }
+    
+    /// Aggregate statistics across all agents
+    /// 
+    /// Uses weighted averaging for latencies (weight = operation count)
+    fn aggregate(&self) -> AggregateStats {
+        let mut agg = AggregateStats {
+            num_agents: self.latest_stats.len(),
+            elapsed_s: 0.0,
+            total_get_ops: 0,
+            total_get_bytes: 0,
+            get_mean_us: 0.0,
+            get_p50_us: 0.0,
+            get_p95_us: 0.0,
+            total_put_ops: 0,
+            total_put_bytes: 0,
+            put_mean_us: 0.0,
+            put_p50_us: 0.0,
+            put_p95_us: 0.0,
+            samples_per_second: 0.0,
+            total_samples: 0,
+        };
+        
+        if self.latest_stats.is_empty() {
+            return agg;
+        }
+        
+        // Accumulate weighted latencies and totals
+        for stats in self.latest_stats.values() {
+            agg.elapsed_s = agg.elapsed_s.max(stats.elapsed_s);
+            
+            // GET operations
+            agg.total_get_ops += stats.get_ops;
+            agg.total_get_bytes += stats.get_bytes;
+            agg.get_mean_us += stats.get_mean_us * stats.get_ops as f64;
+            agg.get_p50_us += stats.get_p50_us * stats.get_ops as f64;
+            agg.get_p95_us += stats.get_p95_us * stats.get_ops as f64;
+            
+            // PUT operations
+            agg.total_put_ops += stats.put_ops;
+            agg.total_put_bytes += stats.put_bytes;
+            agg.put_mean_us += stats.put_mean_us * stats.put_ops as f64;
+            agg.put_p50_us += stats.put_p50_us * stats.put_ops as f64;
+            agg.put_p95_us += stats.put_p95_us * stats.put_ops as f64;
+            
+            // AI/ML metrics
+            agg.samples_per_second += stats.samples_per_second;
+            agg.total_samples += stats.total_samples;
+        }
+        
+        // Normalize weighted averages
+        if agg.total_get_ops > 0 {
+            agg.get_mean_us /= agg.total_get_ops as f64;
+            agg.get_p50_us /= agg.total_get_ops as f64;
+            agg.get_p95_us /= agg.total_get_ops as f64;
+        }
+        if agg.total_put_ops > 0 {
+            agg.put_mean_us /= agg.total_put_ops as f64;
+            agg.put_p50_us /= agg.total_put_ops as f64;
+            agg.put_p95_us /= agg.total_put_ops as f64;
+        }
+        
+        agg
+    }
+}
 
 /// Configuration for distributed execution
 #[derive(Debug, Clone)]
