@@ -112,6 +112,7 @@ impl AgentService {
         &self,
         config: DlioConfig,
         agent_id: &str,
+        live_stats_tracker: Option<Arc<crate::live_stats::LiveStatsTracker>>,
     ) -> Result<WorkloadSummary, Status> {
         info!("Agent {} starting workload execution", agent_id);
 
@@ -123,6 +124,11 @@ impl AgentService {
         let start_time = SystemTime::now();
         
         let mut runner = WorkloadRunner::new(config);
+        
+        // Wire live stats tracker for distributed operation recording (v0.8.7+)
+        if let Some(tracker) = live_stats_tracker {
+            runner = runner.with_live_stats_tracker(tracker);
+        }
 
         // Execute the workload
         runner
@@ -391,8 +397,8 @@ impl DistAgent for AgentService {
         // Wait for coordinated start time
         Self::wait_for_start(req.start_unix_ms).await?;
 
-        // Execute the workload and return metrics
-        let summary = self.execute_workload(config, &req.agent_id).await?;
+        // Execute the workload and return metrics (no live stats for blocking RPC)
+        let summary = self.execute_workload(config, &req.agent_id, None).await?;
 
         Ok(Response::new(summary))
     }
@@ -449,13 +455,13 @@ impl DistAgent for AgentService {
         let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<(), String>>(1);
         
         // Spawn workload execution task
-        let tracker_exec = tracker.clone();  // TODO: Pass to WorkloadRunner for operation recording
+        let tracker_exec = tracker.clone();
         let config_exec = config.clone();
         let agent_id_exec = req.agent_id.clone();
         let self_clone = self.clone();
         tokio::spawn(async move {
-            // Execute the workload
-            match self_clone.execute_workload(config_exec, &agent_id_exec).await {
+            // Execute the workload with live stats tracking
+            match self_clone.execute_workload(config_exec, &agent_id_exec, Some(tracker_exec)).await {
                 Ok(_summary) => {
                     info!("Workload completed successfully for agent {}", agent_id_exec);
                     let _ = tx_done.send(Ok(())).await;
