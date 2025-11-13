@@ -18,6 +18,7 @@ use crate::dist::proto::{
     LiveStats,
     RunWorkloadRequest, 
     WorkloadSummary,
+    live_stats::Status as LiveStatsStatus,  // v0.8.7: Import Status enum
 };
 
 /// Agent service implementation for distributed execution
@@ -502,6 +503,8 @@ impl DistAgent for AgentService {
                             elapsed_s: snapshot.elapsed_secs(),
                             completed: false,
                             final_summary: None,  // v0.8.7: Only in final message
+                            status: LiveStatsStatus::Running as i32,  // v0.8.7: Agent is executing
+                            error_message: String::new(),  // v0.8.7: No error
                         };
                         yield Ok(stats);
                     }
@@ -530,6 +533,8 @@ impl DistAgent for AgentService {
                                     elapsed_s: snapshot.elapsed_secs(),
                                     completed: true,
                                     final_summary: Some(summary),  // v0.8.7: Include complete results
+                                    status: LiveStatsStatus::Completed as i32,  // v0.8.7: Agent finished
+                                    error_message: String::new(),  // v0.8.7: No error
                                 };
                                 yield Ok(final_stats);
                                 break;
@@ -550,6 +555,65 @@ impl DistAgent for AgentService {
 
         Ok(Response::new(Box::pin(stream)))
     }
+}
+
+/// Validate DLIO workload configuration after path prefixing (v0.8.7)
+/// 
+/// Performs pre-flight validation to catch configuration errors before workload starts.
+/// This validation happens AFTER agent path prefix is applied, so file:// paths are
+/// checked with the correct agent-specific prefix.
+async fn validate_workload_config(config: &DlioConfig) -> Result<()> {
+    // Check that data_folder is not empty
+    if config.dataset.data_folder.is_empty() {
+        anyhow::bail!("dataset.data_folder is required");
+    }
+    
+    // For file:// URIs, verify that files/directories exist (if NOT generating data)
+    let should_generate = config.workflow
+        .as_ref()
+        .and_then(|w| w.generate_data)
+        .unwrap_or(false);
+    
+    if !should_generate && config.dataset.data_folder.starts_with("file://") {
+        let file_path = config.dataset.data_folder.replace("file://", "");
+        
+        // Check if path contains glob patterns
+        if file_path.contains('*') || file_path.contains('?') {
+            // Validate glob pattern
+            let paths: Vec<_> = glob::glob(&file_path)
+                .map_err(|e| anyhow::anyhow!("Invalid glob pattern in data_folder '{}': {}", file_path, e))?
+                .collect();
+            
+            if paths.is_empty() {
+                anyhow::bail!("No files/directories found matching pattern: {}", config.dataset.data_folder);
+            }
+        } else {
+            // Check if directory exists
+            if !tokio::fs::try_exists(&file_path).await.unwrap_or(false) {
+                anyhow::bail!("data_folder does not exist: {}", config.dataset.data_folder);
+            }
+        }
+    }
+    
+    // Validate that batch_size is configured for training phase
+    if let Some(workflow) = &config.workflow {
+        if workflow.train.unwrap_or(false) {
+            if config.reader.batch_size.is_none() {
+                anyhow::bail!("batch_size must be configured in reader section for training phase");
+            }
+        }
+    }
+    
+    // Validate checkpoint configuration if checkpointing is enabled
+    if let Some(workflow) = &config.workflow {
+        if workflow.checkpoint.unwrap_or(false) {
+            if config.checkpointing.is_none() {
+                anyhow::bail!("checkpointing configuration required when workflow.checkpoint=true");
+            }
+        }
+    }
+    
+    Ok(())
 }
 
 #[cfg(test)]

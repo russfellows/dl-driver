@@ -1437,6 +1437,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-core",
  "futures-util",
+ "glob",
  "hdrhistogram",
  "hostname 0.4.1",
  "indicatif",

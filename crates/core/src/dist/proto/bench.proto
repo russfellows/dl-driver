@@ -112,6 +112,15 @@ message HealthCheckRequest {}
 // Sent every 1 second during workload execution for real-time visibility
 // Uses unified get/put terminology (same as sai3-bench) for consistency
 message LiveStats {
+  // v0.8.7: Status enum for startup handshake protocol
+  enum Status {
+    UNKNOWN = 0;    // Default/unset
+    READY = 1;      // Agent validated config and is ready to start
+    RUNNING = 2;    // Agent is executing workload
+    ERROR = 3;      // Agent encountered error during validation
+    COMPLETED = 4;  // Agent finished workload
+  }
+  
   string agent_id = 1;
   double timestamp_s = 2;        // Seconds since workload start
   
@@ -139,6 +148,10 @@ message LiveStats {
   // v0.8.7: Optional final summary (only present when completed=true)
   // Allows controller to collect complete results for persistence
   WorkloadSummary final_summary = 17;
+  
+  // v0.8.7: Startup handshake fields
+  Status status = 18;            // Current agent status
+  string error_message = 19;     // Error details when status=ERROR
 }
 
 // Distributed agent service
