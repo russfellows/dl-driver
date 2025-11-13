@@ -17,6 +17,8 @@ pub mod directory_tree;
 
 // Distributed execution for multi-host workloads
 pub mod dist;
+// Live stats tracking for distributed execution (v0.8.7+)
+pub mod live_stats;
 // Temporarily disabled - needs update for new config system
 // pub mod dataset;
 pub mod plan;

@@ -1,7 +1,7 @@
 # dl-driver User Guide
 
-**Version:** 0.8.6  
-**Last Updated:** November 8, 2025
+**Version:** 0.8.7  
+**Last Updated:** November 13, 2025
 
 ## Table of Contents
 

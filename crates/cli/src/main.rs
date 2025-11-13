@@ -1314,9 +1314,9 @@ async fn run_distributed(
     println!("   Total Throughput: {:.1} ops/s, {:.1} MiB/s", 
              aggregate_results.total_ops_per_s, aggregate_results.total_mib_per_s);
     println!("   Total Operations: {}", aggregate_results.total_ops);
-    println!("   Average Latency: p50={:.2}ms, p90={:.2}ms, p95={:.2}ms, p99={:.2}ms",
-             aggregate_results.avg_p50_ms, aggregate_results.avg_p90_ms,
-             aggregate_results.avg_p95_ms, aggregate_results.avg_p99_ms);
+    println!("   Average Latency: p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs",
+             aggregate_results.avg_p50_us, aggregate_results.avg_p90_us,
+             aggregate_results.avg_p95_us, aggregate_results.avg_p99_us);
     println!("   Errors: {}", aggregate_results.total_errors);
     
     println!("\n🤖 AI/ML Training Performance (Training Perspective):");

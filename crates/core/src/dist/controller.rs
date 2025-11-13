@@ -9,13 +9,212 @@
 use anyhow::{Context, Result};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::transport::Channel;
-use tracing::{info, warn, error};
+use tracing::{debug, info, warn, error};
 
 use crate::dlio_compat::DlioConfig;
 use crate::dist::proto::dist_agent_client::DistAgentClient;
-use crate::dist::proto::{RunWorkloadRequest, HealthCheckRequest, WorkloadSummary};
+use crate::dist::proto::{RunWorkloadRequest, HealthCheckRequest, WorkloadSummary, LiveStats};
 use crate::dist::types::{AggregateResults, WorkloadResult};
 use crate::dist::path_utils::is_shared_storage;
+
+/// Aggregated live statistics across all agents
+#[derive(Debug, Clone)]
+struct AggregateStats {
+    num_agents: usize,
+    elapsed_s: f64,
+    
+    // GET operations
+    total_get_ops: u64,
+    total_get_bytes: u64,
+    get_mean_us: f64,
+    get_p50_us: f64,
+    get_p95_us: f64,
+    
+    // PUT operations
+    total_put_ops: u64,
+    total_put_bytes: u64,
+    put_mean_us: f64,
+    put_p50_us: f64,
+    put_p95_us: f64,
+    
+    // AI/ML metrics
+    samples_per_second: f64,
+    total_samples: u64,
+}
+
+impl AggregateStats {
+    /// Format progress message with intelligent phase detection
+    /// 
+    /// - >90% GET ops: Training phase (show samples/s)
+    /// - >90% PUT ops: Data prep phase (show PUT only)
+    /// - Mixed: Show both GET and PUT
+    fn format_progress(&self) -> String {
+        let total_ops = self.total_get_ops + self.total_put_ops;
+        if total_ops == 0 {
+            return "Waiting for operations...".to_string();
+        }
+        
+        let get_ratio = self.total_get_ops as f64 / total_ops as f64;
+        let put_ratio = self.total_put_ops as f64 / total_ops as f64;
+        
+        // Phase detection
+        if get_ratio > 0.90 {
+            // Training phase - emphasize samples/s
+            format!(
+                "Training: {} samples/s │ GET: {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
+                format_count(self.samples_per_second as u64),
+                format_count(self.total_get_ops),
+                format_bandwidth(self.total_get_bytes, self.elapsed_s),
+                self.get_mean_us,
+                self.get_p95_us
+            )
+        } else if put_ratio > 0.90 {
+            // Data prep phase - show PUT only
+            format!(
+                "Data Prep: PUT {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
+                format_count(self.total_put_ops),
+                format_bandwidth(self.total_put_bytes, self.elapsed_s),
+                self.put_mean_us,
+                self.put_p95_us
+            )
+        } else {
+            // Mixed phase - show both (multi-line via newline)
+            format!(
+                "GET: {} ops, {} ({:.0}µs mean) │ PUT: {} ops, {} ({:.0}µs mean)",
+                format_count(self.total_get_ops),
+                format_bandwidth(self.total_get_bytes, self.elapsed_s),
+                self.get_mean_us,
+                format_count(self.total_put_ops),
+                format_bandwidth(self.total_put_bytes, self.elapsed_s),
+                self.put_mean_us
+            )
+        }
+    }
+}
+
+/// Helper to format large counts with K/M/B suffixes
+fn format_count(n: u64) -> String {
+    if n >= 1_000_000_000 {
+        format!("{:.2}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
+        format!("{:.2}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.2}K", n as f64 / 1_000.0)
+    } else {
+        format!("{}", n)
+    }
+}
+
+/// Helper to format bandwidth (bytes/sec)
+fn format_bandwidth(bytes: u64, seconds: f64) -> String {
+    if seconds == 0.0 {
+        return "0 B/s".to_string();
+    }
+    
+    let bytes_per_sec = bytes as f64 / seconds;
+    if bytes_per_sec >= 1_073_741_824.0 {
+        format!("{:.2} GiB/s", bytes_per_sec / 1_073_741_824.0)
+    } else if bytes_per_sec >= 1_048_576.0 {
+        format!("{:.2} MiB/s", bytes_per_sec / 1_048_576.0)
+    } else if bytes_per_sec >= 1024.0 {
+        format!("{:.2} KiB/s", bytes_per_sec / 1024.0)
+    } else {
+        format!("{:.0} B/s", bytes_per_sec)
+    }
+}
+
+/// Aggregates live statistics from multiple agents
+struct LiveStatsAggregator {
+    latest_stats: std::collections::HashMap<String, LiveStats>,
+    completed_agents: std::collections::HashSet<String>,
+}
+
+impl LiveStatsAggregator {
+    fn new() -> Self {
+        Self {
+            latest_stats: std::collections::HashMap::new(),
+            completed_agents: std::collections::HashSet::new(),
+        }
+    }
+    
+    fn update(&mut self, stats: LiveStats) {
+        self.latest_stats.insert(stats.agent_id.clone(), stats);
+    }
+    
+    fn mark_completed(&mut self, agent_id: &str) {
+        self.completed_agents.insert(agent_id.to_string());
+    }
+    
+    fn all_completed(&self) -> bool {
+        if self.latest_stats.is_empty() {
+            return false;
+        }
+        self.latest_stats.len() == self.completed_agents.len()
+    }
+    
+    /// Aggregate statistics across all agents
+    /// 
+    /// Uses weighted averaging for latencies (weight = operation count)
+    fn aggregate(&self) -> AggregateStats {
+        let mut agg = AggregateStats {
+            num_agents: self.latest_stats.len(),
+            elapsed_s: 0.0,
+            total_get_ops: 0,
+            total_get_bytes: 0,
+            get_mean_us: 0.0,
+            get_p50_us: 0.0,
+            get_p95_us: 0.0,
+            total_put_ops: 0,
+            total_put_bytes: 0,
+            put_mean_us: 0.0,
+            put_p50_us: 0.0,
+            put_p95_us: 0.0,
+            samples_per_second: 0.0,
+            total_samples: 0,
+        };
+        
+        if self.latest_stats.is_empty() {
+            return agg;
+        }
+        
+        // Accumulate weighted latencies and totals
+        for stats in self.latest_stats.values() {
+            agg.elapsed_s = agg.elapsed_s.max(stats.elapsed_s);
+            
+            // GET operations
+            agg.total_get_ops += stats.get_ops;
+            agg.total_get_bytes += stats.get_bytes;
+            agg.get_mean_us += stats.get_mean_us * stats.get_ops as f64;
+            agg.get_p50_us += stats.get_p50_us * stats.get_ops as f64;
+            agg.get_p95_us += stats.get_p95_us * stats.get_ops as f64;
+            
+            // PUT operations
+            agg.total_put_ops += stats.put_ops;
+            agg.total_put_bytes += stats.put_bytes;
+            agg.put_mean_us += stats.put_mean_us * stats.put_ops as f64;
+            agg.put_p50_us += stats.put_p50_us * stats.put_ops as f64;
+            agg.put_p95_us += stats.put_p95_us * stats.put_ops as f64;
+            
+            // AI/ML metrics
+            agg.samples_per_second += stats.samples_per_second;
+            agg.total_samples += stats.total_samples;
+        }
+        
+        // Normalize weighted averages
+        if agg.total_get_ops > 0 {
+            agg.get_mean_us /= agg.total_get_ops as f64;
+            agg.get_p50_us /= agg.total_get_ops as f64;
+            agg.get_p95_us /= agg.total_get_ops as f64;
+        }
+        if agg.total_put_ops > 0 {
+            agg.put_mean_us /= agg.total_put_ops as f64;
+            agg.put_p50_us /= agg.total_put_ops as f64;
+            agg.put_p95_us /= agg.total_put_ops as f64;
+        }
+        
+        agg
+    }
+}
 
 /// Configuration for distributed execution
 #[derive(Debug, Clone)]
@@ -208,11 +407,14 @@ impl Controller {
 
     /// Run distributed workload across all agents (internal implementation)
     /// 
+    /// Uses streaming RPC to collect live stats from all agents and display
+    /// real-time progress with intelligent phase detection.
+    /// 
     /// Returns aggregated results from all agents
     async fn run_distributed_internal(
         &self,
         results_dir: &mut crate::results_dir::ResultsDir,
-        agents_dir: &std::path::Path,
+        agents_dir: &std::path::Path,  // WARNING: Currently unused - will be used in Phase 5 for per-agent results writing
     ) -> Result<AggregateResults> {
         info!("🚀 Starting distributed workload execution");
         info!("   Agents: {}", self.distributed.agents.len());
@@ -241,19 +443,24 @@ impl Controller {
                   self.distributed.path_template);
         }
         
-        // Send workload to all agents in parallel
-        let mut tasks = Vec::new();
+        // Create channel for live stats aggregation
+        let (tx_stats, mut rx_stats) = tokio::sync::mpsc::channel::<LiveStats>(100);
         
-        for (idx, agent_endpoint) in self.distributed.agents.iter().enumerate() {
+        // Spawn streaming tasks for all agents
+        let mut stream_tasks = Vec::new();
+        let agents: Vec<_> = self.distributed.agents.iter().enumerate().collect();
+        
+        for (idx, agent_endpoint) in agents.iter() {
             let agent_id = format!("agent-{}", idx);
-            let agent_id_task = agent_id.clone(); // Clone for task
+            let agent_id_task = agent_id.clone();  // Clone for task
             let config = self.config.clone();
-            let endpoint = agent_endpoint.clone();
+            let endpoint = agent_endpoint.to_string();
             let path_template = self.distributed.path_template.clone();
             let timeout_ms = self.distributed.request_timeout_ms;
+            let tx = tx_stats.clone();
             
             let task = tokio::spawn(async move {
-                Self::send_workload_to_agent(
+                Self::stream_workload_from_agent(
                     &endpoint,
                     &agent_id_task,
                     config,
@@ -261,72 +468,409 @@ impl Controller {
                     start_unix_ms,
                     timeout_ms,
                     is_shared,
+                    tx,
                 )
                 .await
             });
             
-            tasks.push((agent_id, task));
+            stream_tasks.push((agent_id, task));
         }
         
-        info!("📤 Workload sent to all {} agents", tasks.len());
-        results_dir.write_console("📤 Workload sent to all agents")?;
-        info!("⏳ Waiting for agents to complete...");
-        results_dir.write_console("⏳ Waiting for agents to complete...")?;
-        results_dir.write_console("")?;
+        // Drop our copy of tx so rx will close when all tasks complete
+        drop(tx_stats);
         
-        // Collect results and proto summaries (for histogram data)
-        let mut results = Vec::new();
-        let mut summaries = Vec::new();
-        for (agent_id, task) in tasks {
-            match task.await {
-                Ok(Ok((result, summary))) => {
-                    info!("✅ Agent {} completed successfully", agent_id);
-                    results_dir.write_console(&format!("✅ Agent {} completed successfully", agent_id))?;
-                    results_dir.add_agent(agent_id.clone());
+        // v0.8.7: Startup handshake - wait for all agents to report READY or ERROR
+        info!("⏳ Waiting for agents to validate configuration...");
+        results_dir.write_console("⏳ Waiting for agents to validate configuration...")?;
+        
+        let validation_timeout_secs = 5;  // Allow 5 seconds for validation
+        let validation_deadline = tokio::time::Instant::now() 
+            + tokio::time::Duration::from_secs(validation_timeout_secs);
+        
+        let mut agent_status: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut ready_agents: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut error_agents: Vec<(String, String)> = Vec::new();
+        let expected_agent_count = stream_tasks.len();
+        
+        'startup: loop {
+            tokio::select! {
+                Some(stats) = rx_stats.recv() => {
+                    use crate::dist::proto::live_stats::Status as LiveStatus;
                     
-                    // Write per-agent results to agents/ subdirectory
-                    self.write_agent_results(agents_dir, &agent_id, &result, &summary)?;
+                    let status_enum = LiveStatus::try_from(stats.status).unwrap_or(LiveStatus::Unknown);
+                    match status_enum {
+                        LiveStatus::Ready => {
+                            agent_status.insert(stats.agent_id.clone(), "READY".to_string());
+                            ready_agents.insert(stats.agent_id.clone());
+                            info!("  ✅ {} ready", stats.agent_id);
+                            results_dir.write_console(&format!("  ✅ {} ready", stats.agent_id))?;
+                        }
+                        LiveStatus::Error => {
+                            agent_status.insert(stats.agent_id.clone(), "ERROR".to_string());
+                            error_agents.push((stats.agent_id.clone(), stats.error_message.clone()));
+                            error!("  ❌ {} error: {}", stats.agent_id, stats.error_message);
+                            results_dir.write_console(&format!("  ❌ {} error: {}", stats.agent_id, stats.error_message))?;
+                        }
+                        _ => {
+                            // Treat Running/Completed/Unknown as ready (shouldn't happen during startup)
+                            warn!("  ⚠️  {} sent unexpected status during startup: {:?}", stats.agent_id, status_enum);
+                        }
+                    }
                     
-                    results.push(result);
-                    summaries.push(summary);
+                    // Check if all agents have responded
+                    if agent_status.len() >= expected_agent_count {
+                        break 'startup;
+                    }
                 }
-                Ok(Err(e)) => {
-                    error!("❌ Agent {} failed: {}", agent_id, e);
-                    results_dir.write_console(&format!("❌ Agent {} failed: {}", agent_id, e))?;
-                    // Continue collecting other results
+                _ = tokio::time::sleep_until(validation_deadline) => {
+                    // Timeout - report which agents didn't respond
+                    let missing: Vec<_> = stream_tasks.iter()
+                        .filter(|(id, _)| !agent_status.contains_key(id))
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    
+                    anyhow::bail!(
+                        "Agent startup validation timeout after {}s. Missing agents: {:?}",
+                        validation_timeout_secs,
+                        missing
+                    );
                 }
-                Err(e) => {
-                    error!("❌ Agent {} task panicked: {}", agent_id, e);
-                    results_dir.write_console(&format!("❌ Agent {} task panicked: {}", agent_id, e))?;
+                _ = tokio::signal::ctrl_c() => {
+                    anyhow::bail!("Interrupted during agent startup validation");
                 }
             }
         }
         
-        if results.is_empty() {
-            anyhow::bail!("All agents failed - no results to aggregate");
+        // Check if any agents reported errors
+        if !error_agents.is_empty() {
+            error!("❌ {} agent(s) failed startup validation:", error_agents.len());
+            results_dir.write_console(&format!("❌ {} agent(s) failed startup validation:", error_agents.len()))?;
+            for (agent_id, error_msg) in &error_agents {
+                error!("   - {}: {}", agent_id, error_msg);
+                results_dir.write_console(&format!("   - {}: {}", agent_id, error_msg))?;
+            }
+            anyhow::bail!("{} agent(s) failed startup validation", error_agents.len());
         }
         
-        if results.len() < self.distributed.agents.len() {
-            let msg = format!("⚠️  Only {}/{} agents succeeded", 
-                  results.len(), self.distributed.agents.len());
-            warn!("{}", msg);
-            results_dir.write_console(&msg)?;
-        }
-        
+        info!("✅ All {} agents ready - starting workload execution", ready_agents.len());
+        results_dir.write_console(&format!("✅ All {} agents ready - starting workload execution", ready_agents.len()))?;
         results_dir.write_console("")?;
-        info!("📊 Aggregating results from {} agents...", results.len());
-        results_dir.write_console(&format!("📊 Aggregating results from {} agents...", results.len()))?;
         
-        // Calculate wall time (max duration across all agents)
-        let wall_seconds = results.iter()
-            .map(|r| r.duration_s)
-            .fold(0.0f64, f64::max);
+        info!("📤 Workload sent to all {} agents", stream_tasks.len());
+        info!("⏳ Live stats streaming enabled...");
+        results_dir.write_console("⏳ Live stats streaming enabled...")?;
+        results_dir.write_console("")?;
         
-        // Write consolidated bucket-level histogram TSV (sai3-bench pattern)
-        Self::write_consolidated_histogram_tsv(results_dir, &summaries, wall_seconds)?;
+        // Calculate expected total samples for progress bar (v0.8.7: restore progress percentage)
+        let num_agents = self.distributed.agents.len() as u64;
+        let num_files = self.config.dataset.num_files_train.unwrap_or(0) as u64;
+        let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1) as u64;
+        let epochs = self.config.train.as_ref().and_then(|t| t.epochs).unwrap_or(1) as u64;
+        let expected_total_samples = num_files * samples_per_file * epochs * num_agents;
         
-        // Aggregate results using histogram merging for accurate percentiles
-        let aggregate = AggregateResults::from_results_with_histograms(results, &summaries)?;
+        // Setup progress display with known total (v0.8.7: improved progress bar with percentage)
+        use indicatif::{ProgressBar, ProgressStyle};
+        let progress_bar = if expected_total_samples > 0 {
+            let pb = ProgressBar::new(expected_total_samples);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    // Multi-line format: progress bar on line 1, statistics on line 2
+                    .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} samples ({percent}%) | Epoch {msg}\n{prefix}")
+                    .unwrap()
+                    .progress_chars("=>-")
+            );
+            pb
+        } else {
+            // Fallback to spinner if expected total cannot be determined
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} {elapsed_precise}\n{msg}")
+                    .unwrap()
+            );
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb
+        };
+        
+        // Setup Ctrl+C handler
+        let ctrl_c = tokio::signal::ctrl_c();
+        tokio::pin!(ctrl_c);
+        
+        // Aggregator for live stats
+        let mut aggregator = LiveStatsAggregator::new();
+        let mut last_update = std::time::Instant::now();
+        
+        // v0.8.7: Resilience - track per-agent activity for timeout detection
+        let mut agent_last_seen: std::collections::HashMap<String, std::time::Instant> = std::collections::HashMap::new();
+        let mut dead_agents = std::collections::HashSet::new();
+        let timeout_warn_secs = 5.0;
+        let timeout_dead_secs = 10.0;
+        
+        // v0.8.7: Collect final summaries for persistence (extracted from completed LiveStats messages)
+        let mut agent_summaries: Vec<WorkloadSummary> = Vec::new();
+        
+        // v0.8.7: Track last console.log write time (write every 1 second)
+        let mut last_console_log = std::time::Instant::now();
+        
+        // Process live stats stream
+        loop {
+            // v0.8.7: Check for stalled agents (timeout detection)
+            let now = std::time::Instant::now();
+            for (agent_id, last_seen) in &agent_last_seen {
+                if dead_agents.contains(agent_id) {
+                    continue;  // Skip already dead agents
+                }
+                
+                // Check if agent is in completed set (via aggregator)
+                let agg = aggregator.aggregate();
+                if agg.num_agents > 0 && aggregator.all_completed() {
+                    continue;  // Skip completed agents
+                }
+                
+                let elapsed = now.duration_since(*last_seen).as_secs_f64();
+                if elapsed >= timeout_dead_secs {
+                    if !dead_agents.contains(agent_id) {
+                        error!("❌ Agent {} STALLED (no updates for {:.1}s) - marking as DEAD", agent_id, elapsed);
+                        dead_agents.insert(agent_id.clone());
+                        aggregator.mark_completed(agent_id);  // Remove from active count
+                        
+                        // Update progress display with dead agent warning
+                        let agg_for_display = aggregator.aggregate();
+                        if expected_total_samples > 0 {
+                            progress_bar.set_position(agg_for_display.total_samples.min(expected_total_samples));
+                            let epoch_msg = format!("{}/{} (⚠️ {} dead)", 
+                                if num_files > 0 && samples_per_file > 0 {
+                                    let samples_per_epoch = num_files * samples_per_file * num_agents;
+                                    ((agg_for_display.total_samples / samples_per_epoch.max(1)) + 1).min(epochs)
+                                } else { 1 },
+                                epochs,
+                                dead_agents.len()
+                            );
+                            progress_bar.set_message(epoch_msg);
+                            progress_bar.set_prefix(format!("{} (⚠️ {} dead)", agg_for_display.format_progress(), dead_agents.len()));
+                        } else {
+                            progress_bar.set_message(format!("{} (⚠️ {} dead)", agg_for_display.format_progress(), dead_agents.len()));
+                        }
+                    }
+                } else if elapsed >= timeout_warn_secs {
+                    warn!("⚠️  Agent {} delayed: no updates for {:.1}s", agent_id, elapsed);
+                }
+            }
+            
+            tokio::select! {
+                Some(stats) = rx_stats.recv() => {
+                    // v0.8.7: Update last seen timestamp for resilience
+                    agent_last_seen.insert(stats.agent_id.clone(), std::time::Instant::now());
+                    
+                    // v0.8.7: Extract final summary if completed
+                    if stats.completed {
+                        aggregator.mark_completed(&stats.agent_id);
+                        
+                        // Extract and store final summary for persistence
+                        if let Some(summary) = stats.final_summary {
+                            debug!("Collected final summary from agent {}", summary.agent_id);
+                            agent_summaries.push(summary);
+                        } else {
+                            warn!("Agent {} completed but did not provide final summary", stats.agent_id);
+                        }
+                    } else {
+                        // Regular update (not completed yet)
+                        aggregator.update(stats);
+                    }
+                    
+                    // Update display every 100ms (rate limiting)
+                    if last_update.elapsed() > std::time::Duration::from_millis(100) {
+                        let agg = aggregator.aggregate();
+                        
+                        // v0.8.7: Update progress bar position (if using progress bar)
+                        if expected_total_samples > 0 {
+                            progress_bar.set_position(agg.total_samples.min(expected_total_samples));
+                        }
+                        
+                        // Calculate current epoch for display
+                        let current_epoch = if num_files > 0 && samples_per_file > 0 {
+                            let samples_per_epoch = num_files * samples_per_file * num_agents;
+                            if samples_per_epoch > 0 {
+                                ((agg.total_samples / samples_per_epoch) + 1).min(epochs)
+                            } else {
+                                1
+                            }
+                        } else {
+                            1
+                        };
+                        let epoch_msg = format!("{}/{}", current_epoch, epochs);
+                        
+                        let msg = if dead_agents.is_empty() {
+                            agg.format_progress()
+                        } else {
+                            format!("{} (⚠️ {} dead)", agg.format_progress(), dead_agents.len())
+                        };
+                        
+                        // Set message and prefix for multi-line display
+                        if expected_total_samples > 0 {
+                            // Progress bar: epoch in {msg}, statistics in {prefix}
+                            progress_bar.set_message(epoch_msg);
+                            progress_bar.set_prefix(msg.clone());
+                        } else {
+                            // Spinner: statistics in {msg}
+                            progress_bar.set_message(msg.clone());
+                        }
+                        
+                        last_update = std::time::Instant::now();
+                        
+                        // v0.8.7: Write live stats to console.log every 1 second
+                        if last_console_log.elapsed() >= std::time::Duration::from_secs(1) {
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            let log_line = format!("[{}] {}", timestamp, msg);
+                            if let Err(e) = results_dir.write_console(&log_line) {
+                                warn!("Failed to write live stats to console.log: {}", e);
+                            }
+                            last_console_log = std::time::Instant::now();
+                        }
+                    }
+                    
+                    // v0.8.7: Check if all agents completed or dead (graceful degradation)
+                    if aggregator.all_completed() {
+                        break;
+                    }
+                }
+                
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                    // v0.8.7: Periodic timeout check (every 1 second)
+                    // Check logic is at top of loop
+                }
+                
+                _ = &mut ctrl_c => {
+                    warn!("Ctrl+C received, interrupting workload");
+                    progress_bar.finish_with_message("Interrupted by user");
+                    anyhow::bail!("Interrupted by Ctrl+C");
+                }
+            }
+        }
+        
+        // Final aggregation
+        let final_stats = aggregator.aggregate();
+        
+        // v0.8.7: Show final epoch count in completion message
+        let final_epoch_msg = if num_files > 0 && samples_per_file > 0 {
+            let samples_per_epoch = num_files * samples_per_file * num_agents;
+            let final_epoch = if samples_per_epoch > 0 {
+                ((final_stats.total_samples / samples_per_epoch.max(1)) + 1).min(epochs)
+            } else {
+                epochs
+            };
+            format!("✓ All {} agents completed | Epoch {}/{}", final_stats.num_agents, final_epoch, epochs)
+        } else {
+            format!("✓ All {} agents completed", final_stats.num_agents)
+        };
+        
+        progress_bar.finish_with_message(final_epoch_msg);
+        
+        // v0.8.7: Add newlines after progress bar to preserve final stats display
+        println!("\n");  // Two blank lines to separate from results
+        
+        // Print final aggregate results
+        println!("=== Final Aggregate Results ===");
+        let total_ops = final_stats.total_get_ops + final_stats.total_put_ops;
+        println!("Total operations: {} READ, {} WRITE", 
+                 format_count(final_stats.total_get_ops), 
+                 format_count(final_stats.total_put_ops));
+        
+        if final_stats.total_get_ops > 0 {
+            println!("READ: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
+                     final_stats.total_get_ops as f64 / final_stats.elapsed_s,
+                     format_bandwidth(final_stats.total_get_bytes, final_stats.elapsed_s),
+                     final_stats.get_mean_us,
+                     final_stats.get_p50_us,
+                     final_stats.get_p95_us);
+        }
+        
+        if final_stats.total_put_ops > 0 {
+            println!("WRITE: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
+                     final_stats.total_put_ops as f64 / final_stats.elapsed_s,
+                     format_bandwidth(final_stats.total_put_bytes, final_stats.elapsed_s),
+                     final_stats.put_mean_us,
+                     final_stats.put_p50_us,
+                     final_stats.put_p95_us);
+        }
+        
+        if final_stats.total_samples > 0 {
+            println!("AI/ML: {} samples, {:.0} samples/s",
+                     format_count(final_stats.total_samples),
+                     final_stats.samples_per_second);
+        }
+        
+        println!("Elapsed: {:.2}s", final_stats.elapsed_s);
+        println!();
+        
+        // v0.8.7: Write per-agent results and create consolidated TSV with histogram aggregation
+        if !agent_summaries.is_empty() {
+            info!("Writing results for {} agents", agent_summaries.len());
+            
+            // Write per-agent results to agents/{agent-id}/ subdirectory
+            for summary in &agent_summaries {
+                let result = WorkloadResult::from(summary.clone());
+                if let Err(e) = self.write_agent_results(&agents_dir, &summary.agent_id, &result, summary) {
+                    error!("Failed to write results for agent {}: {}", summary.agent_id, e);
+                }
+            }
+            
+            // Create consolidated histogram TSV with bucket-level aggregation
+            if let Err(e) = Self::write_consolidated_histogram_tsv(results_dir, &agent_summaries, final_stats.elapsed_s) {
+                error!("Failed to create consolidated histogram TSV: {}", e);
+            } else {
+                info!("✓ Consolidated storage_results.tsv created with accurate histogram aggregation");
+            }
+        } else {
+            warn!("No agent summaries collected - per-agent results and consolidated TSV not available");
+            warn!("This may indicate agents failed to return final_summary in completed LiveStats messages");
+        }
+        
+        // Collect task results (errors only)
+        for (agent_id, task) in stream_tasks {
+            match task.await {
+                Ok(Ok(())) => {
+                    info!("✅ Agent {} stream completed successfully", agent_id);
+                }
+                Ok(Err(e)) => {
+                    error!("❌ Agent {} stream failed: {}", agent_id, e);
+                }
+                Err(e) => {
+                    error!("❌ Agent {} task panicked: {}", agent_id, e);
+                }
+            }
+        }
+        
+        // v0.8.7: Build aggregate results from collected summaries using From trait
+        let agent_results: Vec<WorkloadResult> = agent_summaries.iter()
+            .map(|s| WorkloadResult::from(s.clone()))
+            .collect();
+        
+        let aggregate = AggregateResults {
+            agent_results,
+            total_ops: total_ops,
+            total_samples: final_stats.total_samples,
+            total_ops_per_s: total_ops as f64 / final_stats.elapsed_s,
+            total_mib_per_s: (final_stats.total_get_bytes + final_stats.total_put_bytes) as f64 
+                             / 1_048_576.0 / final_stats.elapsed_s,
+            avg_p50_us: (final_stats.get_p50_us + final_stats.put_p50_us) / 2.0,  // Avg of GET/PUT in µs
+            avg_p90_us: 0.0,  // Not available from live stats
+            avg_p95_us: (final_stats.get_p95_us + final_stats.put_p95_us) / 2.0,  // Avg of GET/PUT in µs
+            avg_p99_us: 0.0,  // Not available from live stats
+            total_errors: 0,
+            total_samples_per_second: final_stats.samples_per_second,
+            total_batches_per_second: 0.0,
+            total_batches: 0,
+            avg_batch_time_ms: 0.0,
+            total_epochs_completed: 0,
+            avg_epoch_time_s: 0.0,
+            avg_data_loading_time_s: 0.0,
+            avg_compute_time_s: 0.0,
+            avg_pipeline_efficiency: 0.0,
+        };
         
         info!("🎉 Distributed workload complete!");
         results_dir.write_console("🎉 Distributed workload complete!")?;
@@ -357,10 +901,10 @@ impl Controller {
             "total_ops": result.total_ops,
             "total_samples": result.total_samples,
             "epochs_completed": result.epochs_completed,
-            "p50_ms": result.p50_ms,
-            "p90_ms": result.p90_ms,
-            "p95_ms": result.p95_ms,
-            "p99_ms": result.p99_ms,
+            "p50_us": result.p50_us,
+            "p90_us": result.p90_us,
+            "p95_us": result.p95_us,
+            "p99_us": result.p99_us,
             "duration_s": result.duration_s,
         });
         let metadata_json = serde_json::to_string_pretty(&metadata)?;
@@ -380,10 +924,11 @@ impl Controller {
         Ok(())
     }
 
-    /// Send workload to a single agent
+    /// Stream workload from a single agent using streaming RPC
     /// 
-    /// Returns both WorkloadResult and the raw proto WorkloadSummary (which contains histogram data)
-    async fn send_workload_to_agent(
+    /// Consumes live stats stream and forwards to aggregator via channel.
+    /// Returns () on success (live stats are sent via channel).
+    async fn stream_workload_from_agent(
         endpoint: &str,
         agent_id: &str,
         config: DlioConfig,
@@ -391,7 +936,10 @@ impl Controller {
         start_unix_ms: i64,
         timeout_ms: u64,
         is_shared: bool,
-    ) -> Result<(WorkloadResult, WorkloadSummary)> {
+        tx: tokio::sync::mpsc::Sender<LiveStats>,
+    ) -> Result<()> {
+        use futures::stream::StreamExt;
+        
         // Connect to agent
         let url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
             endpoint.to_string()
@@ -423,28 +971,39 @@ impl Controller {
         let config_yaml = serde_yaml::to_string(&config)
             .context("Failed to serialize DLIO config to YAML")?;
         
-        // Send RunWorkload request
+        // Send RunWorkloadWithLiveStats request (streaming)
         let request = tonic::Request::new(RunWorkloadRequest {
             config_yaml,
             agent_id: agent_id.to_string(),
             path_prefix,
             start_unix_ms,
-            // v0.8.1 enhancement - per-agent config overrides (currently unused)
             agent_config: None,
-            // v0.8.1 enhancement - shared storage flag (currently false)
             shared_storage: false,
         });
         
-        let response = client
-            .run_workload(request)
+        let mut stream = client
+            .run_workload_with_live_stats(request)
             .await
-            .context(format!("RunWorkload RPC failed for agent {}", agent_id))?;
+            .context(format!("RunWorkloadWithLiveStats RPC failed for agent {}", agent_id))?
+            .into_inner();
         
-        let summary = response.into_inner();
+        // Consume stream and forward to aggregator
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(stats) => {
+                    if tx.send(stats).await.is_err() {
+                        // Receiver dropped (probably Ctrl+C)
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!("Agent {} stream error: {}", agent_id, e);
+                    return Err(e.into());
+                }
+            }
+        }
         
-        // Return both WorkloadResult and the proto summary (which contains histogram bytes)
-        let result = WorkloadResult::from(summary.clone());
-        Ok((result, summary))
+        Ok(())
     }
     
     /// Write consolidated bucket-level histogram TSV (sai3-bench pattern)

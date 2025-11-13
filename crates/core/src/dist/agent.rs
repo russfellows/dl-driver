@@ -4,6 +4,7 @@
 /// applies path prefixes, coordinates start times, and executes DLIO workloads.
 
 use anyhow::Result;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 use tracing::{info, warn, error};
@@ -14,11 +15,14 @@ use crate::dist::proto::{
     dist_agent_server::DistAgent, 
     HealthCheckRequest, 
     HealthCheckResponse,
+    LiveStats,
     RunWorkloadRequest, 
     WorkloadSummary,
+    live_stats::Status as LiveStatsStatus,  // v0.8.7: Import Status enum
 };
 
 /// Agent service implementation for distributed execution
+#[derive(Clone)]
 pub struct AgentService {
     /// Agent identifier (e.g., "agent-0", "host1:50051")
     agent_id: String,
@@ -109,6 +113,7 @@ impl AgentService {
         &self,
         config: DlioConfig,
         agent_id: &str,
+        live_stats_tracker: Option<Arc<crate::live_stats::LiveStatsTracker>>,
     ) -> Result<WorkloadSummary, Status> {
         info!("Agent {} starting workload execution", agent_id);
 
@@ -120,6 +125,11 @@ impl AgentService {
         let start_time = SystemTime::now();
         
         let mut runner = WorkloadRunner::new(config);
+        
+        // Wire live stats tracker for distributed operation recording (v0.8.7+)
+        if let Some(tracker) = live_stats_tracker {
+            runner = runner.with_live_stats_tracker(tracker);
+        }
 
         // Execute the workload
         runner
@@ -215,13 +225,14 @@ impl AgentService {
         let batch_hists = metrics.get_batch_histograms();
 
         // Calculate percentiles from combined read histogram (across all size buckets)
+        // v0.8.7: Values in microseconds (no conversion needed - histograms store µs)
         let combined_read = read_hists.combined_histogram();
         let (p50, p90, p95, p99) = if combined_read.len() > 0 {
             (
-                combined_read.value_at_quantile(0.50) as f64 / 1000.0, // Convert μs to ms
-                combined_read.value_at_quantile(0.90) as f64 / 1000.0,
-                combined_read.value_at_quantile(0.95) as f64 / 1000.0,
-                combined_read.value_at_quantile(0.99) as f64 / 1000.0,
+                combined_read.value_at_quantile(0.50) as f64,
+                combined_read.value_at_quantile(0.90) as f64,
+                combined_read.value_at_quantile(0.95) as f64,
+                combined_read.value_at_quantile(0.99) as f64,
             )
         } else {
             (0.0, 0.0, 0.0, 0.0)
@@ -309,10 +320,10 @@ impl AgentService {
             // Storage metrics
             ops_per_s,
             mib_per_s,
-            p50_ms: p50,
-            p90_ms: p90,
-            p95_ms: p95,
-            p99_ms: p99,
+            p50_us: p50,
+            p90_us: p90,
+            p95_us: p95,
+            p99_us: p99,
             errors,
             total_ops,
             duration_s,
@@ -388,8 +399,8 @@ impl DistAgent for AgentService {
         // Wait for coordinated start time
         Self::wait_for_start(req.start_unix_ms).await?;
 
-        // Execute the workload and return metrics
-        let summary = self.execute_workload(config, &req.agent_id).await?;
+        // Execute the workload and return metrics (no live stats for blocking RPC)
+        let summary = self.execute_workload(config, &req.agent_id, None).await?;
 
         Ok(Response::new(summary))
     }
@@ -406,6 +417,282 @@ impl DistAgent for AgentService {
             version: env!("CARGO_PKG_VERSION").to_string(),
         }))
     }
+
+    /// v0.8.7: Server streaming RPC for live progress updates during distributed execution
+    type RunWorkloadWithLiveStatsStream = 
+        std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<LiveStats, Status>> + Send>>;
+
+    async fn run_workload_with_live_stats(
+        &self,
+        request: Request<RunWorkloadRequest>,
+    ) -> Result<Response<Self::RunWorkloadWithLiveStatsStream>, Status> {
+        info!("Received run_workload_with_live_stats request (streaming mode)");
+        
+        let req = request.into_inner();
+        
+        // Parse and apply config BEFORE stream (v0.8.7)
+        let mut config = DlioConfig::from_yaml(&req.config_yaml).map_err(|e| {
+            error!("Failed to parse DLIO config: {}", e);
+            Status::invalid_argument(format!("Invalid DLIO config: {}", e))
+        })?;
+
+        if !req.path_prefix.is_empty() {
+            config
+                .apply_agent_prefix(&req.agent_id, &req.path_prefix)
+                .map_err(|e| {
+                    error!("Failed to apply agent prefix: {}", e);
+                    Status::internal(format!("Failed to apply path prefix: {}", e))
+                })?;
+        }
+
+        // Calculate wait duration for coordinated start (v0.8.7)
+        let wait_duration = if req.start_unix_ms > 0 {
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            let wait_ms = req.start_unix_ms - now_ms;
+            if wait_ms > 0 {
+                Some(Duration::from_millis(wait_ms as u64))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Clone data for stream (v0.8.7)
+        let agent_id_stream = req.agent_id.clone();
+        let config_stream = config.clone();
+        let self_stream = self.clone();
+
+        // Create stream with startup handshake (v0.8.7)
+        let stream = async_stream::stream! {
+            // Step 1: Validate configuration and send READY or ERROR
+            match validate_workload_config(&config_stream).await {
+                Ok(_) => {
+                    info!("Configuration validated successfully for agent {}", agent_id_stream);
+                    // Send READY status immediately
+                    let ready_msg = LiveStats {
+                        agent_id: agent_id_stream.clone(),
+                        timestamp_s: 0.0,
+                        get_ops: 0,
+                        get_bytes: 0,
+                        get_mean_us: 0.0,
+                        get_p50_us: 0.0,
+                        get_p95_us: 0.0,
+                        put_ops: 0,
+                        put_bytes: 0,
+                        put_mean_us: 0.0,
+                        put_p50_us: 0.0,
+                        put_p95_us: 0.0,
+                        samples_per_second: 0.0,
+                        total_samples: 0,
+                        elapsed_s: 0.0,
+                        completed: false,
+                        final_summary: None,
+                        status: LiveStatsStatus::Ready as i32,
+                        error_message: String::new(),
+                    };
+                    yield Ok(ready_msg);
+                }
+                Err(e) => {
+                    let error_msg = format!("Configuration validation failed: {}", e);
+                    error!("{}", error_msg);
+                    // Send ERROR status and exit
+                    let error_stats = LiveStats {
+                        agent_id: agent_id_stream.clone(),
+                        timestamp_s: 0.0,
+                        get_ops: 0,
+                        get_bytes: 0,
+                        get_mean_us: 0.0,
+                        get_p50_us: 0.0,
+                        get_p95_us: 0.0,
+                        put_ops: 0,
+                        put_bytes: 0,
+                        put_mean_us: 0.0,
+                        put_p50_us: 0.0,
+                        put_p95_us: 0.0,
+                        samples_per_second: 0.0,
+                        total_samples: 0,
+                        elapsed_s: 0.0,
+                        completed: false,
+                        final_summary: None,
+                        status: LiveStatsStatus::Error as i32,
+                        error_message: error_msg,
+                    };
+                    yield Ok(error_stats);
+                    return; // Exit stream on validation failure
+                }
+            }
+
+            // Step 2: Wait for coordinated start time (INSIDE stream, after READY sent)
+            if let Some(wait_dur) = wait_duration {
+                info!("Agent {} waiting {:?} for coordinated start", agent_id_stream, wait_dur);
+                tokio::time::sleep(wait_dur).await;
+            }
+
+            info!("Starting workload execution with live stats for agent {}", agent_id_stream);
+
+            // Step 3: Create live stats tracker and spawn workload (INSIDE stream)
+            let tracker = Arc::new(crate::live_stats::LiveStatsTracker::new());
+            let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<WorkloadSummary, String>>(1);
+            
+            let tracker_exec = tracker.clone();
+            let config_exec = config_stream.clone();
+            let agent_id_exec = agent_id_stream.clone();
+            let self_exec = self_stream.clone();
+            tokio::spawn(async move {
+                match self_exec.execute_workload(config_exec, &agent_id_exec, Some(tracker_exec)).await {
+                    Ok(summary) => {
+                        info!("Workload completed successfully for agent {}", agent_id_exec);
+                        let _ = tx_done.send(Ok(summary)).await;
+                    }
+                    Err(e) => {
+                        error!("Workload execution failed for agent {}: {:?}", agent_id_exec, e);
+                        let _ = tx_done.send(Err(format!("Workload execution failed: {:?}", e))).await;
+                    }
+                }
+            });
+
+            // Step 4: Stream live stats every 1 second
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Send live stats snapshot
+                        let snapshot = tracker.snapshot();
+                        let stats = LiveStats {
+                            agent_id: agent_id_stream.clone(),
+                            timestamp_s: snapshot.timestamp_secs() as f64,
+                            get_ops: snapshot.get_ops,
+                            get_bytes: snapshot.get_bytes,
+                            get_mean_us: snapshot.get_mean_us as f64,
+                            get_p50_us: snapshot.get_p50_us as f64,
+                            get_p95_us: snapshot.get_p95_us as f64,
+                            put_ops: snapshot.put_ops,
+                            put_bytes: snapshot.put_bytes,
+                            put_mean_us: snapshot.put_mean_us as f64,
+                            put_p50_us: snapshot.put_p50_us as f64,
+                            put_p95_us: snapshot.put_p95_us as f64,
+                            samples_per_second: snapshot.samples_per_second(),
+                            total_samples: snapshot.total_samples,
+                            elapsed_s: snapshot.elapsed_secs(),
+                            completed: false,
+                            final_summary: None,  // v0.8.7: Only in final message
+                            status: LiveStatsStatus::Running as i32,  // v0.8.7: Agent is executing
+                            error_message: String::new(),  // v0.8.7: No error
+                        };
+                        yield Ok(stats);
+                    }
+                    
+                    result = rx_done.recv() => {
+                        // Workload completed (or failed)
+                        match result {
+                            Some(Ok(summary)) => {
+                                // v0.8.7: Send final stats with completed=true and complete summary
+                                let snapshot = tracker.snapshot();
+                                let final_stats = LiveStats {
+                                    agent_id: agent_id_stream.clone(),
+                                    timestamp_s: snapshot.timestamp_secs() as f64,
+                                    get_ops: snapshot.get_ops,
+                                    get_bytes: snapshot.get_bytes,
+                                    get_mean_us: snapshot.get_mean_us as f64,
+                                    get_p50_us: snapshot.get_p50_us as f64,
+                                    get_p95_us: snapshot.get_p95_us as f64,
+                                    put_ops: snapshot.put_ops,
+                                    put_bytes: snapshot.put_bytes,
+                                    put_mean_us: snapshot.put_mean_us as f64,
+                                    put_p50_us: snapshot.put_p50_us as f64,
+                                    put_p95_us: snapshot.put_p95_us as f64,
+                                    samples_per_second: snapshot.samples_per_second(),
+                                    total_samples: snapshot.total_samples,
+                                    elapsed_s: snapshot.elapsed_secs(),
+                                    completed: true,
+                                    final_summary: Some(summary),  // v0.8.7: Include complete results
+                                    status: LiveStatsStatus::Completed as i32,  // v0.8.7: Agent finished
+                                    error_message: String::new(),  // v0.8.7: No error
+                                };
+                                yield Ok(final_stats);
+                                break;
+                            }
+                            Some(Err(e)) => {
+                                yield Err(Status::internal(e));
+                                break;
+                            }
+                            None => {
+                                yield Err(Status::internal("Workload task terminated unexpectedly"));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Response::new(Box::pin(stream)))
+    }
+}
+
+/// Validate DLIO workload configuration after path prefixing (v0.8.7)
+/// 
+/// Performs pre-flight validation to catch configuration errors before workload starts.
+/// This validation happens AFTER agent path prefix is applied, so file:// paths are
+/// checked with the correct agent-specific prefix.
+async fn validate_workload_config(config: &DlioConfig) -> Result<()> {
+    // Check that data_folder is not empty
+    if config.dataset.data_folder.is_empty() {
+        anyhow::bail!("dataset.data_folder is required");
+    }
+    
+    // For file:// URIs, verify that files/directories exist (if NOT generating data)
+    let should_generate = config.workflow
+        .as_ref()
+        .and_then(|w| w.generate_data)
+        .unwrap_or(false);
+    
+    if !should_generate && config.dataset.data_folder.starts_with("file://") {
+        let file_path = config.dataset.data_folder.replace("file://", "");
+        
+        // Check if path contains glob patterns
+        if file_path.contains('*') || file_path.contains('?') {
+            // Validate glob pattern
+            let paths: Vec<_> = glob::glob(&file_path)
+                .map_err(|e| anyhow::anyhow!("Invalid glob pattern in data_folder '{}': {}", file_path, e))?
+                .collect();
+            
+            if paths.is_empty() {
+                anyhow::bail!("No files/directories found matching pattern: {}", config.dataset.data_folder);
+            }
+        } else {
+            // Check if directory exists
+            if !tokio::fs::try_exists(&file_path).await.unwrap_or(false) {
+                anyhow::bail!("data_folder does not exist: {}", config.dataset.data_folder);
+            }
+        }
+    }
+    
+    // Validate that batch_size is configured for training phase
+    if let Some(workflow) = &config.workflow {
+        if workflow.train.unwrap_or(false) {
+            if config.reader.batch_size.is_none() {
+                anyhow::bail!("batch_size must be configured in reader section for training phase");
+            }
+        }
+    }
+    
+    // Validate checkpoint configuration if checkpointing is enabled
+    if let Some(workflow) = &config.workflow {
+        if workflow.checkpoint.unwrap_or(false) {
+            if config.checkpointing.is_none() {
+                anyhow::bail!("checkpointing configuration required when workflow.checkpoint=true");
+            }
+        }
+    }
+    
+    Ok(())
 }
 
 #[cfg(test)]

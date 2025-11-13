@@ -26,6 +26,12 @@ prost-types = "0.13"
 # HDR Histogram for accurate latency merging (v0.8.1)
 hdrhistogram = "7.5"
 
+# Fast mutex for live_stats histograms (v0.8.7)
+parking_lot = "0.12"
+
+# File pattern validation for startup handshake (v0.8.7)
+glob = "0.3"
+
 # Additional dependencies from s3dlio for advanced features
 futures = "0.3"
 futures-core = "0.3"

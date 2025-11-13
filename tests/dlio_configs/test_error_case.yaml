@@ -1,0 +1,30 @@
+# Test config for error handling - missing files
+# Uses file:// backend with non-existent data folder to trigger ERROR status
+
+model:
+  name: distributed_error_test
+
+framework: pytorch
+
+workflow:
+  generate_data: false     # Don't generate - files should exist
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/test/NONEXISTENT_DATA_FOLDER
+  format: npz
+  num_files_train: 50
+  record_length_bytes: 262144
+
+reader:
+  data_loader: pytorch
+  batch_size: 8
+  read_threads: 2
+  compute_threads: 1
+  prefetch: 4
+  shuffle: false
+
+train:
+  epochs: 2
+  computation_time: 0.0

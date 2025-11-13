@@ -35,6 +35,8 @@ pub struct WorkloadRunner {
     live_bytes: Arc<AtomicU64>,
     // v0.8.6: Optional results directory for console.log output
     results_dir: Option<std::sync::Arc<std::sync::Mutex<crate::results_dir::ResultsDir>>>,
+    // v0.8.7: Optional distributed live stats tracker for agent execution
+    live_stats_tracker: Option<Arc<crate::live_stats::LiveStatsTracker>>,
 }
 
 /// Spawn a background task to monitor and display live performance statistics
@@ -120,12 +122,19 @@ impl WorkloadRunner {
             live_ops: Arc::new(AtomicU64::new(0)),
             live_bytes: Arc::new(AtomicU64::new(0)),
             results_dir: None,
+            live_stats_tracker: None,
         }
     }
     
     /// Set results directory for console.log output
     pub fn with_results_dir(mut self, results_dir: std::sync::Arc<std::sync::Mutex<crate::results_dir::ResultsDir>>) -> Self {
         self.results_dir = Some(results_dir);
+        self
+    }
+
+    /// Set live stats tracker for distributed execution (v0.8.7+)
+    pub fn with_live_stats_tracker(mut self, tracker: Arc<crate::live_stats::LiveStatsTracker>) -> Self {
+        self.live_stats_tracker = Some(tracker);
         self
     }
 
@@ -420,6 +429,11 @@ impl WorkloadRunner {
             self.live_ops.fetch_add(1, Ordering::Relaxed);
             self.live_bytes.fetch_add(bytes_written, Ordering::Relaxed);
             
+            // v0.8.7: Update distributed live stats tracker if present
+            if let Some(ref tracker) = self.live_stats_tracker {
+                tracker.record_put(bytes_written as usize, write_time);
+            }
+            
             // v0.8.6: Update progress bar position
             pb.inc(1);
         }
@@ -665,6 +679,12 @@ impl WorkloadRunner {
                         // v0.8.6: Update live counters after successful batch processing
                         self.live_ops.fetch_add(1, Ordering::Relaxed);
                         self.live_bytes.fetch_add(batch_bytes as u64, Ordering::Relaxed);
+
+                        // v0.8.7: Update distributed live stats tracker if present
+                        if let Some(ref tracker) = self.live_stats_tracker {
+                            tracker.record_get(batch_bytes, io_time);
+                            tracker.record_samples(batch_size_actual as u64);
+                        }
 
                         batch_count += 1;
                         total_samples += batch_size_actual;

@@ -1,0 +1,31 @@
+# Test config for 2-agent distributed live stats testing
+# Uses file:// backend with /mnt/test mount point
+# Small dataset for quick validation of startup handshake and live stats
+
+model:
+  name: distributed_live_stats_test
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: file:///mnt/test/dl-driver-dist-test
+  format: npz
+  num_files_train: 200      # More files for longer test
+  record_length_bytes: 262144  # 256 KiB records
+
+reader:
+  data_loader: pytorch
+  batch_size: 8
+  read_threads: 2
+  compute_threads: 1
+  prefetch: 4
+  shuffle: false
+
+train:
+  epochs: 10               # More epochs to see live stats updates
+  computation_time: 0.05   # Add 50ms simulated compute per batch
