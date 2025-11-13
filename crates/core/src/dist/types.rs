@@ -53,10 +53,10 @@ pub struct WorkloadResult {
     // Storage performance metrics
     pub ops_per_s: f64,
     pub mib_per_s: f64,
-    pub p50_ms: f64,
-    pub p90_ms: f64,
-    pub p95_ms: f64,
-    pub p99_ms: f64,
+    pub p50_us: f64,  // v0.8.7: changed from ms to µs for consistency
+    pub p90_us: f64,
+    pub p95_us: f64,
+    pub p99_us: f64,
     pub errors: u32,
     pub total_ops: u64,
     pub duration_s: f64,
@@ -82,10 +82,10 @@ impl From<proto::WorkloadSummary> for WorkloadResult {
             // Storage metrics
             ops_per_s: summary.ops_per_s,
             mib_per_s: summary.mib_per_s,
-            p50_ms: summary.p50_ms,
-            p90_ms: summary.p90_ms,
-            p95_ms: summary.p95_ms,
-            p99_ms: summary.p99_ms,
+            p50_us: summary.p50_us,
+            p90_us: summary.p90_us,
+            p95_us: summary.p95_us,
+            p99_us: summary.p99_us,
             errors: summary.errors,
             total_ops: summary.total_ops,
             duration_s: summary.duration_s,
@@ -112,10 +112,10 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
             // Storage metrics
             ops_per_s: result.ops_per_s,
             mib_per_s: result.mib_per_s,
-            p50_ms: result.p50_ms,
-            p90_ms: result.p90_ms,
-            p95_ms: result.p95_ms,
-            p99_ms: result.p99_ms,
+            p50_us: result.p50_us,
+            p90_us: result.p90_us,
+            p95_us: result.p95_us,
+            p99_us: result.p99_us,
             errors: result.errors,
             total_ops: result.total_ops,
             duration_s: result.duration_s,
@@ -153,10 +153,10 @@ pub struct AggregateResults {
     // Storage aggregate metrics
     pub total_ops_per_s: f64,
     pub total_mib_per_s: f64,
-    pub avg_p50_ms: f64,
-    pub avg_p90_ms: f64,
-    pub avg_p95_ms: f64,
-    pub avg_p99_ms: f64,
+    pub avg_p50_us: f64,  // v0.8.7: changed from ms to µs for consistency
+    pub avg_p90_us: f64,
+    pub avg_p95_us: f64,
+    pub avg_p99_us: f64,
     pub total_errors: u32,
     pub total_ops: u64,
     
@@ -196,10 +196,10 @@ impl AggregateResults {
 
         // WARNING: Averaging percentiles is statistically incorrect for unbalanced workloads
         // This can cause significant errors (30%+) when agents have different operation counts
-        let avg_p50_ms = results.iter().map(|r| r.p50_ms).sum::<f64>() / count;
-        let avg_p90_ms = results.iter().map(|r| r.p90_ms).sum::<f64>() / count;
-        let avg_p95_ms = results.iter().map(|r| r.p95_ms).sum::<f64>() / count;
-        let avg_p99_ms = results.iter().map(|r| r.p99_ms).sum::<f64>() / count;
+        let avg_p50_us = results.iter().map(|r| r.p50_us).sum::<f64>() / count;
+        let avg_p90_us = results.iter().map(|r| r.p90_us).sum::<f64>() / count;
+        let avg_p95_us = results.iter().map(|r| r.p95_us).sum::<f64>() / count;
+        let avg_p99_us = results.iter().map(|r| r.p99_us).sum::<f64>() / count;
 
         // AI/ML metric aggregation
         let total_samples_per_second: f64 = results.iter().map(|r| r.samples_per_second).sum();
@@ -218,10 +218,10 @@ impl AggregateResults {
             // Storage metrics
             total_ops_per_s,
             total_mib_per_s,
-            avg_p50_ms,
-            avg_p90_ms,
-            avg_p95_ms,
-            avg_p99_ms,
+            avg_p50_us,
+            avg_p90_us,
+            avg_p95_us,
+            avg_p99_us,
             total_errors,
             total_ops,
             // AI/ML metrics
@@ -273,13 +273,13 @@ impl AggregateResults {
         let total_ops: u64 = results.iter().map(|r| r.total_ops).sum();
 
         // Percentile aggregation using HDR histogram merging (sai3-bench pattern)
-        let (avg_p50_ms, avg_p90_ms, avg_p95_ms, avg_p99_ms) = if summaries.is_empty() {
+        let (avg_p50_us, avg_p90_us, avg_p95_us, avg_p99_us) = if summaries.is_empty() {
             // Fallback to naive averaging if no histogram data available
             (
-                results.iter().map(|r| r.p50_ms).sum::<f64>() / count,
-                results.iter().map(|r| r.p90_ms).sum::<f64>() / count,
-                results.iter().map(|r| r.p95_ms).sum::<f64>() / count,
-                results.iter().map(|r| r.p99_ms).sum::<f64>() / count,
+                results.iter().map(|r| r.p50_us).sum::<f64>() / count,
+                results.iter().map(|r| r.p90_us).sum::<f64>() / count,
+                results.iter().map(|r| r.p95_us).sum::<f64>() / count,
+                results.iter().map(|r| r.p99_us).sum::<f64>() / count,
             )
         } else {
             // Create accumulators for 9 size buckets (read operations)
@@ -333,15 +333,15 @@ impl AggregateResults {
                 let p95_us = combined.value_at_quantile(0.95) as f64;
                 let p99_us = combined.value_at_quantile(0.99) as f64;
                 
-                // Convert to milliseconds
-                (p50_us / 1000.0, p90_us / 1000.0, p95_us / 1000.0, p99_us / 1000.0)
+                // v0.8.7: Keep values in microseconds (no conversion needed)
+                (p50_us, p90_us, p95_us, p99_us)
             } else {
                 // Fallback if no histogram data available
                 (
-                    results.iter().map(|r| r.p50_ms).sum::<f64>() / count,
-                    results.iter().map(|r| r.p90_ms).sum::<f64>() / count,
-                    results.iter().map(|r| r.p95_ms).sum::<f64>() / count,
-                    results.iter().map(|r| r.p99_ms).sum::<f64>() / count,
+                    results.iter().map(|r| r.p50_us).sum::<f64>() / count,
+                    results.iter().map(|r| r.p90_us).sum::<f64>() / count,
+                    results.iter().map(|r| r.p95_us).sum::<f64>() / count,
+                    results.iter().map(|r| r.p99_us).sum::<f64>() / count,
                 )
             }
         };
@@ -363,10 +363,10 @@ impl AggregateResults {
             // Storage metrics with correctly merged percentiles
             total_ops_per_s,
             total_mib_per_s,
-            avg_p50_ms,
-            avg_p90_ms,
-            avg_p95_ms,
-            avg_p99_ms,
+            avg_p50_us,
+            avg_p90_us,
+            avg_p95_us,
+            avg_p99_us,
             total_errors,
             total_ops,
             // AI/ML metrics
@@ -389,18 +389,18 @@ impl AggregateResults {
     /// Returns storage performance metrics (ops/s, MiB/s, latency)
     pub fn to_storage_tsv(&self) -> String {
         let mut output = String::new();
-        output.push_str("agent_id\tops_s\tmib_s\tp50_ms\tp90_ms\tp95_ms\tp99_ms\terrors\ttotal_ops\tduration_s\n");
+        output.push_str("agent_id\tops_s\tmib_s\tp50_us\tp90_us\tp95_us\tp99_us\terrors\ttotal_ops\tduration_s\n");
 
         for result in &self.agent_results {
             output.push_str(&format!(
-                "{}\t{:.1}\t{:.1}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}\t{}\t{:.2}\n",
+                "{}\t{:.1}\t{:.1}\t{:.0}\t{:.0}\t{:.0}\t{:.0}\t{}\t{}\t{:.2}\n",
                 result.agent_id,
                 result.ops_per_s,
                 result.mib_per_s,
-                result.p50_ms,
-                result.p90_ms,
-                result.p95_ms,
-                result.p99_ms,
+                result.p50_us,
+                result.p90_us,
+                result.p95_us,
+                result.p99_us,
                 result.errors,
                 result.total_ops,
                 result.duration_s
@@ -408,13 +408,13 @@ impl AggregateResults {
         }
 
         output.push_str(&format!(
-            "AGGREGATE\t{:.1}\t{:.1}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{}\t{}\t-\n",
+            "AGGREGATE\t{:.1}\t{:.1}\t{:.0}\t{:.0}\t{:.0}\t{:.0}\t{}\t{}\t-\n",
             self.total_ops_per_s,
             self.total_mib_per_s,
-            self.avg_p50_ms,
-            self.avg_p90_ms,
-            self.avg_p95_ms,
-            self.avg_p99_ms,
+            self.avg_p50_us,
+            self.avg_p90_us,
+            self.avg_p95_us,
+            self.avg_p99_us,
             self.total_errors,
             self.total_ops
         ));

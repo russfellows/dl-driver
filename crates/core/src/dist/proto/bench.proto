@@ -49,11 +49,11 @@ message WorkloadSummary {
   double ops_per_s = 2;        // Files/objects per second (IOPS)
   double mib_per_s = 3;        // Raw bandwidth (MiB/s)
   
-  // Latency percentiles (milliseconds)
-  double p50_ms = 4;
-  double p90_ms = 5;
-  double p95_ms = 6;
-  double p99_ms = 7;
+  // Latency percentiles (microseconds) - v0.8.7: changed from ms to µs for consistency
+  double p50_us = 4;
+  double p90_us = 5;
+  double p95_us = 6;
+  double p99_us = 7;
   
   // Error tracking and totals
   uint32 errors = 8;

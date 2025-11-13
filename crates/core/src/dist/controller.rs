@@ -61,32 +61,32 @@ impl AggregateStats {
         if get_ratio > 0.90 {
             // Training phase - emphasize samples/s
             format!(
-                "Training: {} samples/s │ GET: {} ops, {} ({:.1}ms mean, {:.1}ms p95)",
+                "Training: {} samples/s │ GET: {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
                 format_count(self.samples_per_second as u64),
                 format_count(self.total_get_ops),
                 format_bandwidth(self.total_get_bytes, self.elapsed_s),
-                self.get_mean_us / 1000.0,
-                self.get_p95_us / 1000.0
+                self.get_mean_us,
+                self.get_p95_us
             )
         } else if put_ratio > 0.90 {
             // Data prep phase - show PUT only
             format!(
-                "Data Prep: PUT {} ops, {} ({:.1}ms mean, {:.1}ms p95)",
+                "Data Prep: PUT {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
                 format_count(self.total_put_ops),
                 format_bandwidth(self.total_put_bytes, self.elapsed_s),
-                self.put_mean_us / 1000.0,
-                self.put_p95_us / 1000.0
+                self.put_mean_us,
+                self.put_p95_us
             )
         } else {
             // Mixed phase - show both (multi-line via newline)
             format!(
-                "GET: {} ops, {} ({:.1}ms mean) │ PUT: {} ops, {} ({:.1}ms mean)",
+                "GET: {} ops, {} ({:.0}µs mean) │ PUT: {} ops, {} ({:.0}µs mean)",
                 format_count(self.total_get_ops),
                 format_bandwidth(self.total_get_bytes, self.elapsed_s),
-                self.get_mean_us / 1000.0,
+                self.get_mean_us,
                 format_count(self.total_put_ops),
                 format_bandwidth(self.total_put_bytes, self.elapsed_s),
-                self.put_mean_us / 1000.0
+                self.put_mean_us
             )
         }
     }
@@ -699,21 +699,21 @@ impl Controller {
                  format_count(final_stats.total_put_ops));
         
         if final_stats.total_get_ops > 0 {
-            println!("READ: {:.0} ops/s, {} (mean: {:.1}ms, p50: {:.1}ms, p95: {:.1}ms)",
+            println!("READ: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
                      final_stats.total_get_ops as f64 / final_stats.elapsed_s,
                      format_bandwidth(final_stats.total_get_bytes, final_stats.elapsed_s),
-                     final_stats.get_mean_us / 1000.0,
-                     final_stats.get_p50_us / 1000.0,
-                     final_stats.get_p95_us / 1000.0);
+                     final_stats.get_mean_us,
+                     final_stats.get_p50_us,
+                     final_stats.get_p95_us);
         }
         
         if final_stats.total_put_ops > 0 {
-            println!("WRITE: {:.0} ops/s, {} (mean: {:.1}ms, p50: {:.1}ms, p95: {:.1}ms)",
+            println!("WRITE: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
                      final_stats.total_put_ops as f64 / final_stats.elapsed_s,
                      format_bandwidth(final_stats.total_put_bytes, final_stats.elapsed_s),
-                     final_stats.put_mean_us / 1000.0,
-                     final_stats.put_p50_us / 1000.0,
-                     final_stats.put_p95_us / 1000.0);
+                     final_stats.put_mean_us,
+                     final_stats.put_p50_us,
+                     final_stats.put_p95_us);
         }
         
         if final_stats.total_samples > 0 {
@@ -775,10 +775,10 @@ impl Controller {
             total_ops_per_s: total_ops as f64 / final_stats.elapsed_s,
             total_mib_per_s: (final_stats.total_get_bytes + final_stats.total_put_bytes) as f64 
                              / 1_048_576.0 / final_stats.elapsed_s,
-            avg_p50_ms: (final_stats.get_p50_us + final_stats.put_p50_us) / 2000.0,  // Avg of GET/PUT
-            avg_p90_ms: 0.0,  // Not available from live stats
-            avg_p95_ms: (final_stats.get_p95_us + final_stats.put_p95_us) / 2000.0,  // Avg of GET/PUT
-            avg_p99_ms: 0.0,  // Not available from live stats
+            avg_p50_us: (final_stats.get_p50_us + final_stats.put_p50_us) / 2.0,  // Avg of GET/PUT in µs
+            avg_p90_us: 0.0,  // Not available from live stats
+            avg_p95_us: (final_stats.get_p95_us + final_stats.put_p95_us) / 2.0,  // Avg of GET/PUT in µs
+            avg_p99_us: 0.0,  // Not available from live stats
             total_errors: 0,
             total_samples_per_second: final_stats.samples_per_second,
             total_batches_per_second: 0.0,
@@ -820,10 +820,10 @@ impl Controller {
             "total_ops": result.total_ops,
             "total_samples": result.total_samples,
             "epochs_completed": result.epochs_completed,
-            "p50_ms": result.p50_ms,
-            "p90_ms": result.p90_ms,
-            "p95_ms": result.p95_ms,
-            "p99_ms": result.p99_ms,
+            "p50_us": result.p50_us,
+            "p90_us": result.p90_us,
+            "p95_us": result.p95_us,
+            "p99_us": result.p99_us,
             "duration_s": result.duration_s,
         });
         let metadata_json = serde_json::to_string_pretty(&metadata)?;

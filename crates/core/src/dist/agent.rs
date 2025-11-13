@@ -225,13 +225,14 @@ impl AgentService {
         let batch_hists = metrics.get_batch_histograms();
 
         // Calculate percentiles from combined read histogram (across all size buckets)
+        // v0.8.7: Values in microseconds (no conversion needed - histograms store µs)
         let combined_read = read_hists.combined_histogram();
         let (p50, p90, p95, p99) = if combined_read.len() > 0 {
             (
-                combined_read.value_at_quantile(0.50) as f64 / 1000.0, // Convert μs to ms
-                combined_read.value_at_quantile(0.90) as f64 / 1000.0,
-                combined_read.value_at_quantile(0.95) as f64 / 1000.0,
-                combined_read.value_at_quantile(0.99) as f64 / 1000.0,
+                combined_read.value_at_quantile(0.50) as f64,
+                combined_read.value_at_quantile(0.90) as f64,
+                combined_read.value_at_quantile(0.95) as f64,
+                combined_read.value_at_quantile(0.99) as f64,
             )
         } else {
             (0.0, 0.0, 0.0, 0.0)
@@ -319,10 +320,10 @@ impl AgentService {
             // Storage metrics
             ops_per_s,
             mib_per_s,
-            p50_ms: p50,
-            p90_ms: p90,
-            p95_ms: p95,
-            p99_ms: p99,
+            p50_us: p50,
+            p90_us: p90,
+            p95_us: p95,
+            p99_us: p99,
             errors,
             total_ops,
             duration_s,
