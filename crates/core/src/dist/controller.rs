@@ -561,12 +561,12 @@ impl Controller {
         results_dir.write_console("⏳ Live stats streaming enabled...")?;
         results_dir.write_console("")?;
         
-        // Setup progress bar
+        // Setup progress display (v0.8.7: improved multi-line format)
         use indicatif::{ProgressBar, ProgressStyle};
         let progress_bar = ProgressBar::new_spinner();
         progress_bar.set_style(
             ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
+                .template("{spinner:.green} {elapsed_precise}\n{msg}")
                 .unwrap()
         );
         progress_bar.enable_steady_tick(std::time::Duration::from_millis(100));
@@ -687,7 +687,9 @@ impl Controller {
         // Final aggregation
         let final_stats = aggregator.aggregate();
         progress_bar.finish_with_message(format!("✓ All {} agents completed", final_stats.num_agents));
-        println!();  // Blank line after progress
+        
+        // v0.8.7: Add newlines after progress bar to preserve final stats display
+        println!("\n");  // Two blank lines to separate from results
         
         // Print final aggregate results
         println!("=== Final Aggregate Results ===");
