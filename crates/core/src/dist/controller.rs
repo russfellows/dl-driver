@@ -479,8 +479,84 @@ impl Controller {
         // Drop our copy of tx so rx will close when all tasks complete
         drop(tx_stats);
         
+        // v0.8.7: Startup handshake - wait for all agents to report READY or ERROR
+        info!("⏳ Waiting for agents to validate configuration...");
+        results_dir.write_console("⏳ Waiting for agents to validate configuration...")?;
+        
+        let validation_timeout_secs = 5;  // Allow 5 seconds for validation
+        let validation_deadline = tokio::time::Instant::now() 
+            + tokio::time::Duration::from_secs(validation_timeout_secs);
+        
+        let mut agent_status: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut ready_agents: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut error_agents: Vec<(String, String)> = Vec::new();
+        let expected_agent_count = stream_tasks.len();
+        
+        'startup: loop {
+            tokio::select! {
+                Some(stats) = rx_stats.recv() => {
+                    use crate::dist::proto::live_stats::Status as LiveStatus;
+                    
+                    let status_enum = LiveStatus::try_from(stats.status).unwrap_or(LiveStatus::Unknown);
+                    match status_enum {
+                        LiveStatus::Ready => {
+                            agent_status.insert(stats.agent_id.clone(), "READY".to_string());
+                            ready_agents.insert(stats.agent_id.clone());
+                            info!("  ✅ {} ready", stats.agent_id);
+                            results_dir.write_console(&format!("  ✅ {} ready", stats.agent_id))?;
+                        }
+                        LiveStatus::Error => {
+                            agent_status.insert(stats.agent_id.clone(), "ERROR".to_string());
+                            error_agents.push((stats.agent_id.clone(), stats.error_message.clone()));
+                            error!("  ❌ {} error: {}", stats.agent_id, stats.error_message);
+                            results_dir.write_console(&format!("  ❌ {} error: {}", stats.agent_id, stats.error_message))?;
+                        }
+                        _ => {
+                            // Treat Running/Completed/Unknown as ready (shouldn't happen during startup)
+                            warn!("  ⚠️  {} sent unexpected status during startup: {:?}", stats.agent_id, status_enum);
+                        }
+                    }
+                    
+                    // Check if all agents have responded
+                    if agent_status.len() >= expected_agent_count {
+                        break 'startup;
+                    }
+                }
+                _ = tokio::time::sleep_until(validation_deadline) => {
+                    // Timeout - report which agents didn't respond
+                    let missing: Vec<_> = stream_tasks.iter()
+                        .filter(|(id, _)| !agent_status.contains_key(id))
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    
+                    anyhow::bail!(
+                        "Agent startup validation timeout after {}s. Missing agents: {:?}",
+                        validation_timeout_secs,
+                        missing
+                    );
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    anyhow::bail!("Interrupted during agent startup validation");
+                }
+            }
+        }
+        
+        // Check if any agents reported errors
+        if !error_agents.is_empty() {
+            error!("❌ {} agent(s) failed startup validation:", error_agents.len());
+            results_dir.write_console(&format!("❌ {} agent(s) failed startup validation:", error_agents.len()))?;
+            for (agent_id, error_msg) in &error_agents {
+                error!("   - {}: {}", agent_id, error_msg);
+                results_dir.write_console(&format!("   - {}: {}", agent_id, error_msg))?;
+            }
+            anyhow::bail!("{} agent(s) failed startup validation", error_agents.len());
+        }
+        
+        info!("✅ All {} agents ready - starting workload execution", ready_agents.len());
+        results_dir.write_console(&format!("✅ All {} agents ready - starting workload execution", ready_agents.len()))?;
+        results_dir.write_console("")?;
+        
         info!("📤 Workload sent to all {} agents", stream_tasks.len());
-        results_dir.write_console("📤 Workload sent to all agents")?;
         info!("⏳ Live stats streaming enabled...");
         results_dir.write_console("⏳ Live stats streaming enabled...")?;
         results_dir.write_console("")?;
@@ -765,7 +841,13 @@ impl Controller {
         Ok(())
     }
 
-    /// Send workload to a single agent
+    /// Send workload to a single agent (LEGACY - NON-STREAMING)
+    /// 
+    /// **DEPRECATED**: This function uses the old non-streaming run_workload RPC.
+    /// All code now uses stream_workload_from_agent() with RunWorkloadWithLiveStats.
+    /// 
+    /// **TODO**: Remove this function in v0.8.8 after confirming no external dependencies.
+    /// The warning about unused code serves as a reminder that this should be cleaned up.
     /// 
     /// Returns both WorkloadResult and the raw proto WorkloadSummary (which contains histogram data)
     async fn send_workload_to_agent(
