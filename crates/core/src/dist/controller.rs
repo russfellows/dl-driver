@@ -561,15 +561,36 @@ impl Controller {
         results_dir.write_console("⏳ Live stats streaming enabled...")?;
         results_dir.write_console("")?;
         
-        // Setup progress display (v0.8.7: improved multi-line format)
+        // Calculate expected total samples for progress bar (v0.8.7: restore progress percentage)
+        let num_agents = self.distributed.agents.len() as u64;
+        let num_files = self.config.dataset.num_files_train.unwrap_or(0) as u64;
+        let samples_per_file = self.config.dataset.num_samples_per_file.unwrap_or(1) as u64;
+        let epochs = self.config.train.as_ref().and_then(|t| t.epochs).unwrap_or(1) as u64;
+        let expected_total_samples = num_files * samples_per_file * epochs * num_agents;
+        
+        // Setup progress display with known total (v0.8.7: improved progress bar with percentage)
         use indicatif::{ProgressBar, ProgressStyle};
-        let progress_bar = ProgressBar::new_spinner();
-        progress_bar.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {elapsed_precise}\n{msg}")
-                .unwrap()
-        );
-        progress_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+        let progress_bar = if expected_total_samples > 0 {
+            let pb = ProgressBar::new(expected_total_samples);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    // Multi-line format: progress bar on line 1, statistics on line 2
+                    .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} samples ({percent}%) | Epoch {msg}\n{prefix}")
+                    .unwrap()
+                    .progress_chars("=>-")
+            );
+            pb
+        } else {
+            // Fallback to spinner if expected total cannot be determined
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} {elapsed_precise}\n{msg}")
+                    .unwrap()
+            );
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb
+        };
         
         // Setup Ctrl+C handler
         let ctrl_c = tokio::signal::ctrl_c();
@@ -612,7 +633,24 @@ impl Controller {
                         error!("❌ Agent {} STALLED (no updates for {:.1}s) - marking as DEAD", agent_id, elapsed);
                         dead_agents.insert(agent_id.clone());
                         aggregator.mark_completed(agent_id);  // Remove from active count
-                        progress_bar.set_message(format!("{} (⚠️ {} dead)", agg.format_progress(), dead_agents.len()));
+                        
+                        // Update progress display with dead agent warning
+                        let agg_for_display = aggregator.aggregate();
+                        if expected_total_samples > 0 {
+                            progress_bar.set_position(agg_for_display.total_samples.min(expected_total_samples));
+                            let epoch_msg = format!("{}/{} (⚠️ {} dead)", 
+                                if num_files > 0 && samples_per_file > 0 {
+                                    let samples_per_epoch = num_files * samples_per_file * num_agents;
+                                    ((agg_for_display.total_samples / samples_per_epoch.max(1)) + 1).min(epochs)
+                                } else { 1 },
+                                epochs,
+                                dead_agents.len()
+                            );
+                            progress_bar.set_message(epoch_msg);
+                            progress_bar.set_prefix(format!("{} (⚠️ {} dead)", agg_for_display.format_progress(), dead_agents.len()));
+                        } else {
+                            progress_bar.set_message(format!("{} (⚠️ {} dead)", agg_for_display.format_progress(), dead_agents.len()));
+                        }
                     }
                 } else if elapsed >= timeout_warn_secs {
                     warn!("⚠️  Agent {} delayed: no updates for {:.1}s", agent_id, elapsed);
@@ -643,12 +681,41 @@ impl Controller {
                     // Update display every 100ms (rate limiting)
                     if last_update.elapsed() > std::time::Duration::from_millis(100) {
                         let agg = aggregator.aggregate();
+                        
+                        // v0.8.7: Update progress bar position (if using progress bar)
+                        if expected_total_samples > 0 {
+                            progress_bar.set_position(agg.total_samples.min(expected_total_samples));
+                        }
+                        
+                        // Calculate current epoch for display
+                        let current_epoch = if num_files > 0 && samples_per_file > 0 {
+                            let samples_per_epoch = num_files * samples_per_file * num_agents;
+                            if samples_per_epoch > 0 {
+                                ((agg.total_samples / samples_per_epoch) + 1).min(epochs)
+                            } else {
+                                1
+                            }
+                        } else {
+                            1
+                        };
+                        let epoch_msg = format!("{}/{}", current_epoch, epochs);
+                        
                         let msg = if dead_agents.is_empty() {
                             agg.format_progress()
                         } else {
                             format!("{} (⚠️ {} dead)", agg.format_progress(), dead_agents.len())
                         };
-                        progress_bar.set_message(msg.clone());
+                        
+                        // Set message and prefix for multi-line display
+                        if expected_total_samples > 0 {
+                            // Progress bar: epoch in {msg}, statistics in {prefix}
+                            progress_bar.set_message(epoch_msg);
+                            progress_bar.set_prefix(msg.clone());
+                        } else {
+                            // Spinner: statistics in {msg}
+                            progress_bar.set_message(msg.clone());
+                        }
+                        
                         last_update = std::time::Instant::now();
                         
                         // v0.8.7: Write live stats to console.log every 1 second
@@ -686,7 +753,21 @@ impl Controller {
         
         // Final aggregation
         let final_stats = aggregator.aggregate();
-        progress_bar.finish_with_message(format!("✓ All {} agents completed", final_stats.num_agents));
+        
+        // v0.8.7: Show final epoch count in completion message
+        let final_epoch_msg = if num_files > 0 && samples_per_file > 0 {
+            let samples_per_epoch = num_files * samples_per_file * num_agents;
+            let final_epoch = if samples_per_epoch > 0 {
+                ((final_stats.total_samples / samples_per_epoch.max(1)) + 1).min(epochs)
+            } else {
+                epochs
+            };
+            format!("✓ All {} agents completed | Epoch {}/{}", final_stats.num_agents, final_epoch, epochs)
+        } else {
+            format!("✓ All {} agents completed", final_stats.num_agents)
+        };
+        
+        progress_bar.finish_with_message(final_epoch_msg);
         
         // v0.8.7: Add newlines after progress bar to preserve final stats display
         println!("\n");  // Two blank lines to separate from results
