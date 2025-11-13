@@ -121,6 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✅ Dead agent detection verified (timeout warnings)
 - ✅ Zero warnings (production quality standard maintained)
 
+### **🧹 Removed**
+- **Legacy send_workload_to_agent function** - Removed deprecated non-streaming RPC
+  - All distributed execution now uses `stream_workload_from_agent` with live stats
+  - Eliminates compiler warning about unused code
+  - Cleaner codebase with zero technical debt from old patterns
+
 ### **📊 Performance**
 - Streaming overhead: <1% CPU (100ms tick + 1s stream updates)
 - Memory: Circular buffer ~1KB per operation type (negligible)

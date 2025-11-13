@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.91.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.6-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.7-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
@@ -22,13 +22,14 @@
 
 ## 🎯 Current Status
 
-**🎉 v0.8.6 RELEASED**: Production-quality distributed histogram aggregation
-**📊 BUCKET-LEVEL HISTOGRAMS**: 9-bucket histogram aggregation across distributed agents
-**🎯 ACCURATE PERCENTILES**: HDR histogram merging for mathematically correct aggregation
-**📁 CONSOLE.LOG IMPROVEMENTS**: Full performance statistics captured (completion, latencies, throughput)
+**🎉 v0.8.7 RELEASED**: Distributed live stats and progress bars
+**📊 LIVE STATS STREAMING**: Real-time progress updates via gRPC streaming (1s intervals)
+**📈 PROGRESS BARS**: Multi-line display with percentage, epoch counter, and detailed statistics
+**🤝 STARTUP HANDSHAKE**: READY/ERROR validation before workload execution
+**⏱️ MICROSECOND PRECISION**: All latency displays now in microseconds (µs) for distributed mode
+**🎯 ZERO WARNINGS**: Production-quality code with zero compiler warnings
 **⚡ MULTI-ENDPOINT**: Load balance across multiple S3/storage endpoints with round-robin or least-connections
 **♻️ CHECKPOINT RELOAD**: Resume training from saved checkpoints with --resume-from-checkpoint flag
-**🧪 COMPREHENSIVE TESTS**: Multi-backend checkpoint tests (file://, s3://, az://, gs://, direct://) 
 **💾 CHECKPOINT SUPPORT**: Step-based and epoch-based checkpointing across all storage backends
 **🔧 CLI SIMPLIFIED**: Removed legacy commands, unified interface with validate/--dry-run
 **🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
@@ -38,6 +39,10 @@
 **✅ 133/133 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
+- **📊 Live Stats Streaming**: Real-time progress updates via gRPC streaming with 1-second intervals (v0.8.7)
+- **📈 Progress Bars**: Multi-line display showing percentage, epoch counter, and detailed I/O statistics (v0.8.7)
+- **🤝 Startup Handshake**: READY/ERROR validation ensures all agents are healthy before workload starts (v0.8.7)
+- **⏱️ Microsecond Precision**: All distributed mode latencies now displayed in microseconds (µs) for accuracy (v0.8.7)
 - **📊 Distributed Histogram Aggregation**: Bucket-level HDR histogram merging for accurate percentiles across agents
 - **📁 Enhanced Results Capture**: console.log includes all completion messages, latencies, and throughput statistics
 - **⚡ Multi-Endpoint Load Balancing**: Distribute requests across multiple storage endpoints (round-robin or least-connections)
