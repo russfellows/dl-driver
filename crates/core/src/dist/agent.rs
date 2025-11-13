@@ -429,7 +429,7 @@ impl DistAgent for AgentService {
         
         let req = request.into_inner();
         
-        // Parse and apply config (same as run_workload)
+        // Parse and apply config BEFORE stream (v0.8.7)
         let mut config = DlioConfig::from_yaml(&req.config_yaml).map_err(|e| {
             error!("Failed to parse DLIO config: {}", e);
             Status::invalid_argument(format!("Invalid DLIO config: {}", e))
@@ -444,39 +444,117 @@ impl DistAgent for AgentService {
                 })?;
         }
 
-        // Wait for coordinated start time
-        Self::wait_for_start(req.start_unix_ms).await?;
+        // Calculate wait duration for coordinated start (v0.8.7)
+        let wait_duration = if req.start_unix_ms > 0 {
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            let wait_ms = req.start_unix_ms - now_ms;
+            if wait_ms > 0 {
+                Some(Duration::from_millis(wait_ms as u64))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        info!("Starting workload execution with live stats for agent {}", req.agent_id);
+        // Clone data for stream (v0.8.7)
+        let agent_id_stream = req.agent_id.clone();
+        let config_stream = config.clone();
+        let self_stream = self.clone();
 
-        // Create live stats tracker
-        let tracker = Arc::new(crate::live_stats::LiveStatsTracker::new());
-        
-        // Channel to signal completion with workload summary (v0.8.7)
-        let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<WorkloadSummary, String>>(1);
-        
-        // Spawn workload execution task
-        let tracker_exec = tracker.clone();
-        let config_exec = config.clone();
-        let agent_id_exec = req.agent_id.clone();
-        let self_clone = self.clone();
-        tokio::spawn(async move {
-            // Execute the workload with live stats tracking
-            match self_clone.execute_workload(config_exec, &agent_id_exec, Some(tracker_exec)).await {
-                Ok(summary) => {
-                    info!("Workload completed successfully for agent {}", agent_id_exec);
-                    let _ = tx_done.send(Ok(summary)).await;
+        // Create stream with startup handshake (v0.8.7)
+        let stream = async_stream::stream! {
+            // Step 1: Validate configuration and send READY or ERROR
+            match validate_workload_config(&config_stream).await {
+                Ok(_) => {
+                    info!("Configuration validated successfully for agent {}", agent_id_stream);
+                    // Send READY status immediately
+                    let ready_msg = LiveStats {
+                        agent_id: agent_id_stream.clone(),
+                        timestamp_s: 0.0,
+                        get_ops: 0,
+                        get_bytes: 0,
+                        get_mean_us: 0.0,
+                        get_p50_us: 0.0,
+                        get_p95_us: 0.0,
+                        put_ops: 0,
+                        put_bytes: 0,
+                        put_mean_us: 0.0,
+                        put_p50_us: 0.0,
+                        put_p95_us: 0.0,
+                        samples_per_second: 0.0,
+                        total_samples: 0,
+                        elapsed_s: 0.0,
+                        completed: false,
+                        final_summary: None,
+                        status: LiveStatsStatus::Ready as i32,
+                        error_message: String::new(),
+                    };
+                    yield Ok(ready_msg);
                 }
                 Err(e) => {
-                    error!("Workload execution failed for agent {}: {:?}", agent_id_exec, e);
-                    let _ = tx_done.send(Err(format!("Workload execution failed: {:?}", e))).await;
+                    let error_msg = format!("Configuration validation failed: {}", e);
+                    error!("{}", error_msg);
+                    // Send ERROR status and exit
+                    let error_stats = LiveStats {
+                        agent_id: agent_id_stream.clone(),
+                        timestamp_s: 0.0,
+                        get_ops: 0,
+                        get_bytes: 0,
+                        get_mean_us: 0.0,
+                        get_p50_us: 0.0,
+                        get_p95_us: 0.0,
+                        put_ops: 0,
+                        put_bytes: 0,
+                        put_mean_us: 0.0,
+                        put_p50_us: 0.0,
+                        put_p95_us: 0.0,
+                        samples_per_second: 0.0,
+                        total_samples: 0,
+                        elapsed_s: 0.0,
+                        completed: false,
+                        final_summary: None,
+                        status: LiveStatsStatus::Error as i32,
+                        error_message: error_msg,
+                    };
+                    yield Ok(error_stats);
+                    return; // Exit stream on validation failure
                 }
             }
-        });
 
-        // Create stream that sends stats every 1 second
-        let agent_id_stream = req.agent_id.clone();
-        let stream = async_stream::stream! {
+            // Step 2: Wait for coordinated start time (INSIDE stream, after READY sent)
+            if let Some(wait_dur) = wait_duration {
+                info!("Agent {} waiting {:?} for coordinated start", agent_id_stream, wait_dur);
+                tokio::time::sleep(wait_dur).await;
+            }
+
+            info!("Starting workload execution with live stats for agent {}", agent_id_stream);
+
+            // Step 3: Create live stats tracker and spawn workload (INSIDE stream)
+            let tracker = Arc::new(crate::live_stats::LiveStatsTracker::new());
+            let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<Result<WorkloadSummary, String>>(1);
+            
+            let tracker_exec = tracker.clone();
+            let config_exec = config_stream.clone();
+            let agent_id_exec = agent_id_stream.clone();
+            let self_exec = self_stream.clone();
+            tokio::spawn(async move {
+                match self_exec.execute_workload(config_exec, &agent_id_exec, Some(tracker_exec)).await {
+                    Ok(summary) => {
+                        info!("Workload completed successfully for agent {}", agent_id_exec);
+                        let _ = tx_done.send(Ok(summary)).await;
+                    }
+                    Err(e) => {
+                        error!("Workload execution failed for agent {}: {:?}", agent_id_exec, e);
+                        let _ = tx_done.send(Err(format!("Workload execution failed: {:?}", e))).await;
+                    }
+                }
+            });
+
+            // Step 4: Stream live stats every 1 second
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
