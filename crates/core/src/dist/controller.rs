@@ -711,6 +711,10 @@ impl Controller {
                     
                     // v0.8.7: Extract final summary if completed
                     if stats.completed {
+                        // v0.8.8: Update aggregator with final stats BEFORE marking completed
+                        // This ensures the final LiveStats snapshot with complete operation counts
+                        // is included in the aggregate results displayed to the user
+                        aggregator.update(stats.clone());
                         aggregator.mark_completed(&stats.agent_id);
                         
                         // Extract and store final summary for persistence

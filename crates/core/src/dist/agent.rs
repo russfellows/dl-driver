@@ -562,6 +562,9 @@ impl AgentService {
         let mut runner = WorkloadRunner::new(config.clone());
         
         // Apply sharding for this rank
+        info!("Rank {}: global_world_size={}, file_list.len()={}", 
+              global_rank, global_world_size, file_list.len());
+        
         if global_world_size > 1 && !file_list.is_empty() {
             let sharded_files = Self::apply_sharding_strategy(
                 file_list,
@@ -577,6 +580,9 @@ impl AgentService {
                 global_world_size as u32,
                 Some(sharded_files),
             );
+        } else {
+            info!("Rank {}: NO SHARDING (world_size={}, files={})", 
+                  global_rank, global_world_size, file_list.len());
         }
         
         // Wire live stats tracker

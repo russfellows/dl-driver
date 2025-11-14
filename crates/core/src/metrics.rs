@@ -399,6 +399,12 @@ impl Metrics {
         let mut data = self.data.lock().unwrap();
         data.bytes_read += bytes;
     }
+    
+    /// Record files processed (for training phase where files are read in batches)
+    pub fn record_files_read(&self, count: u64) {
+        let mut data = self.data.lock().unwrap();
+        data.files_processed += count;
+    }
 
     /// Record computation time (GPU simulation)
     pub fn record_compute_time(&self, duration: Duration) {

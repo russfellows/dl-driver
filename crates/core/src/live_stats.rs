@@ -65,12 +65,38 @@ impl LiveStatsTracker {
         let _ = self.get_hist.lock().record(us);
     }
 
+    /// Record multiple GET operations from a batch (non-blocking atomic update)
+    ///
+    /// Used when processing multiple files in parallel with a single I/O operation.
+    /// Records accurate file operation count while using batch-level latency.
+    #[inline]
+    pub fn record_get_batch(&self, count: u64, bytes: usize, latency: Duration) {
+        self.get_ops.fetch_add(count, Ordering::Relaxed);
+        self.get_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+        let us = latency.as_micros().min(u64::MAX as u128) as u64;
+        // Histogram records batch-level latency (single I/O operation)
+        let _ = self.get_hist.lock().record(us);
+    }
+
     /// Record a PUT operation (non-blocking atomic update)
     #[inline]
     pub fn record_put(&self, bytes: usize, latency: Duration) {
         self.put_ops.fetch_add(1, Ordering::Relaxed);
         self.put_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
         let us = latency.as_micros().min(u64::MAX as u128) as u64;
+        let _ = self.put_hist.lock().record(us);
+    }
+
+    /// Record multiple PUT operations from a batch (non-blocking atomic update)
+    ///
+    /// Used when generating multiple files in parallel with a single I/O operation.
+    /// Records accurate file operation count while using batch-level latency.
+    #[inline]
+    pub fn record_put_batch(&self, count: u64, bytes: usize, latency: Duration) {
+        self.put_ops.fetch_add(count, Ordering::Relaxed);
+        self.put_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+        let us = latency.as_micros().min(u64::MAX as u128) as u64;
+        // Histogram records batch-level latency (single I/O operation)
         let _ = self.put_hist.lock().record(us);
     }
 

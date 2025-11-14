@@ -669,6 +669,7 @@ impl WorkloadRunner {
                         
                         // Record metrics (with histogram collection for v0.8.1)
                         self.metrics.record_bytes_read(batch_bytes as u64);
+                        self.metrics.record_files_read(batch_size_actual as u64);
                         self.metrics.record_read_time(io_time);
                         self.metrics.record_compute_time(compute_time);
                         self.metrics.record_batch_time(batch_total_time);
@@ -681,8 +682,9 @@ impl WorkloadRunner {
                         self.live_bytes.fetch_add(batch_bytes as u64, Ordering::Relaxed);
 
                         // v0.8.7: Update distributed live stats tracker if present
+                        // Use record_get_batch to count file operations (not batch operations)
                         if let Some(ref tracker) = self.live_stats_tracker {
-                            tracker.record_get(batch_bytes, io_time);
+                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, io_time);
                             tracker.record_samples(batch_size_actual as u64);
                         }
 
@@ -936,9 +938,16 @@ impl WorkloadRunner {
     ) -> Result<MultiBackendDataset> {
         info!("Creating MultiBackendDataset for folder: {}", data_folder);
 
-        // List URIs using our multi-endpoint store
-        let uris = store.list(data_folder, true).await
-            .with_context(|| format!("Failed to list files from: {}", data_folder))?;
+        // v0.8.8: If file_list was provided (from rank sharding), use that instead of discovering
+        let uris = if let Some(ref file_list) = self.file_list {
+            info!("Using pre-sharded file list with {} files (rank {} of {})", 
+                  file_list.len(), self.rank, self.world_size);
+            file_list.clone()
+        } else {
+            // List URIs using our multi-endpoint store
+            store.list(data_folder, true).await
+                .with_context(|| format!("Failed to list files from: {}", data_folder))?
+        };
 
         info!("Successfully created dataset with {} files", uris.len());
         
