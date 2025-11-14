@@ -186,6 +186,14 @@ enum DistributedCommands {
         /// Maximum retries per agent
         #[arg(long, default_value = "3")]
         max_retries: u32,
+        
+        /// Sharding strategy for file distribution across ranks
+        #[arg(long, default_value = "interleaved")]
+        shard_strategy: String,
+        
+        /// Number of ranks per agent (Phase 2: enables 8 agents × 8 ranks = 64 total)
+        #[arg(long, default_value = "1")]
+        ranks_per_agent: usize,
 
         /// Dry-run: validate configuration without running workload
         #[arg(long)]
@@ -309,6 +317,8 @@ async fn main() -> Result<()> {
                 start_delay_ms,
                 request_timeout_ms,
                 max_retries,
+                shard_strategy,
+                ranks_per_agent,
                 dry_run,
                 storage_tsv,
                 aiml_tsv,
@@ -320,6 +330,8 @@ async fn main() -> Result<()> {
                 start_delay_ms,
                 request_timeout_ms,
                 max_retries,
+                &shard_strategy,
+                ranks_per_agent,
                 dry_run,
                 storage_tsv.as_deref(),
                 aiml_tsv.as_deref(),
@@ -1223,6 +1235,8 @@ async fn run_distributed(
     start_delay_ms: u64,
     request_timeout_ms: u64,
     max_retries: u32,
+    shard_strategy: &str,
+    ranks_per_agent: usize,
     dry_run: bool,
     storage_tsv: Option<&std::path::Path>,
     aiml_tsv: Option<&std::path::Path>,
@@ -1257,6 +1271,8 @@ async fn run_distributed(
     dist_config.start_delay_ms = start_delay_ms;
     dist_config.request_timeout_ms = request_timeout_ms;
     dist_config.max_retries = max_retries;
+    dist_config.shard_strategy = shard_strategy.to_string();
+    dist_config.ranks_per_agent = ranks_per_agent;
     
     // Validate we have agents
     if dist_config.agents.is_empty() {

@@ -37,6 +37,16 @@ pub struct DistributedConfig {
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
 
+    /// Sharding strategy for distributing files across ranks
+    /// Options: "interleaved", "contiguous", "hash"
+    #[serde(default = "default_shard_strategy")]
+    pub shard_strategy: String,
+
+    /// Number of ranks per agent (Phase 2: enables multi-rank per agent)
+    /// Default: 1 (one rank per agent, Phase 1 behavior)
+    #[serde(default = "default_ranks_per_agent")]
+    pub ranks_per_agent: usize,
+
     /// Backend types considered "shared" (don't need path prefixes)
     /// Default: ["s3", "azure", "gcs"]
     #[serde(default = "default_shared_backends")]
@@ -59,6 +69,14 @@ fn default_max_retries() -> u32 {
     3
 }
 
+fn default_shard_strategy() -> String {
+    "interleaved".to_string()
+}
+
+fn default_ranks_per_agent() -> usize {
+    1
+}
+
 fn default_shared_backends() -> Vec<String> {
     vec![
         "s3".to_string(),
@@ -75,6 +93,8 @@ impl Default for DistributedConfig {
             start_delay_ms: default_start_delay_ms(),
             request_timeout_ms: default_request_timeout_ms(),
             max_retries: default_max_retries(),
+            shard_strategy: default_shard_strategy(),
+            ranks_per_agent: default_ranks_per_agent(),
             shared_backends: default_shared_backends(),
         }
     }

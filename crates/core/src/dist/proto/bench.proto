@@ -43,6 +43,10 @@ message RunWorkloadRequest {
   uint32 global_rank = 7;           // This agent's rank in global cluster (0-based)
   uint32 global_world_size = 8;     // Total ranks across all agents
   string shard_strategy = 9;        // "interleaved" | "contiguous" | "hash"
+  
+  // v0.8.8: Multi-rank per agent (Priority 0, Phase 2)
+  // Each agent spawns multiple WorkloadRunners to emulate large-scale training
+  uint32 ranks_per_agent = 10;      // Number of ranks this agent should spawn (default: 1)
 }
 
 // Summary metrics returned after workload completion

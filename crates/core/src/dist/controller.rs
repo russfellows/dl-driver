@@ -224,6 +224,9 @@ pub struct DistributedConfig {
     pub start_delay_ms: u64,
     pub request_timeout_ms: u64,
     pub max_retries: u32,
+    // v0.8.8: Phase 2 additions
+    pub shard_strategy: String,
+    pub ranks_per_agent: usize,
 }
 
 impl Default for DistributedConfig {
@@ -234,6 +237,8 @@ impl Default for DistributedConfig {
             start_delay_ms: 1000,
             request_timeout_ms: 300_000, // 5 minutes
             max_retries: 3,
+            shard_strategy: "interleaved".to_string(),
+            ranks_per_agent: 1,
         }
     }
 }
@@ -450,12 +455,17 @@ impl Controller {
         let mut stream_tasks = Vec::new();
         let agents: Vec<_> = self.distributed.agents.iter().enumerate().collect();
         
-        // v0.8.8: Compute global world size for Phase 1 (1 rank per agent)
-        let global_world_size = agents.len() as u32;
-        let shard_strategy = "interleaved";  // Default strategy for Phase 1
+        // v0.8.8: Compute global world size and rank configuration
+        // Phase 1: ranks_per_agent = 1 (one rank per agent)
+        // Phase 2: ranks_per_agent > 1 (multiple ranks per agent, e.g., 8 agents × 8 ranks = 64)
+        let ranks_per_agent = self.distributed.ranks_per_agent as u32;
+        let global_world_size = (agents.len() as u32) * ranks_per_agent;
+        let shard_strategy = &self.distributed.shard_strategy;
         
         info!("   Distributed rank configuration:");
-        info!("      World size: {} (1 rank per agent)", global_world_size);
+        info!("      Agents: {}", agents.len());
+        info!("      Ranks per agent: {}", ranks_per_agent);
+        info!("      World size: {} (total ranks across all agents)", global_world_size);
         info!("      Shard strategy: {}", shard_strategy);
         
         for (idx, agent_endpoint) in agents.iter() {
@@ -467,11 +477,13 @@ impl Controller {
             let timeout_ms = self.distributed.request_timeout_ms;
             let tx = tx_stats.clone();
             
-            // v0.8.8: Assign global rank (Phase 1: agent index = rank)
-            let global_rank = *idx as u32;
+            // v0.8.8: Compute rank range for this agent
+            // Phase 2: Each agent gets [rank_start, rank_start + ranks_per_agent)
+            let rank_start = (*idx as u32) * ranks_per_agent;
+            let rank_end = rank_start + ranks_per_agent;
             
-            info!("   Agent {} assigned global rank {} of {}", 
-                  agent_id, global_rank, global_world_size);
+            info!("   Agent {} assigned ranks [{}, {}) of {}", 
+                  agent_id, rank_start, rank_end, global_world_size);
             
             let shard_strategy_owned = shard_strategy.to_string();
             
@@ -484,7 +496,8 @@ impl Controller {
                     start_unix_ms,
                     timeout_ms,
                     is_shared,
-                    global_rank,
+                    rank_start,
+                    ranks_per_agent,
                     global_world_size,
                     &shard_strategy_owned,
                     tx,
@@ -955,8 +968,10 @@ impl Controller {
         start_unix_ms: i64,
         timeout_ms: u64,
         is_shared: bool,
-        // v0.8.8: Distributed rank information (Priority 0, Phase 1)
-        global_rank: u32,
+        // v0.8.8: Distributed rank information
+        // Phase 2: Pass rank_start and ranks_per_agent instead of single global_rank
+        rank_start: u32,
+        ranks_per_agent: u32,
         global_world_size: u32,
         shard_strategy: &str,
         tx: tokio::sync::mpsc::Sender<LiveStats>,
@@ -1002,10 +1017,12 @@ impl Controller {
             start_unix_ms,
             agent_config: None,
             shared_storage: false,
-            // v0.8.8: Distributed rank information (Priority 0, Phase 1)
-            global_rank,
+            // v0.8.8: Distributed rank information
+            // Phase 2: Pass rank_start as global_rank (agent will compute ranges)
+            global_rank: rank_start,
             global_world_size,
             shard_strategy: shard_strategy.to_string(),
+            ranks_per_agent,
         });
         
         let mut stream = client

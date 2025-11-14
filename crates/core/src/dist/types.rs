@@ -18,6 +18,8 @@ pub struct WorkloadRequest {
     pub global_rank: u32,
     pub global_world_size: u32,
     pub shard_strategy: String,
+    // v0.8.8: Multi-rank per agent (Priority 0, Phase 2)
+    pub ranks_per_agent: u32,
 }
 
 impl From<WorkloadRequest> for proto::RunWorkloadRequest {
@@ -35,6 +37,8 @@ impl From<WorkloadRequest> for proto::RunWorkloadRequest {
             global_rank: req.global_rank,
             global_world_size: req.global_world_size,
             shard_strategy: req.shard_strategy,
+            // v0.8.8: Multi-rank per agent (Phase 2)
+            ranks_per_agent: req.ranks_per_agent,
         }
     }
 }
@@ -50,6 +54,8 @@ impl From<proto::RunWorkloadRequest> for WorkloadRequest {
             global_rank: req.global_rank,
             global_world_size: req.global_world_size,
             shard_strategy: req.shard_strategy,
+            // v0.8.8: Multi-rank per agent (Phase 2)
+            ranks_per_agent: req.ranks_per_agent,
         }
     }
 }
