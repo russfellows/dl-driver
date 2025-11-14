@@ -219,7 +219,9 @@ struct MetricsData {
     pub compute_times: Vec<Duration>,     // Pure computation times
     pub batch_times: Vec<Duration>,       // Total batch times (I/O + compute)
     pub epoch_times: Vec<Duration>,       // Per-epoch times
-    pub files_processed: u64,
+    pub files_processed: u64,             // DEPRECATED: Use files_read + files_written
+    pub files_read: u64,                  // Bug #11: Track reads separately
+    pub files_written: u64,               // Bug #11: Track writes separately
     pub bytes_read: u64,
     pub bytes_written: u64,
     pub batches_processed: u64,
@@ -240,6 +242,8 @@ impl Default for MetricsData {
             batch_times: Vec::new(),
             epoch_times: Vec::new(),
             files_processed: 0,
+            files_read: 0,
+            files_written: 0,
             bytes_read: 0,
             bytes_written: 0,
             batches_processed: 0,
@@ -326,7 +330,7 @@ impl Metrics {
         let mut data = self.data.lock().unwrap();
         data.bytes_written += bytes;
         data.write_times.push(duration);
-        data.files_processed += 1;
+        data.files_written += 1;  // Bug #11: Use files_written not files_processed
     }
 
     /// Record batch processing
@@ -347,6 +351,14 @@ impl Metrics {
     // Getter methods for tests
     pub fn files_processed(&self) -> u64 {
         self.data.lock().unwrap().files_processed
+    }
+
+    pub fn files_read(&self) -> u64 {
+        self.data.lock().unwrap().files_read
+    }
+
+    pub fn files_written(&self) -> u64 {
+        self.data.lock().unwrap().files_written
     }
 
     pub fn bytes_read(&self) -> u64 {
@@ -398,6 +410,13 @@ impl Metrics {
     pub fn record_bytes_read(&self, bytes: u64) {
         let mut data = self.data.lock().unwrap();
         data.bytes_read += bytes;
+    }
+    
+    /// Record files processed (for training phase where files are read in batches)
+    pub fn record_files_read(&self, count: u64) {
+        let mut data = self.data.lock().unwrap();
+        data.files_read += count;  // Bug #11: Use files_read not files_processed
+        data.files_processed += count;  // Keep for backward compat
     }
 
     /// Record computation time (GPU simulation)
@@ -539,6 +558,84 @@ impl Metrics {
         }
 
         println!("=============================\n");
+    }
+
+    /// Print unified summary that matches distributed mode output format
+    /// Bug #11 fix: Single-process mode should show same stats as distributed mode
+    pub fn print_unified_summary(&self, elapsed_s: f64, total_samples: u64, au_percentage: f64) {
+        println!("\n=== Final Aggregate Results ===");
+        
+        // Get histogram data for latency statistics
+        let read_hists = self.get_read_histograms();
+        let write_hists = self.get_write_histograms();
+        
+        // Create combined histograms to get latency stats
+        let read_combined = read_hists.combined_histogram();
+        let write_combined = write_hists.combined_histogram();
+        
+        // Bug #11 fix: Use files_read() and files_written() for proper separation
+        let total_get_ops = self.files_read();
+        let total_put_ops = self.files_written();
+        let total_get_bytes = self.bytes_read();
+        let total_put_bytes = self.bytes_written();
+        
+        // Format counts with commas
+        let format_count = |n: u64| -> String {
+            n.to_string()
+                .as_bytes()
+                .rchunks(3)
+                .rev()
+                .map(std::str::from_utf8)
+                .collect::<Result<Vec<&str>, _>>()
+                .unwrap()
+                .join(",")
+        };
+        
+        // Format bandwidth
+        let format_bandwidth = |bytes: u64, seconds: f64| -> String {
+            let mbps = (bytes as f64) / (1024.0 * 1024.0) / seconds;
+            if mbps >= 1024.0 {
+                format!("{:.2} GiB/s", mbps / 1024.0)
+            } else {
+                format!("{:.2} MiB/s", mbps)
+            }
+        };
+        
+        println!("Total operations: {} READ, {} WRITE", 
+                 format_count(total_get_ops), 
+                 format_count(total_put_ops));
+        
+        if total_get_ops > 0 && read_combined.len() > 0 {
+            println!("READ: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
+                     total_get_ops as f64 / elapsed_s,
+                     format_bandwidth(total_get_bytes, elapsed_s),
+                     read_combined.mean(),
+                     read_combined.value_at_quantile(0.50) as f64,
+                     read_combined.value_at_quantile(0.95) as f64);
+        }
+        
+        if total_put_ops > 0 && write_combined.len() > 0 {
+            println!("WRITE: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
+                     total_put_ops as f64 / elapsed_s,
+                     format_bandwidth(total_put_bytes, elapsed_s),
+                     write_combined.mean(),
+                     write_combined.value_at_quantile(0.50) as f64,
+                     write_combined.value_at_quantile(0.95) as f64);
+        }
+        
+        if total_samples > 0 {
+            println!("AI/ML: {} samples, {:.0} samples/s",
+                     format_count(total_samples),
+                     total_samples as f64 / elapsed_s);
+        }
+        
+        // Show AU percentage (important metric for MLPerf compliance)
+        if au_percentage >= 0.0 {
+            println!("AU: {:.1}%", au_percentage);
+        }
+        
+        println!("Elapsed: {:.2}s", elapsed_s);
+        println!();
     }
 
     pub fn average_read_time(&self) -> Option<Duration> {

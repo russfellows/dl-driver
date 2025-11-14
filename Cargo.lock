@@ -1392,7 +1392,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1425,7 +1425,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-core"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-formats"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-frameworks"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1505,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-py-api"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "dl-driver-core",
@@ -1517,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "dl-driver-storage"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "tempfile",
 ]

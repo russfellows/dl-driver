@@ -28,14 +28,18 @@ struct AggregateStats {
     total_get_bytes: u64,
     get_mean_us: f64,
     get_p50_us: f64,
+    get_p90_us: f64,
     get_p95_us: f64,
+    get_p99_us: f64,
     
     // PUT operations
     total_put_ops: u64,
     total_put_bytes: u64,
     put_mean_us: f64,
     put_p50_us: f64,
+    put_p90_us: f64,
     put_p95_us: f64,
+    put_p99_us: f64,
     
     // AI/ML metrics
     samples_per_second: f64,
@@ -61,32 +65,42 @@ impl AggregateStats {
         if get_ratio > 0.90 {
             // Training phase - emphasize samples/s
             format!(
-                "Training: {} samples/s │ GET: {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
+                "Training: {} samples/s │ GET: {} ops, {} (mean={:.0}µs, p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs)",
                 format_count(self.samples_per_second as u64),
                 format_count(self.total_get_ops),
                 format_bandwidth(self.total_get_bytes, self.elapsed_s),
                 self.get_mean_us,
-                self.get_p95_us
+                self.get_p50_us,
+                self.get_p90_us,
+                self.get_p95_us,
+                self.get_p99_us
             )
         } else if put_ratio > 0.90 {
             // Data prep phase - show PUT only
             format!(
-                "Data Prep: PUT {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
+                "Data Prep: PUT {} ops, {} (mean={:.0}µs, p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs)",
                 format_count(self.total_put_ops),
                 format_bandwidth(self.total_put_bytes, self.elapsed_s),
                 self.put_mean_us,
-                self.put_p95_us
+                self.put_p50_us,
+                self.put_p90_us,
+                self.put_p95_us,
+                self.put_p99_us
             )
         } else {
             // Mixed phase - show both (multi-line via newline)
             format!(
-                "GET: {} ops, {} ({:.0}µs mean) │ PUT: {} ops, {} ({:.0}µs mean)",
+                "GET: {} ops, {} (mean={:.0}µs, p90={:.0}µs, p99={:.0}µs) │ PUT: {} ops, {} (mean={:.0}µs, p90={:.0}µs, p99={:.0}µs)",
                 format_count(self.total_get_ops),
                 format_bandwidth(self.total_get_bytes, self.elapsed_s),
                 self.get_mean_us,
+                self.get_p90_us,
+                self.get_p99_us,
                 format_count(self.total_put_ops),
                 format_bandwidth(self.total_put_bytes, self.elapsed_s),
-                self.put_mean_us
+                self.put_mean_us,
+                self.put_p90_us,
+                self.put_p99_us
             )
         }
     }
@@ -163,12 +177,16 @@ impl LiveStatsAggregator {
             total_get_bytes: 0,
             get_mean_us: 0.0,
             get_p50_us: 0.0,
+            get_p90_us: 0.0,
             get_p95_us: 0.0,
+            get_p99_us: 0.0,
             total_put_ops: 0,
             total_put_bytes: 0,
             put_mean_us: 0.0,
             put_p50_us: 0.0,
+            put_p90_us: 0.0,
             put_p95_us: 0.0,
+            put_p99_us: 0.0,
             samples_per_second: 0.0,
             total_samples: 0,
         };
@@ -186,14 +204,18 @@ impl LiveStatsAggregator {
             agg.total_get_bytes += stats.get_bytes;
             agg.get_mean_us += stats.get_mean_us * stats.get_ops as f64;
             agg.get_p50_us += stats.get_p50_us * stats.get_ops as f64;
+            agg.get_p90_us += stats.get_p90_us * stats.get_ops as f64;
             agg.get_p95_us += stats.get_p95_us * stats.get_ops as f64;
+            agg.get_p99_us += stats.get_p99_us * stats.get_ops as f64;
             
             // PUT operations
             agg.total_put_ops += stats.put_ops;
             agg.total_put_bytes += stats.put_bytes;
             agg.put_mean_us += stats.put_mean_us * stats.put_ops as f64;
             agg.put_p50_us += stats.put_p50_us * stats.put_ops as f64;
+            agg.put_p90_us += stats.put_p90_us * stats.put_ops as f64;
             agg.put_p95_us += stats.put_p95_us * stats.put_ops as f64;
+            agg.put_p99_us += stats.put_p99_us * stats.put_ops as f64;
             
             // AI/ML metrics
             agg.samples_per_second += stats.samples_per_second;
@@ -204,12 +226,16 @@ impl LiveStatsAggregator {
         if agg.total_get_ops > 0 {
             agg.get_mean_us /= agg.total_get_ops as f64;
             agg.get_p50_us /= agg.total_get_ops as f64;
+            agg.get_p90_us /= agg.total_get_ops as f64;
             agg.get_p95_us /= agg.total_get_ops as f64;
+            agg.get_p99_us /= agg.total_get_ops as f64;
         }
         if agg.total_put_ops > 0 {
             agg.put_mean_us /= agg.total_put_ops as f64;
             agg.put_p50_us /= agg.total_put_ops as f64;
+            agg.put_p90_us /= agg.total_put_ops as f64;
             agg.put_p95_us /= agg.total_put_ops as f64;
+            agg.put_p99_us /= agg.total_put_ops as f64;
         }
         
         agg
@@ -224,6 +250,11 @@ pub struct DistributedConfig {
     pub start_delay_ms: u64,
     pub request_timeout_ms: u64,
     pub max_retries: u32,
+    // v0.8.8: Phase 2 additions
+    pub shard_strategy: String,
+    pub ranks_per_agent: usize,
+    /// Override shared storage auto-detection (for NFS, Lustre, etc. with file:// URIs)
+    pub shared_storage: bool,
 }
 
 impl Default for DistributedConfig {
@@ -234,6 +265,9 @@ impl Default for DistributedConfig {
             start_delay_ms: 1000,
             request_timeout_ms: 300_000, // 5 minutes
             max_retries: 3,
+            shard_strategy: "interleaved".to_string(),
+            ranks_per_agent: 1,
+            shared_storage: false,
         }
     }
 }
@@ -433,9 +467,21 @@ impl Controller {
         info!("   Coordinated start time: {}ms from now", self.distributed.start_delay_ms);
         
         // Detect if storage backend is shared
-        let is_shared = is_shared_storage(&self.config.dataset.data_folder);
+        let is_shared = if self.distributed.shared_storage {
+            // User explicitly marked as shared storage
+            true
+        } else {
+            // Auto-detect based on URI scheme
+            is_shared_storage(&self.config.dataset.data_folder)
+        };
+        
         if is_shared {
             info!("   Storage: Shared ({})", self.config.dataset.data_folder);
+            if self.distributed.shared_storage {
+                info!("   Mode: Explicitly configured via --shared-storage flag");
+            } else {
+                info!("   Mode: Auto-detected from URI scheme");
+            }
             info!("   Path strategy: No agent-specific prefixes");
         } else {
             info!("   Storage: Local ({})", self.config.dataset.data_folder);
@@ -450,6 +496,19 @@ impl Controller {
         let mut stream_tasks = Vec::new();
         let agents: Vec<_> = self.distributed.agents.iter().enumerate().collect();
         
+        // v0.8.8: Compute global world size and rank configuration
+        // Phase 1: ranks_per_agent = 1 (one rank per agent)
+        // Phase 2: ranks_per_agent > 1 (multiple ranks per agent, e.g., 8 agents × 8 ranks = 64)
+        let ranks_per_agent = self.distributed.ranks_per_agent as u32;
+        let global_world_size = (agents.len() as u32) * ranks_per_agent;
+        let shard_strategy = &self.distributed.shard_strategy;
+        
+        info!("   Distributed rank configuration:");
+        info!("      Agents: {}", agents.len());
+        info!("      Ranks per agent: {}", ranks_per_agent);
+        info!("      World size: {} (total ranks across all agents)", global_world_size);
+        info!("      Shard strategy: {}", shard_strategy);
+        
         for (idx, agent_endpoint) in agents.iter() {
             let agent_id = format!("agent-{}", idx);
             let agent_id_task = agent_id.clone();  // Clone for task
@@ -458,6 +517,16 @@ impl Controller {
             let path_template = self.distributed.path_template.clone();
             let timeout_ms = self.distributed.request_timeout_ms;
             let tx = tx_stats.clone();
+            
+            // v0.8.8: Compute rank range for this agent
+            // Phase 2: Each agent gets [rank_start, rank_start + ranks_per_agent)
+            let rank_start = (*idx as u32) * ranks_per_agent;
+            let rank_end = rank_start + ranks_per_agent;
+            
+            info!("   Agent {} assigned ranks [{}, {}) of {}", 
+                  agent_id, rank_start, rank_end, global_world_size);
+            
+            let shard_strategy_owned = shard_strategy.to_string();
             
             let task = tokio::spawn(async move {
                 Self::stream_workload_from_agent(
@@ -468,6 +537,10 @@ impl Controller {
                     start_unix_ms,
                     timeout_ms,
                     is_shared,
+                    rank_start,
+                    ranks_per_agent,
+                    global_world_size,
+                    &shard_strategy_owned,
                     tx,
                 )
                 .await
@@ -664,6 +737,10 @@ impl Controller {
                     
                     // v0.8.7: Extract final summary if completed
                     if stats.completed {
+                        // v0.8.8: Update aggregator with final stats BEFORE marking completed
+                        // This ensures the final LiveStats snapshot with complete operation counts
+                        // is included in the aggregate results displayed to the user
+                        aggregator.update(stats.clone());
                         aggregator.mark_completed(&stats.agent_id);
                         
                         // Extract and store final summary for persistence
@@ -849,6 +926,42 @@ impl Controller {
             .map(|s| WorkloadResult::from(s.clone()))
             .collect();
         
+        // Aggregate AI/ML metrics from agent results
+        let count = agent_results.len() as f64;
+        let total_batches_per_second: f64 = agent_results.iter().map(|r| r.batches_per_second).sum();
+        let total_batches: u64 = agent_results.iter().map(|r| r.total_batches).sum();
+        let avg_batch_time_ms = if count > 0.0 {
+            agent_results.iter().map(|r| r.avg_batch_time_ms).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let total_epochs_completed: u32 = agent_results.iter().map(|r| r.epochs_completed).sum();
+        let avg_epoch_time_s = if count > 0.0 {
+            agent_results.iter().map(|r| r.avg_epoch_time_s).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_data_loading_time_s = if count > 0.0 {
+            agent_results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_compute_time_s = if count > 0.0 {
+            agent_results.iter().map(|r| r.compute_time_s).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_pipeline_efficiency = if count > 0.0 {
+            agent_results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_accelerator_utilization = if count > 0.0 {
+            agent_results.iter().map(|r| r.accelerator_utilization).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        
         let aggregate = AggregateResults {
             agent_results,
             total_ops: total_ops,
@@ -856,20 +969,23 @@ impl Controller {
             total_ops_per_s: total_ops as f64 / final_stats.elapsed_s,
             total_mib_per_s: (final_stats.total_get_bytes + final_stats.total_put_bytes) as f64 
                              / 1_048_576.0 / final_stats.elapsed_s,
+            avg_get_mean_us: final_stats.get_mean_us,
+            avg_put_mean_us: final_stats.put_mean_us,
             avg_p50_us: (final_stats.get_p50_us + final_stats.put_p50_us) / 2.0,  // Avg of GET/PUT in µs
-            avg_p90_us: 0.0,  // Not available from live stats
+            avg_p90_us: (final_stats.get_p90_us + final_stats.put_p90_us) / 2.0,  // Avg of GET/PUT in µs
             avg_p95_us: (final_stats.get_p95_us + final_stats.put_p95_us) / 2.0,  // Avg of GET/PUT in µs
-            avg_p99_us: 0.0,  // Not available from live stats
+            avg_p99_us: (final_stats.get_p99_us + final_stats.put_p99_us) / 2.0,  // Avg of GET/PUT in µs
             total_errors: 0,
             total_samples_per_second: final_stats.samples_per_second,
-            total_batches_per_second: 0.0,
-            total_batches: 0,
-            avg_batch_time_ms: 0.0,
-            total_epochs_completed: 0,
-            avg_epoch_time_s: 0.0,
-            avg_data_loading_time_s: 0.0,
-            avg_compute_time_s: 0.0,
-            avg_pipeline_efficiency: 0.0,
+            total_batches_per_second,
+            total_batches,
+            avg_batch_time_ms,
+            total_epochs_completed,
+            avg_epoch_time_s,
+            avg_data_loading_time_s,
+            avg_compute_time_s,
+            avg_pipeline_efficiency,
+            avg_accelerator_utilization,
         };
         
         info!("🎉 Distributed workload complete!");
@@ -936,6 +1052,12 @@ impl Controller {
         start_unix_ms: i64,
         timeout_ms: u64,
         is_shared: bool,
+        // v0.8.8: Distributed rank information
+        // Phase 2: Pass rank_start and ranks_per_agent instead of single global_rank
+        rank_start: u32,
+        ranks_per_agent: u32,
+        global_world_size: u32,
+        shard_strategy: &str,
         tx: tokio::sync::mpsc::Sender<LiveStats>,
     ) -> Result<()> {
         use futures::stream::StreamExt;
@@ -979,6 +1101,12 @@ impl Controller {
             start_unix_ms,
             agent_config: None,
             shared_storage: false,
+            // v0.8.8: Distributed rank information
+            // Phase 2: Pass rank_start as global_rank (agent will compute ranges)
+            global_rank: rank_start,
+            global_world_size,
+            shard_strategy: shard_strategy.to_string(),
+            ranks_per_agent,
         });
         
         let mut stream = client

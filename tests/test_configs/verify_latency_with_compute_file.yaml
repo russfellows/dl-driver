@@ -1,0 +1,33 @@
+# Phase 2 Latency Verification - Phase C: With Compute (file:// backend)
+# Purpose: Test with OS page cache enabled to see if prefetch works better
+# Dataset: All 2,000 files accessed via file:// instead of direct://
+# Test: 3 epochs, 125 batches/epoch = 375 total batches
+
+model:
+  name: verify_latency_test
+
+framework: pytorch
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: "file:///mnt/test/dl-driver-verify/"  # Use file:// for page cache
+  format: npz
+  num_files_train: 2000        # All 2,000 files (dataset size, not a limit)
+  num_samples_per_file: 10     # 10 samples per file
+  record_length_bytes: 2097152 # 2 MB per sample (10 samples × 2MB = 20MB per file)
+  record_length_stdev: 0
+  record_length_resize: 0
+
+reader:
+  read_threads: 32        # Many workers for aggressive background loading
+  batch_size: 16          # 16 files per batch = 25 batches/epoch
+  prefetch: 8             # Prefetch 8 batches ahead (lots of overlap!)
+  transfer_size: 262144
+
+train:
+  epochs: 3               # 3 epochs = 75 total batches
+  computation_time: 0.195 # DLIO ResNet50 compute time (195ms)

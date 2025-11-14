@@ -186,6 +186,19 @@ enum DistributedCommands {
         /// Maximum retries per agent
         #[arg(long, default_value = "3")]
         max_retries: u32,
+        
+        /// Sharding strategy for file distribution across ranks
+        #[arg(long, default_value = "interleaved")]
+        shard_strategy: String,
+        
+        /// Number of ranks per agent (Phase 2: enables 8 agents × 8 ranks = 64 total)
+        #[arg(long, default_value = "1")]
+        ranks_per_agent: usize,
+        
+        /// Treat storage as shared (NFS, Lustre, etc.) - overrides auto-detection
+        /// When enabled, all agents access the same data_folder without agent-specific prefixes
+        #[arg(long)]
+        shared_storage: bool,
 
         /// Dry-run: validate configuration without running workload
         #[arg(long)]
@@ -309,6 +322,9 @@ async fn main() -> Result<()> {
                 start_delay_ms,
                 request_timeout_ms,
                 max_retries,
+                shard_strategy,
+                ranks_per_agent,
+                shared_storage,
                 dry_run,
                 storage_tsv,
                 aiml_tsv,
@@ -320,6 +336,9 @@ async fn main() -> Result<()> {
                 start_delay_ms,
                 request_timeout_ms,
                 max_retries,
+                &shard_strategy,
+                ranks_per_agent,
+                shared_storage,
                 dry_run,
                 storage_tsv.as_deref(),
                 aiml_tsv.as_deref(),
@@ -1223,6 +1242,9 @@ async fn run_distributed(
     start_delay_ms: u64,
     request_timeout_ms: u64,
     max_retries: u32,
+    shard_strategy: &str,
+    ranks_per_agent: usize,
+    shared_storage: bool,
     dry_run: bool,
     storage_tsv: Option<&std::path::Path>,
     aiml_tsv: Option<&std::path::Path>,
@@ -1257,6 +1279,9 @@ async fn run_distributed(
     dist_config.start_delay_ms = start_delay_ms;
     dist_config.request_timeout_ms = request_timeout_ms;
     dist_config.max_retries = max_retries;
+    dist_config.shard_strategy = shard_strategy.to_string();
+    dist_config.ranks_per_agent = ranks_per_agent;
+    dist_config.shared_storage = shared_storage;
     
     // Validate we have agents
     if dist_config.agents.is_empty() {
@@ -1314,9 +1339,10 @@ async fn run_distributed(
     println!("   Total Throughput: {:.1} ops/s, {:.1} MiB/s", 
              aggregate_results.total_ops_per_s, aggregate_results.total_mib_per_s);
     println!("   Total Operations: {}", aggregate_results.total_ops);
-    println!("   Average Latency: p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs",
-             aggregate_results.avg_p50_us, aggregate_results.avg_p90_us,
+    println!("   GET Latency: mean={:.0}µs, p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs (⚠️  NOT YET INSTRUMENTED - see docs)",
+             aggregate_results.avg_get_mean_us, aggregate_results.avg_p50_us, aggregate_results.avg_p90_us,
              aggregate_results.avg_p95_us, aggregate_results.avg_p99_us);
+    println!("   PUT Latency: mean={:.0}µs (⚠️  NOT YET INSTRUMENTED - see docs)", aggregate_results.avg_put_mean_us);
     println!("   Errors: {}", aggregate_results.total_errors);
     
     println!("\n🤖 AI/ML Training Performance (Training Perspective):");
@@ -1326,6 +1352,7 @@ async fn run_distributed(
              aggregate_results.total_samples, aggregate_results.total_batches);
     println!("   Average Batch Time: {:.2}ms", aggregate_results.avg_batch_time_ms);
     println!("   Epochs Completed: {}", aggregate_results.total_epochs_completed);
+    println!("   Accelerator Utilization (AU): {:.1}%", aggregate_results.avg_accelerator_utilization * 100.0);
     println!("   Pipeline Efficiency: {:.1}%", aggregate_results.avg_pipeline_efficiency * 100.0);
     
     // Write TSV files if requested

@@ -1,0 +1,28 @@
+# Test configuration for distributed multi-rank sharding (v0.8.8 Priority 0, Phase 1)
+# Purpose: Verify that each agent gets a unique subset of files with no overlap
+
+model:
+  name: "resnet50"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false  # Use existing test data
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: "file:///tmp/dl-driver-rank-test"  # Local test directory
+  num_files_train: 20  # Small dataset for testing (20 files)
+  num_samples_per_file: 10
+  record_length_bytes: 1024
+  format: "npz"
+
+reader:
+  batch_size: 4
+  read_threads: 2
+  prefetch: 2
+
+train:
+  epochs: 1
+  computation_time: 0.001  # Minimal compute for fast testing

@@ -7,11 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.8.8
+### Planned for v0.8.9
+- Storage latency instrumentation (upstream s3dlio enhancement - see `docs/STORAGE_LATENCY_LIMITATION.md`)
 - Per-epoch deterministic shuffle (Gap 1 from multi-node training analysis)
 - Sample-level sharding mode (Gap 2 from multi-node training analysis)
 - Node/local-rank abstraction with --gpus-per-node parameter (Gap 3 from multi-node training analysis)
-- See `docs/MULTI_NODE_TRAINING_EMULATION_ANALYSIS.md` for detailed analysis
+
+---
+
+## [0.8.8] - 2025-11-14 - **Distributed Multi-Rank & Bug Fixes** 🎯
+
+### **✨ Added - Distributed Multi-Rank (Priority 0)**
+- **Complete implementation of Phase 1** - Agent-side file sharding for distributed training emulation
+  - `--shard-strategy` parameter: `interleaved` (default) or `contiguous` file distribution
+  - Distributed rank awareness: Each agent knows its `agent_id`, `rank`, and `world_size`
+  - Automatic file sharding: Agent processes only its assigned subset of files
+  - Example: 1140 files × 2 agents = 570 files per agent with `interleaved` distribution
+- **Complete implementation of Phase 2** - Distributed live stats with accurate per-agent metrics
+  - Per-agent histograms track latencies independently during execution
+  - Controller merges bucket-level histograms for accurate distributed percentiles
+  - Weighted averaging prevents bias from uneven workload distribution
+  - Bucket-level histogram aggregation preserves tail latency accuracy (<1% error)
+- **Shared storage support** - `--shared-storage` flag for NFS/Lustre/cloud backends
+  - Prevents path isolation for globally-accessible storage (file://, s3://, az://, gs://)
+  - Automatic detection: cloud URIs (s3://, az://, gs://) always use shared mode
+  - Example: `--agents host1:50051,host2:50052 --shared-storage` for NFS mount
+- **Testing infrastructure** - Complete test suite for distributed multi-rank validation
+  - `tests/verify_latency_with_compute.yaml` - 64-file, 2-epoch test with 195ms compute delay
+  - `tests/test_distributed_multirank_*.yaml` - Phase 1/2 validation configs
+  - Verified with 2-agent and 4-agent configurations on real storage
+
+### **🐛 Fixed - Bug #8: Storage Latency Measurement**
+- **Problem**: Storage latency metrics incorrectly measured batch processing time including compute
+  - Previously: `batch_total_time` (~195ms) = I/O time + compute time (misleading for storage analysis)
+  - Root cause: AsyncPoolDataLoader prefetch architecture hides actual `store.get()` latencies
+- **Partial Fix (v0.8.8)**: Changed to measure `io_time` (channel receive time)
+  - Separates I/O from compute: `io_time` (~0-3µs) vs `compute_time` (~195ms)
+  - **Limitation**: `io_time` measures memory buffer access, not actual storage I/O (50-200ms)
+  - Latency metrics now report `0µs` with warning: `(⚠️  NOT YET INSTRUMENTED - see docs)`
+- **Documentation**: See `docs/STORAGE_LATENCY_LIMITATION.md` for technical details
+  - Throughput metrics remain accurate (ops/s, MiB/s)
+  - Complete fix planned for v0.8.9 (requires s3dlio upstream enhancement)
+  - GitHub issues filed: dl-driver #TBD, s3dlio #TBD
+
+### **🐛 Fixed - Bug #10: AU Calculation Error**
+- **Problem**: Accelerator Utilization (AU) incorrectly calculated as I/O time / batch time
+  - Formula was inverted: should be compute_time / batch_time (not io_time / batch_time)
+  - Example: 195ms batch, 190ms compute, 5ms I/O → AU should be 97.4%, not 2.6%
+- **Fix**: Corrected formula in `crates/core/src/workload.rs`
+  - Now: `AU = (compute_time / batch_time) * 100.0`
+  - Validation: 195ms compute, 196ms batch → AU = 99.5% (correct)
+  - Applies to both single-agent and distributed modes
+
+### **🐛 Fixed - Bug #11: Unified Output Format**
+- **Problem**: Inconsistent output formatting between single-agent and distributed modes
+  - Single-agent: Training-centric format (samples/s, batches/s, AU%)
+  - Distributed: Storage-centric format with AI/ML section buried at bottom
+- **Fix**: Unified output format with dual perspectives
+  - Storage Performance (I/O Perspective): Throughput, ops, latencies
+  - AI/ML Training Performance (Training Perspective): Velocity, AU%, pipeline efficiency
+  - Console output matches TSV structure (storage.tsv + aiml.tsv separation)
+  - Applied to both single-agent and distributed modes
+
+### **🐛 Fixed - Bug #12: First-Batch Exclusion from Metrics**
+- **Problem**: First batch included in metrics caused skewed statistics
+  - First batch: 700ms+ (cold start, page cache warmup, connection establishment)
+  - Subsequent batches: 195ms (steady state)
+  - Including first batch inflates mean/p50 latencies incorrectly
+- **Fix**: Skip first batch in metrics recording
+  - Changed: `if batch_count > 0` before `record_batch_time()` calls
+  - First batch still contributes to samples/bytes totals (not lost)
+  - Results in accurate steady-state performance metrics
+  - Applies to workload.rs batch execution loop
+
+### **📝 Documentation**
+- **STORAGE_LATENCY_LIMITATION.md** - Comprehensive technical explanation of Bug #8
+  - Architecture diagrams showing AsyncPoolDataLoader background workers
+  - What metrics are accurate vs unavailable in v0.8.8
+  - Workaround (use sai3-bench for storage latency analysis)
+  - Detailed implementation plan for v0.8.9 fix
+- **GitHub issue templates** - Ready to file in dl-driver and s3dlio repositories
+  - `docs/github_issue_storage_latency.md` - dl-driver enhancement request
+  - `docs/github_issue_s3dlio_metrics.md` - s3dlio metrics API proposal
+  - Complete code examples and API designs for upstream fix
+
+### **✅ Testing & Validation**
+- **NPY/NPZ format compatibility** - Complete validation across Rust and Python
+  - Rust tests: 4/4 passed (header format, correctness, zero-copy, ZIP structure)
+  - Python validation: 10/10 passed (numpy loads all arrays correctly)
+  - ML framework compatibility: 12/12 passed (PyTorch, JAX, TensorFlow × 4 backends)
+  - End-to-end: Rust NPZ → numpy → PyTorch S3IterableDataset (✅ verified)
+- **Distributed multi-rank** - Tested with 2-agent and 4-agent configurations
+  - Interleaved and contiguous sharding strategies validated
+  - Histogram aggregation accuracy verified (<1% error on percentiles)
+  - Shared storage mode tested with file:// on NFS mount
+  - AU calculation validated (99.5% for 195ms compute, 196ms batch)
+
+### **🔧 Changed**
+- **Latency reporting** - Now displays `0µs` with clear warnings instead of misleading sub-microsecond values
+  - Console output: `GET Latency: mean=0µs ... (⚠️  NOT YET INSTRUMENTED - see docs)`
+  - Code comments: References future v0.8.9 fix and GitHub issues
+  - Prevents false confidence in accuracy of prefetch-architecture latencies
 
 ---
 

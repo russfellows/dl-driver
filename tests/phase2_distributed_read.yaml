@@ -1,0 +1,33 @@
+# Phase 2 Test - Distributed Read with Multiple Ranks Per Agent
+# Reads pre-generated NPZ files using distributed mode with ranks_per_agent > 1
+# Usage: dl-driver distributed run --config tests/phase2_distributed_read.yaml \
+#          --agents "localhost:50051,localhost:50052" \
+#          --ranks-per-agent 2 \
+#          --shard-strategy interleaved
+
+model:
+  name: resnet50
+
+framework: pytorch
+
+dataset:
+  data_folder: file:///tmp/dl-driver-phase2-test
+  format: npz
+  num_files_train: 40
+  num_samples_per_file: 100
+  record_length: 65536  # 64 KB per sample
+
+reader:
+  data_loader: pytorch
+  batch_size: 8
+  read_threads: 4
+  compute_threads: 1
+
+workflow:
+  generate_data: false  # Read existing files
+  train: true
+  checkpoint: false
+
+train:
+  epochs: 1
+  computation_time: 0.195  # Match official DLIO ResNet50 (195ms per batch)

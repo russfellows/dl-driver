@@ -37,6 +37,16 @@ message RunWorkloadRequest {
   
   // Flag indicating if storage is shared across agents (S3/GCS/Azure)
   bool shared_storage = 6;
+  
+  // v0.8.8: Distributed rank information (Priority 0, Phase 1)
+  // Enables global data sharding across all agents
+  uint32 global_rank = 7;           // This agent's rank in global cluster (0-based)
+  uint32 global_world_size = 8;     // Total ranks across all agents
+  string shard_strategy = 9;        // "interleaved" | "contiguous" | "hash"
+  
+  // v0.8.8: Multi-rank per agent (Priority 0, Phase 2)
+  // Each agent spawns multiple WorkloadRunners to emulate large-scale training
+  uint32 ranks_per_agent = 10;      // Number of ranks this agent should spawn (default: 1)
 }
 
 // Summary metrics returned after workload completion
@@ -78,7 +88,7 @@ message WorkloadSummary {
   // Pipeline breakdown (optional)
   double data_loading_time_s = 19; // Time spent in data loading
   double compute_time_s = 20;      // Time spent in compute (if simulated)
-  double pipeline_efficiency = 21; // Efficiency ratio (0-1)
+  double pipeline_efficiency = 21; // Efficiency ratio (0-1) - (I/O + compute) / total
   
   // === INLINE RESULTS COLLECTION (v0.8.1) ===
   // Inline transfer of results files (avoids separate file collection)
@@ -97,6 +107,9 @@ message WorkloadSummary {
   bytes histogram_read = 27;    // Read operation latencies (all size buckets)
   bytes histogram_write = 28;   // Write operation latencies (all size buckets)
   bytes histogram_batch = 29;   // Batch processing times (single histogram)
+  
+  // === v0.8.8: Accelerator Utilization ===
+  double accelerator_utilization = 30; // AU: compute / total (DLIO pass/fail metric)
 }
 
 // Health check response
@@ -129,14 +142,18 @@ message LiveStats {
   uint64 get_bytes = 4;
   double get_mean_us = 5;
   double get_p50_us = 6;
+  double get_p90_us = 20;        // v0.8.8: Added p90
   double get_p95_us = 7;
+  double get_p99_us = 21;        // v0.8.8: Added p99
   
   // PUT operations (write to storage - data prep phase)
   uint64 put_ops = 8;
   uint64 put_bytes = 9;
   double put_mean_us = 10;
   double put_p50_us = 11;
+  double put_p90_us = 22;        // v0.8.8: Added p90
   double put_p95_us = 12;
+  double put_p99_us = 23;        // v0.8.8: Added p99
   
   // AI/ML training metrics (active during training phase)
   double samples_per_second = 13;

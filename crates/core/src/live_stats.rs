@@ -65,12 +65,40 @@ impl LiveStatsTracker {
         let _ = self.get_hist.lock().record(us);
     }
 
+    /// Record multiple GET operations from a batch (non-blocking atomic update)
+    ///
+    /// Used when processing multiple files in parallel with a single I/O operation.
+    /// Records accurate file operation count while using batch-level latency.
+    #[inline]
+    pub fn record_get_batch(&self, count: u64, bytes: usize, latency: Duration) {
+        self.get_ops.fetch_add(count, Ordering::Relaxed);
+        self.get_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+        let us = latency.as_micros().min(u64::MAX as u128) as u64;
+        tracing::debug!("record_get_batch: count={}, bytes={}, latency={:?}, us={}", 
+                       count, bytes, latency, us);
+        // Histogram records batch-level latency (single I/O operation)
+        let _ = self.get_hist.lock().record(us);
+    }
+
     /// Record a PUT operation (non-blocking atomic update)
     #[inline]
     pub fn record_put(&self, bytes: usize, latency: Duration) {
         self.put_ops.fetch_add(1, Ordering::Relaxed);
         self.put_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
         let us = latency.as_micros().min(u64::MAX as u128) as u64;
+        let _ = self.put_hist.lock().record(us);
+    }
+
+    /// Record multiple PUT operations from a batch (non-blocking atomic update)
+    ///
+    /// Used when generating multiple files in parallel with a single I/O operation.
+    /// Records accurate file operation count while using batch-level latency.
+    #[inline]
+    pub fn record_put_batch(&self, count: u64, bytes: usize, latency: Duration) {
+        self.put_ops.fetch_add(count, Ordering::Relaxed);
+        self.put_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+        let us = latency.as_micros().min(u64::MAX as u128) as u64;
+        // Histogram records batch-level latency (single I/O operation)
         let _ = self.put_hist.lock().record(us);
     }
 
@@ -97,21 +125,39 @@ impl LiveStatsTracker {
         let total_samples = self.total_samples.load(Ordering::Relaxed);
 
         // Calculate latency percentiles (requires histogram lock)
-        let (get_mean_us, get_p50_us, get_p95_us) = {
+        let (get_mean_us, get_p50_us, get_p90_us, get_p95_us, get_p99_us) = {
             let hist = self.get_hist.lock();
-            if hist.len() > 0 {
-                (hist.mean() as u64, hist.value_at_quantile(0.50), hist.value_at_quantile(0.95))
+            let hist_len = hist.len();
+            if hist_len > 0 {
+                let mean = hist.mean() as u64;
+                let p50 = hist.value_at_quantile(0.50);
+                let p90 = hist.value_at_quantile(0.90);
+                let p95 = hist.value_at_quantile(0.95);
+                let p99 = hist.value_at_quantile(0.99);
+                tracing::debug!("LiveStatsTracker GET histogram: len={}, mean={}µs, p50={}µs, p90={}µs, p95={}µs, p99={}µs", 
+                           hist_len, mean, p50, p90, p95, p99);
+                (mean, p50, p90, p95, p99)
             } else {
-                (0, 0, 0)
+                tracing::debug!("LiveStatsTracker GET histogram: EMPTY (len=0)");
+                (0, 0, 0, 0, 0)
             }
         };
 
-        let (put_mean_us, put_p50_us, put_p95_us) = {
+        let (put_mean_us, put_p50_us, put_p90_us, put_p95_us, put_p99_us) = {
             let hist = self.put_hist.lock();
-            if hist.len() > 0 {
-                (hist.mean() as u64, hist.value_at_quantile(0.50), hist.value_at_quantile(0.95))
+            let hist_len = hist.len();
+            if hist_len > 0 {
+                let mean = hist.mean() as u64;
+                let p50 = hist.value_at_quantile(0.50);
+                let p90 = hist.value_at_quantile(0.90);
+                let p95 = hist.value_at_quantile(0.95);
+                let p99 = hist.value_at_quantile(0.99);
+                tracing::debug!("LiveStatsTracker PUT histogram: len={}, mean={}µs, p50={}µs, p90={}µs, p95={}µs, p99={}µs", 
+                           hist_len, mean, p50, p90, p95, p99);
+                (mean, p50, p90, p95, p99)
             } else {
-                (0, 0, 0)
+                tracing::debug!("LiveStatsTracker PUT histogram: EMPTY (len=0)");
+                (0, 0, 0, 0, 0)
             }
         };
 
@@ -121,12 +167,16 @@ impl LiveStatsTracker {
             get_bytes,
             get_mean_us,
             get_p50_us,
+            get_p90_us,
             get_p95_us,
+            get_p99_us,
             put_ops,
             put_bytes,
             put_mean_us,
             put_p50_us,
+            put_p90_us,
             put_p95_us,
+            put_p99_us,
             total_samples,
         }
     }
@@ -146,12 +196,16 @@ pub struct LiveStatsSnapshot {
     pub get_bytes: u64,
     pub get_mean_us: u64,
     pub get_p50_us: u64,
+    pub get_p90_us: u64,
     pub get_p95_us: u64,
+    pub get_p99_us: u64,
     pub put_ops: u64,
     pub put_bytes: u64,
     pub put_mean_us: u64,
     pub put_p50_us: u64,
+    pub put_p90_us: u64,
     pub put_p95_us: u64,
+    pub put_p99_us: u64,
     pub total_samples: u64,
 }
 

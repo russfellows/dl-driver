@@ -14,6 +14,12 @@ pub struct WorkloadRequest {
     pub agent_id: String,
     pub path_prefix: String,
     pub start_unix_ms: i64,
+    // v0.8.8: Distributed rank information (Priority 0, Phase 1)
+    pub global_rank: u32,
+    pub global_world_size: u32,
+    pub shard_strategy: String,
+    // v0.8.8: Multi-rank per agent (Priority 0, Phase 2)
+    pub ranks_per_agent: u32,
 }
 
 impl From<WorkloadRequest> for proto::RunWorkloadRequest {
@@ -27,6 +33,12 @@ impl From<WorkloadRequest> for proto::RunWorkloadRequest {
             agent_config: None,
             // v0.8.1 enhancement - shared storage flag (currently false)
             shared_storage: false,
+            // v0.8.8: Distributed rank information
+            global_rank: req.global_rank,
+            global_world_size: req.global_world_size,
+            shard_strategy: req.shard_strategy,
+            // v0.8.8: Multi-rank per agent (Phase 2)
+            ranks_per_agent: req.ranks_per_agent,
         }
     }
 }
@@ -38,6 +50,12 @@ impl From<proto::RunWorkloadRequest> for WorkloadRequest {
             agent_id: req.agent_id,
             path_prefix: req.path_prefix,
             start_unix_ms: req.start_unix_ms,
+            // v0.8.8: Distributed rank information
+            global_rank: req.global_rank,
+            global_world_size: req.global_world_size,
+            shard_strategy: req.shard_strategy,
+            // v0.8.8: Multi-rank per agent (Phase 2)
+            ranks_per_agent: req.ranks_per_agent,
         }
     }
 }
@@ -73,6 +91,7 @@ pub struct WorkloadResult {
     pub data_loading_time_s: f64,
     pub compute_time_s: f64,
     pub pipeline_efficiency: f64,
+    pub accelerator_utilization: f64,  // v0.8.8: AU = compute / total (DLIO metric)
 }
 
 impl From<proto::WorkloadSummary> for WorkloadResult {
@@ -101,6 +120,7 @@ impl From<proto::WorkloadSummary> for WorkloadResult {
             data_loading_time_s: summary.data_loading_time_s,
             compute_time_s: summary.compute_time_s,
             pipeline_efficiency: summary.pipeline_efficiency,
+            accelerator_utilization: summary.accelerator_utilization,
         }
     }
 }
@@ -131,6 +151,7 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
             data_loading_time_s: result.data_loading_time_s,
             compute_time_s: result.compute_time_s,
             pipeline_efficiency: result.pipeline_efficiency,
+            accelerator_utilization: result.accelerator_utilization,
             // Inline results (v0.8.1 enhancement - currently unused)
             console_log: String::new(),
             metadata_json: String::new(),
@@ -153,6 +174,8 @@ pub struct AggregateResults {
     // Storage aggregate metrics
     pub total_ops_per_s: f64,
     pub total_mib_per_s: f64,
+    pub avg_get_mean_us: f64,  // Average GET latency in µs
+    pub avg_put_mean_us: f64,  // Average PUT latency in µs
     pub avg_p50_us: f64,  // v0.8.7: changed from ms to µs for consistency
     pub avg_p90_us: f64,
     pub avg_p95_us: f64,
@@ -171,6 +194,7 @@ pub struct AggregateResults {
     pub avg_data_loading_time_s: f64,
     pub avg_compute_time_s: f64,
     pub avg_pipeline_efficiency: f64,
+    pub avg_accelerator_utilization: f64,  // v0.8.8: AU = compute / total (DLIO metric)
     
     pub agent_results: Vec<WorkloadResult>,
 }
@@ -213,11 +237,14 @@ impl AggregateResults {
         let avg_data_loading_time_s = results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count;
         let avg_compute_time_s = results.iter().map(|r| r.compute_time_s).sum::<f64>() / count;
         let avg_pipeline_efficiency = results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count;
+        let avg_accelerator_utilization = results.iter().map(|r| r.accelerator_utilization).sum::<f64>() / count;
 
         Ok(AggregateResults {
             // Storage metrics
             total_ops_per_s,
             total_mib_per_s,
+            avg_get_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
+            avg_put_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
             avg_p50_us,
             avg_p90_us,
             avg_p95_us,
@@ -235,6 +262,7 @@ impl AggregateResults {
             avg_data_loading_time_s,
             avg_compute_time_s,
             avg_pipeline_efficiency,
+            avg_accelerator_utilization,
             agent_results: results,
         })
     }
@@ -358,11 +386,14 @@ impl AggregateResults {
         let avg_data_loading_time_s = results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count;
         let avg_compute_time_s = results.iter().map(|r| r.compute_time_s).sum::<f64>() / count;
         let avg_pipeline_efficiency = results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count;
+        let avg_accelerator_utilization = results.iter().map(|r| r.accelerator_utilization).sum::<f64>() / count;
 
         Ok(AggregateResults {
             // Storage metrics with correctly merged percentiles
             total_ops_per_s,
             total_mib_per_s,
+            avg_get_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
+            avg_put_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
             avg_p50_us,
             avg_p90_us,
             avg_p95_us,
@@ -380,6 +411,7 @@ impl AggregateResults {
             avg_data_loading_time_s,
             avg_compute_time_s,
             avg_pipeline_efficiency,
+            avg_accelerator_utilization,
             agent_results: results,
         })
     }
