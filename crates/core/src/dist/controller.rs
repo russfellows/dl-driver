@@ -227,6 +227,8 @@ pub struct DistributedConfig {
     // v0.8.8: Phase 2 additions
     pub shard_strategy: String,
     pub ranks_per_agent: usize,
+    /// Override shared storage auto-detection (for NFS, Lustre, etc. with file:// URIs)
+    pub shared_storage: bool,
 }
 
 impl Default for DistributedConfig {
@@ -239,6 +241,7 @@ impl Default for DistributedConfig {
             max_retries: 3,
             shard_strategy: "interleaved".to_string(),
             ranks_per_agent: 1,
+            shared_storage: false,
         }
     }
 }
@@ -438,9 +441,21 @@ impl Controller {
         info!("   Coordinated start time: {}ms from now", self.distributed.start_delay_ms);
         
         // Detect if storage backend is shared
-        let is_shared = is_shared_storage(&self.config.dataset.data_folder);
+        let is_shared = if self.distributed.shared_storage {
+            // User explicitly marked as shared storage
+            true
+        } else {
+            // Auto-detect based on URI scheme
+            is_shared_storage(&self.config.dataset.data_folder)
+        };
+        
         if is_shared {
             info!("   Storage: Shared ({})", self.config.dataset.data_folder);
+            if self.distributed.shared_storage {
+                info!("   Mode: Explicitly configured via --shared-storage flag");
+            } else {
+                info!("   Mode: Auto-detected from URI scheme");
+            }
             info!("   Path strategy: No agent-specific prefixes");
         } else {
             info!("   Storage: Local ({})", self.config.dataset.data_folder);

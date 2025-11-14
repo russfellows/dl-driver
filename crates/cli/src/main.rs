@@ -194,6 +194,11 @@ enum DistributedCommands {
         /// Number of ranks per agent (Phase 2: enables 8 agents × 8 ranks = 64 total)
         #[arg(long, default_value = "1")]
         ranks_per_agent: usize,
+        
+        /// Treat storage as shared (NFS, Lustre, etc.) - overrides auto-detection
+        /// When enabled, all agents access the same data_folder without agent-specific prefixes
+        #[arg(long)]
+        shared_storage: bool,
 
         /// Dry-run: validate configuration without running workload
         #[arg(long)]
@@ -319,6 +324,7 @@ async fn main() -> Result<()> {
                 max_retries,
                 shard_strategy,
                 ranks_per_agent,
+                shared_storage,
                 dry_run,
                 storage_tsv,
                 aiml_tsv,
@@ -332,6 +338,7 @@ async fn main() -> Result<()> {
                 max_retries,
                 &shard_strategy,
                 ranks_per_agent,
+                shared_storage,
                 dry_run,
                 storage_tsv.as_deref(),
                 aiml_tsv.as_deref(),
@@ -1237,6 +1244,7 @@ async fn run_distributed(
     max_retries: u32,
     shard_strategy: &str,
     ranks_per_agent: usize,
+    shared_storage: bool,
     dry_run: bool,
     storage_tsv: Option<&std::path::Path>,
     aiml_tsv: Option<&std::path::Path>,
@@ -1273,6 +1281,7 @@ async fn run_distributed(
     dist_config.max_retries = max_retries;
     dist_config.shard_strategy = shard_strategy.to_string();
     dist_config.ranks_per_agent = ranks_per_agent;
+    dist_config.shared_storage = shared_storage;
     
     // Validate we have agents
     if dist_config.agents.is_empty() {

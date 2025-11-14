@@ -175,7 +175,10 @@ From any host, run the controller:
 
 **Path Template Options:**
 - `--path-template "agent-{id}/"`: Agent-specific subdirectories (local storage)
-- Omit for shared storage (GCS, S3, Azure)
+- `--shared-storage`: Treat storage as shared (for NFS, Lustre, etc. on file://)
+- Omit path template for cloud storage (GCS, S3, Azure) - auto-detected as shared
+
+**Note:** By default, `file://` URIs are treated as local (non-shared) storage requiring per-agent subdirectories. Use `--shared-storage` to override this when using shared filesystems like NFS or Lustre.
 
 **Results Directory Structure (v0.8.6):**
 ```
@@ -353,11 +356,12 @@ dataset:
 **Features:**
 - Standard POSIX file I/O
 - DirectIO optimization available (`direct://`)
-- Path isolation for distributed agents
+- Path isolation for distributed agents by default
 
 **Distributed Usage:**
-- Requires `--path-template "{id}/"` for agent isolation
-- Creates subdirectories: `/mnt/data/training/agent-0/`, `/mnt/data/training/agent-1/`, etc.
+- Default: Requires `--path-template "{id}/"` for agent isolation
+- Shared filesystems (NFS, Lustre): Use `--shared-storage` flag to disable per-agent prefixes
+- Creates subdirectories only when not using `--shared-storage`: `/mnt/data/training/agent-0/`, `/mnt/data/training/agent-1/`, etc.
 
 ### DirectIO (`direct://`)
 
@@ -829,10 +833,25 @@ dl-driver run --config config.yaml --resume-from-checkpoint az://account/contain
 **Problem:** "Failed to write file" errors in distributed mode
 
 **Solutions:**
-1. For **local storage** (`file://`), use `--path-template "{id}/"`
-2. For **shared storage** (`gs://`, `s3://`, `az://`), omit path template
+1. For **local storage** (`file://`), use `--path-template "{id}/"` OR `--shared-storage` for shared filesystems
+2. For **cloud storage** (`gs://`, `s3://`, `az://`), omit path template (auto-detected as shared)
 3. Verify base directory exists and is writable
 4. Check agent has permissions
+
+**Example:**
+```bash
+# Local non-shared storage (each agent needs its own directory)
+./target/release/dl-driver distributed run \
+  --config myconfig.yaml \
+  --agents "host1:50051,host2:50051" \
+  --path-template "{id}/"
+
+# Shared filesystem (NFS, Lustre, etc.)
+./target/release/dl-driver distributed run \
+  --config myconfig.yaml \
+  --agents "host1:50051,host2:50051" \
+  --shared-storage
+```
 
 ### Storage Authentication
 
