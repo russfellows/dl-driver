@@ -683,9 +683,15 @@ impl WorkloadRunner {
 
                         // v0.8.7: Update distributed live stats tracker if present
                         // Use record_get_batch to count file operations (not batch operations)
-                        // Pass batch_total_time (I/O + compute) for meaningful latency metrics
+                        // Pass io_time (NOT batch_total_time) for accurate storage I/O latency
+                        // 
+                        // NOTE: io_time measures time to ACCESS data (not background loading time).
+                        // With prefetching, this is ~0µs (data already in memory).
+                        // TODO: VERIFY with direct:// I/O on real disk (/mnt/test, NOT /tmp tmpfs)
+                        //       using large datasets that exceed page cache to see realistic I/O latency.
+                        //       Current test uses small files in /tmp (memory-backed) which masks true I/O costs.
                         if let Some(ref tracker) = self.live_stats_tracker {
-                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, batch_total_time);
+                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, io_time);
                             tracker.record_samples(batch_size_actual as u64);
                         }
 

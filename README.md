@@ -448,6 +448,16 @@ cargo test
 ./target/release/dl-driver run --config config.yaml --op-log tests/dlio_configs/reference.csv.zst
 ```
 
+### ⚠️ Known Testing Limitations
+
+**Storage Latency Measurement (v0.8.8)**: Current Phase 2 multi-rank tests use `/tmp` (tmpfs, memory-backed) with small files (64KB) that fit entirely in page cache. While metrics are logically correct, **verification requires real disk I/O testing**. See [docs/testing/PHASE2_VERIFICATION_PLAN.md](docs/testing/PHASE2_VERIFICATION_PLAN.md) for planned verification using:
+- `direct://` I/O to bypass page cache
+- `/mnt/test` (real disk, NOT tmpfs)
+- Large datasets (5-10GB) exceeding available RAM
+- Expected latency ranges: 5-50ms for disk I/O, <1ms with prefetch
+
+This verification is planned but not yet executed. Current 0µs latencies are consistent with prefetched+cached data but don't prove measurement correctness.
+
 ### Validation Results
 - ✅ **119 comprehensive tests** passing across all features
 - ✅ **Format validation** with numpy, h5py, and TensorFlow standard libraries
