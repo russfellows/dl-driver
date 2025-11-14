@@ -1352,6 +1352,7 @@ async fn run_distributed(
              aggregate_results.total_samples, aggregate_results.total_batches);
     println!("   Average Batch Time: {:.2}ms", aggregate_results.avg_batch_time_ms);
     println!("   Epochs Completed: {}", aggregate_results.total_epochs_completed);
+    println!("   Accelerator Utilization (AU): {:.1}%", aggregate_results.avg_accelerator_utilization * 100.0);
     println!("   Pipeline Efficiency: {:.1}%", aggregate_results.avg_pipeline_efficiency * 100.0);
     
     // Write TSV files if requested

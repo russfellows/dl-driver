@@ -300,6 +300,13 @@ impl AgentService {
         } else {
             0.0
         };
+        // v0.8.8: Accelerator Utilization (AU) - DLIO's pass/fail metric
+        // AU = compute_time / total_duration (% of time GPU is busy)
+        let accelerator_utilization = if duration_s > 0.0 {
+            compute_time_s / duration_s
+        } else {
+            0.0
+        };
 
         // v0.8.1: Extract histograms and calculate accurate percentiles
         let read_hists = metrics.get_read_histograms();
@@ -421,6 +428,7 @@ impl AgentService {
             data_loading_time_s,
             compute_time_s,
             pipeline_efficiency,
+            accelerator_utilization,
             // Inline results (v0.8.6 enhancement - bucket-level TSV content)
             console_log: String::new(),
             metadata_json: String::new(),
@@ -663,6 +671,12 @@ impl AgentService {
         } else {
             0.0
         };
+        // v0.8.8: Accelerator Utilization (AU) - DLIO's pass/fail metric
+        let accelerator_utilization = if duration_s > 0.0 {
+            compute_time_s / duration_s
+        } else {
+            0.0
+        };
 
         // Extract and serialize histograms
         let read_hists = metrics.get_read_histograms();
@@ -759,6 +773,7 @@ impl AgentService {
             data_loading_time_s,
             compute_time_s,
             pipeline_efficiency,
+            accelerator_utilization,
             console_log: String::new(),
             metadata_json: String::new(),
             storage_tsv_content,
@@ -807,6 +822,7 @@ impl AgentService {
         let data_loading_time_s: f64 = summaries.iter().map(|s| s.data_loading_time_s).sum::<f64>() / num_ranks as f64;
         let compute_time_s: f64 = summaries.iter().map(|s| s.compute_time_s).sum::<f64>() / num_ranks as f64;
         let pipeline_efficiency: f64 = summaries.iter().map(|s| s.pipeline_efficiency).sum::<f64>() / num_ranks as f64;
+        let accelerator_utilization: f64 = summaries.iter().map(|s| s.accelerator_utilization).sum::<f64>() / num_ranks as f64;
         
         let epochs_completed: u32 = summaries.iter().map(|s| s.epochs_completed).sum();
         let samples_per_batch = summaries[0].samples_per_batch;  // Should be same for all ranks
@@ -987,6 +1003,7 @@ impl AgentService {
             data_loading_time_s,
             compute_time_s,
             pipeline_efficiency,
+            accelerator_utilization,
             console_log: String::new(),
             metadata_json: String::new(),
             storage_tsv_content,

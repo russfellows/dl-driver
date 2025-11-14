@@ -88,7 +88,7 @@ message WorkloadSummary {
   // Pipeline breakdown (optional)
   double data_loading_time_s = 19; // Time spent in data loading
   double compute_time_s = 20;      // Time spent in compute (if simulated)
-  double pipeline_efficiency = 21; // Efficiency ratio (0-1)
+  double pipeline_efficiency = 21; // Efficiency ratio (0-1) - (I/O + compute) / total
   
   // === INLINE RESULTS COLLECTION (v0.8.1) ===
   // Inline transfer of results files (avoids separate file collection)
@@ -107,6 +107,9 @@ message WorkloadSummary {
   bytes histogram_read = 27;    // Read operation latencies (all size buckets)
   bytes histogram_write = 28;   // Write operation latencies (all size buckets)
   bytes histogram_batch = 29;   // Batch processing times (single histogram)
+  
+  // === v0.8.8: Accelerator Utilization ===
+  double accelerator_utilization = 30; // AU: compute / total (DLIO pass/fail metric)
 }
 
 // Health check response

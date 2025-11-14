@@ -91,6 +91,7 @@ pub struct WorkloadResult {
     pub data_loading_time_s: f64,
     pub compute_time_s: f64,
     pub pipeline_efficiency: f64,
+    pub accelerator_utilization: f64,  // v0.8.8: AU = compute / total (DLIO metric)
 }
 
 impl From<proto::WorkloadSummary> for WorkloadResult {
@@ -119,6 +120,7 @@ impl From<proto::WorkloadSummary> for WorkloadResult {
             data_loading_time_s: summary.data_loading_time_s,
             compute_time_s: summary.compute_time_s,
             pipeline_efficiency: summary.pipeline_efficiency,
+            accelerator_utilization: summary.accelerator_utilization,
         }
     }
 }
@@ -149,6 +151,7 @@ impl From<WorkloadResult> for proto::WorkloadSummary {
             data_loading_time_s: result.data_loading_time_s,
             compute_time_s: result.compute_time_s,
             pipeline_efficiency: result.pipeline_efficiency,
+            accelerator_utilization: result.accelerator_utilization,
             // Inline results (v0.8.1 enhancement - currently unused)
             console_log: String::new(),
             metadata_json: String::new(),
@@ -191,6 +194,7 @@ pub struct AggregateResults {
     pub avg_data_loading_time_s: f64,
     pub avg_compute_time_s: f64,
     pub avg_pipeline_efficiency: f64,
+    pub avg_accelerator_utilization: f64,  // v0.8.8: AU = compute / total (DLIO metric)
     
     pub agent_results: Vec<WorkloadResult>,
 }
@@ -233,6 +237,7 @@ impl AggregateResults {
         let avg_data_loading_time_s = results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count;
         let avg_compute_time_s = results.iter().map(|r| r.compute_time_s).sum::<f64>() / count;
         let avg_pipeline_efficiency = results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count;
+        let avg_accelerator_utilization = results.iter().map(|r| r.accelerator_utilization).sum::<f64>() / count;
 
         Ok(AggregateResults {
             // Storage metrics
@@ -257,6 +262,7 @@ impl AggregateResults {
             avg_data_loading_time_s,
             avg_compute_time_s,
             avg_pipeline_efficiency,
+            avg_accelerator_utilization,
             agent_results: results,
         })
     }
@@ -380,6 +386,7 @@ impl AggregateResults {
         let avg_data_loading_time_s = results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count;
         let avg_compute_time_s = results.iter().map(|r| r.compute_time_s).sum::<f64>() / count;
         let avg_pipeline_efficiency = results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count;
+        let avg_accelerator_utilization = results.iter().map(|r| r.accelerator_utilization).sum::<f64>() / count;
 
         Ok(AggregateResults {
             // Storage metrics with correctly merged percentiles
@@ -404,6 +411,7 @@ impl AggregateResults {
             avg_data_loading_time_s,
             avg_compute_time_s,
             avg_pipeline_efficiency,
+            avg_accelerator_utilization,
             agent_results: results,
         })
     }

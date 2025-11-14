@@ -926,6 +926,42 @@ impl Controller {
             .map(|s| WorkloadResult::from(s.clone()))
             .collect();
         
+        // Aggregate AI/ML metrics from agent results
+        let count = agent_results.len() as f64;
+        let total_batches_per_second: f64 = agent_results.iter().map(|r| r.batches_per_second).sum();
+        let total_batches: u64 = agent_results.iter().map(|r| r.total_batches).sum();
+        let avg_batch_time_ms = if count > 0.0 {
+            agent_results.iter().map(|r| r.avg_batch_time_ms).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let total_epochs_completed: u32 = agent_results.iter().map(|r| r.epochs_completed).sum();
+        let avg_epoch_time_s = if count > 0.0 {
+            agent_results.iter().map(|r| r.avg_epoch_time_s).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_data_loading_time_s = if count > 0.0 {
+            agent_results.iter().map(|r| r.data_loading_time_s).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_compute_time_s = if count > 0.0 {
+            agent_results.iter().map(|r| r.compute_time_s).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_pipeline_efficiency = if count > 0.0 {
+            agent_results.iter().map(|r| r.pipeline_efficiency).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        let avg_accelerator_utilization = if count > 0.0 {
+            agent_results.iter().map(|r| r.accelerator_utilization).sum::<f64>() / count
+        } else {
+            0.0
+        };
+        
         let aggregate = AggregateResults {
             agent_results,
             total_ops: total_ops,
@@ -941,14 +977,15 @@ impl Controller {
             avg_p99_us: (final_stats.get_p99_us + final_stats.put_p99_us) / 2.0,  // Avg of GET/PUT in µs
             total_errors: 0,
             total_samples_per_second: final_stats.samples_per_second,
-            total_batches_per_second: 0.0,
-            total_batches: 0,
-            avg_batch_time_ms: 0.0,
-            total_epochs_completed: 0,
-            avg_epoch_time_s: 0.0,
-            avg_data_loading_time_s: 0.0,
-            avg_compute_time_s: 0.0,
-            avg_pipeline_efficiency: 0.0,
+            total_batches_per_second,
+            total_batches,
+            avg_batch_time_ms,
+            total_epochs_completed,
+            avg_epoch_time_s,
+            avg_data_loading_time_s,
+            avg_compute_time_s,
+            avg_pipeline_efficiency,
+            avg_accelerator_utilization,
         };
         
         info!("🎉 Distributed workload complete!");
