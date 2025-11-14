@@ -1,0 +1,26 @@
+# Phase 2 Test - Data Generation
+# Single-rank local run to generate NPZ files for subsequent distributed testing
+# Usage: dl-driver run --config tests/phase2_generate_data.yaml
+
+model:
+  name: resnet50
+
+framework: pytorch
+
+dataset:
+  data_folder: file:///tmp/dl-driver-phase2-test
+  format: npz
+  num_files_train: 40
+  num_samples_per_file: 100
+  record_length: 65536  # 64 KB per sample
+
+reader:
+  data_loader: pytorch
+  batch_size: 8
+  read_threads: 4
+  compute_threads: 1
+
+workflow:
+  generate_data: true
+  train: false
+  checkpoint: false
