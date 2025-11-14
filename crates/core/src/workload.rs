@@ -189,14 +189,33 @@ impl WorkloadRunner {
         let training_start = Instant::now();
         
         println!("📊 Phase: Training (MEASURED for AU calculation)");
-        self.run_training().await?;
+        let total_first_batch_compute = self.run_training().await?;
         
         let training_time = training_start.elapsed();
         info!("Training phase completed in {:?}", training_time);
 
+        // Bug #11 fix: Calculate overall statistics for unified summary
+        let total_samples = self.metrics.batches_processed() * self.config.reader.batch_size.unwrap_or(16) as u64;
+        
+        // v0.8.8: AU calculation excludes first-batch startup overhead across all epochs
+        // AU = GPU time (excluding all first batches) / Total time
+        // First batches have 3+ second startup penalty per epoch that skews results
+        let total_compute_time = self.metrics.total_compute_time();
+        let compute_for_au = total_compute_time.saturating_sub(total_first_batch_compute);
+        let epoch_times = self.metrics.epoch_times();
+        let total_epoch_time: Duration = epoch_times.iter().sum();
+        
+        let au_percentage = if total_epoch_time.as_secs_f64() > 0.0 {
+            (compute_for_au.as_secs_f64() / total_epoch_time.as_secs_f64()) * 100.0
+        } else {
+            0.0
+        };
+
         // Record training time (NOT total time) for AU calculation
         self.metrics.set_total_time(training_time);
-        self.metrics.print_summary();
+        
+        // Bug #11 fix: Use unified summary that matches distributed mode output
+        self.metrics.print_unified_summary(training_time.as_secs_f64(), total_samples, au_percentage);
         
         // v0.8.5: Print per-endpoint statistics if using multi-endpoint store
         if let Some(ref store) = self.multi_endpoint_store {
@@ -377,6 +396,16 @@ impl WorkloadRunner {
             num_files, samples_per_file, record_size
         );
 
+        // Determine parallelism for data generation
+        // Use read_threads config (default 8) for concurrent writes
+        let write_concurrency = self.config.reader.read_threads.unwrap_or(8) as usize;
+        let write_concurrency = write_concurrency.max(8).min(64); // Clamp to 8-64 range
+        
+        info!(
+            "Data generation will use {} concurrent writes for maximum throughput",
+            write_concurrency
+        );
+
         // v0.8.6: Reset live stats counters
         self.live_ops.store(0, Ordering::Relaxed);
         self.live_bytes.store(0, Ordering::Relaxed);
@@ -394,48 +423,72 @@ impl WorkloadRunner {
             pb.clone(),
             self.live_ops.clone(),
             self.live_bytes.clone(),
-            1,  // Single-threaded generation
+            write_concurrency,
             num_files as u64,
         );
 
-        // Generate data files using directory mode for path resolution
-        for file_idx in 0..num_files {
-            // Get file path based on directory mode
-            let rel_path = dir_mode.get_file_path(file_idx, format);
-            let full_path = if data_folder.ends_with('/') {
-                format!("{}{}", data_folder, rel_path)
-            } else {
-                format!("{}/{}", data_folder, rel_path)
-            };
+        // Generate and write files with high concurrency using futures::stream
+        use futures::stream::{self, StreamExt};
+        
+        let results: Vec<Result<()>> = stream::iter(0..num_files)
+            .map(|file_idx| {
+                let data_folder = data_folder.clone();
+                let store = store.clone();
+                let format = format.to_string();
+                let dir_mode = dir_mode.clone();
+                let pb = pb.clone();
+                let metrics = self.metrics.clone();
+                let live_ops = self.live_ops.clone();
+                let live_bytes = self.live_bytes.clone();
+                let live_stats_tracker = self.live_stats_tracker.clone();
+                
+                async move {
+                    // Get file path based on directory mode
+                    let rel_path = dir_mode.get_file_path(file_idx, &format);
+                    let full_path = if data_folder.ends_with('/') {
+                        format!("{}{}", data_folder, rel_path)
+                    } else {
+                        format!("{}/{}", data_folder, rel_path)
+                    };
 
-            let data = self.generate_file_data(samples_per_file, record_size)?;
+                    // Generate data inline (can't easily share self across tasks)
+                    let total_size = samples_per_file * record_size;
+                    let data = s3dlio::generate_controlled_data(total_size, 1, 1);
 
-            let write_start = Instant::now();
-            store
-                .put(&full_path, &data)
-                .await
-                .with_context(|| format!("Failed to write file {}", full_path))?;
-            let write_time = write_start.elapsed();
+                    let write_start = Instant::now();
+                    store
+                        .put(&full_path, &data)
+                        .await
+                        .with_context(|| format!("Failed to write file {}", full_path))?;
+                    let write_time = write_start.elapsed();
 
-            // Record metrics (with histogram collection for v0.8.1)
-            let bytes_written = (samples_per_file as u64) * (record_size as u64);
-            self.metrics
-                .record_write_operation(bytes_written, write_time);
-            
-            // v0.8.1: Record histogram data for accurate write percentiles
-            self.metrics.record_write_with_histogram(bytes_written as usize, write_time);
-            
-            // v0.8.6: Update live counters AFTER successful write
-            self.live_ops.fetch_add(1, Ordering::Relaxed);
-            self.live_bytes.fetch_add(bytes_written, Ordering::Relaxed);
-            
-            // v0.8.7: Update distributed live stats tracker if present
-            if let Some(ref tracker) = self.live_stats_tracker {
-                tracker.record_put(bytes_written as usize, write_time);
-            }
-            
-            // v0.8.6: Update progress bar position
-            pb.inc(1);
+                    // Record metrics
+                    let bytes_written = (samples_per_file as u64) * (record_size as u64);
+                    metrics.record_write_operation(bytes_written, write_time);
+                    metrics.record_write_with_histogram(bytes_written as usize, write_time);
+                    
+                    // Update live counters
+                    live_ops.fetch_add(1, Ordering::Relaxed);
+                    live_bytes.fetch_add(bytes_written, Ordering::Relaxed);
+                    
+                    // Update distributed live stats tracker if present
+                    if let Some(ref tracker) = live_stats_tracker {
+                        tracker.record_put(bytes_written as usize, write_time);
+                    }
+                    
+                    // Update progress bar
+                    pb.inc(1);
+                    
+                    Ok(())
+                }
+            })
+            .buffer_unordered(write_concurrency)  // PARALLEL WRITES!
+            .collect()
+            .await;
+        
+        // Check for any errors
+        for result in results {
+            result?;
         }
 
         // v0.8.6: Wait for monitor to complete
@@ -503,7 +556,9 @@ impl WorkloadRunner {
     /// 
     /// v0.8.6: Uses per-epoch progress bars with live performance statistics
     /// Each epoch shows its own progress bar with real-time ops/s, MiB/s, and avg latency
-    async fn run_training(&mut self) -> Result<()> {
+    /// 
+    /// v0.8.8: Returns total first-batch compute time across all epochs for AU adjustment
+    async fn run_training(&mut self) -> Result<Duration> {
         use indicatif::{ProgressBar, ProgressStyle};
         
         let epochs = self.config.train.as_ref().and_then(|t| t.epochs).unwrap_or(1);
@@ -551,6 +606,9 @@ impl WorkloadRunner {
         } else {
             0
         };
+        
+        // v0.8.8: Track total first-batch compute across all epochs for AU adjustment
+        let mut total_first_batch_compute = Duration::ZERO;
 
         for epoch in start_epoch..epochs as usize {
             let epoch_start = Instant::now();
@@ -586,6 +644,11 @@ impl WorkloadRunner {
             let mut total_bytes = 0;
             let mut total_io_time = Duration::ZERO;
             let mut total_compute_time = Duration::ZERO;
+            
+            // v0.8.8: Track first batch separately for AU calculation
+            // First batch has startup overhead (3+ seconds) that skews AU
+            // We include it in throughput but exclude from AU calculation
+            let mut first_batch_compute = Duration::ZERO;
 
             // === CRITICAL: TRUE DLIO PARALLEL MODEL ===
             // Background I/O workers continuously load batches into channel
@@ -662,6 +725,12 @@ impl WorkloadRunner {
                         let compute_time = compute_start.elapsed();
                         
                         let batch_total_time = batch_start.elapsed();
+
+                        // v0.8.8: Track first batch compute separately
+                        // First batch includes startup overhead, exclude from AU
+                        if batch_count == 0 {
+                            first_batch_compute = compute_time;
+                        }
 
                         // Accumulate for AU calculation
                         total_io_time += io_time;
@@ -742,8 +811,13 @@ impl WorkloadRunner {
             let epoch_total_time = epoch_start.elapsed();
             self.metrics.record_epoch_time(epoch_total_time);
             
+            // v0.8.8: AU calculation excludes first batch startup overhead
+            // AU = GPU time (excluding first batch) / Total time
+            // This measures: "What % of wall-clock time was the GPU busy (after warmup)?"
+            // First batch has 3+ second startup penalty that skews results
+            let compute_for_au = total_compute_time.saturating_sub(first_batch_compute);
             let au_percentage = if epoch_total_time.as_secs_f64() > 0.0 {
-                (total_compute_time.as_secs_f64() / epoch_total_time.as_secs_f64()) * 100.0
+                (compute_for_au.as_secs_f64() / epoch_total_time.as_secs_f64()) * 100.0
             } else {
                 0.0
             };
@@ -814,6 +888,9 @@ impl WorkloadRunner {
                     warn!("⚠️  HIGH AU: {:.1}% suggests sequential processing, not parallel I/O", au_percentage);
                 }
             }
+            
+            // v0.8.8: Accumulate first-batch compute for overall AU adjustment
+            total_first_batch_compute += first_batch_compute;
 
             // Call plugin hook for epoch-based checkpointing
             if let Some(ref mut plugins) = self.plugins {
@@ -827,7 +904,7 @@ impl WorkloadRunner {
         }
 
         info!("🏁 DLIO parallel training completed");
-        Ok(())
+        Ok(total_first_batch_compute)
     }
 
     /// Checkpointing phase (placeholder for future implementation)
@@ -881,25 +958,8 @@ impl WorkloadRunner {
         Ok(Arc::from(store))
     }
 
-    /// Generate data for a single file
-    fn generate_file_data(&self, samples: usize, record_size: usize) -> Result<Vec<u8>> {
-        // Generate synthetic data based on format
-        match self.config.dataset.format.as_deref().unwrap_or("npz") {
-            "npz" => {
-                // Use s3dlio's data generation utilities
-                // Note: generate_controlled_data takes (size, dedup, compress)
-                let total_size = samples * record_size;
-                let data = s3dlio::generate_controlled_data(total_size, 0, 0);
-                Ok(data)
-            }
-            _ => {
-                // Generate random data for other formats
-                let total_size = samples * record_size;
-                let data = (0..total_size).map(|i| (i % 256) as u8).collect();
-                Ok(data)
-            }
-        }
-    }
+    // Bug #9 fix: Removed unused generate_file_data() method
+    // Data generation now inlined in parallel stream for better performance
 
     pub fn get_metrics(&self) -> &Metrics {
         &self.metrics
