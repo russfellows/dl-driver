@@ -750,17 +750,23 @@ impl WorkloadRunner {
                         self.live_ops.fetch_add(1, Ordering::Relaxed);
                         self.live_bytes.fetch_add(batch_bytes as u64, Ordering::Relaxed);
 
-                        // v0.8.7: Update distributed live stats tracker if present
-                        // Use record_get_batch to count file operations (not batch operations)
-                        // Pass io_time (NOT batch_total_time) for accurate storage I/O latency
+                        // v0.8.8: Update distributed live stats tracker if present
                         // 
-                        // NOTE: io_time measures time to ACCESS data (not background loading time).
-                        // With prefetching, this is ~0µs (data already in memory).
-                        // TODO: VERIFY with direct:// I/O on real disk (/mnt/test, NOT /tmp tmpfs)
-                        //       using large datasets that exceed page cache to see realistic I/O latency.
-                        //       Current test uses small files in /tmp (memory-backed) which masks true I/O costs.
+                        // IMPORTANT: Storage latency is NOT accurately measured due to AsyncPoolDataLoader
+                        // architecture. The dataloader uses background workers that prefetch files into
+                        // memory channels. We only measure channel.recv() time (~0-3µs), NOT the actual
+                        // store.get() I/O time (typically 50-200ms for 20MB files).
+                        // 
+                        // To avoid misleading metrics, we report 0.0 for latency until proper
+                        // instrumentation is added in s3dlio v0.10.x (see dl-driver issue #XX and
+                        // s3dlio issue #YY). Throughput metrics remain accurate.
+                        // 
+                        // For v0.8.9: Plan to add per-file latency tracking in s3dlio AsyncPoolDataLoader
+                        // by timing each store.get() call in background workers and exposing metrics API.
                         if let Some(ref tracker) = self.live_stats_tracker {
-                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, io_time);
+                            // Report 0.0 latency to avoid misleading sub-microsecond values
+                            let zero_latency = Duration::from_secs(0);
+                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, zero_latency);
                             tracker.record_samples(batch_size_actual as u64);
                         }
 

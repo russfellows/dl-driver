@@ -1,0 +1,42 @@
+# Phase 2 Latency Verification - Data Generation
+# Purpose: Generate 2,000 files × 20MB = 40GB dataset on real disk (/mnt/test)
+# This far exceeds page cache and uses direct:// to bypass OS caching
+
+model:
+  name: verify_latency_test
+
+framework: pytorch
+
+workflow:
+  generate_data: true
+  train: false
+  checkpoint: false
+
+dataset:
+  data_folder: "direct:///mnt/test/dl-driver-verify/"
+  format: npz
+  num_files_train: 2000        # 2,000 files = 40GB dataset
+  num_samples_per_file: 10     # 10 samples per file
+  record_length_bytes: 2097152 # 2 MB per sample (10 samples × 2MB = 20MB per file)
+  record_length_stdev: 0
+  record_length_resize: 0
+  data_loader:
+    data_loader_classname: pytorch
+  
+  # CRITICAL: Use random data (NOT zero) to prevent compression
+  keep_files: true
+  file_shuffle: seed
+  shuffle_seed: 42
+  
+  # Use random fill (never zero!)
+  sample_generator:
+    random_seed: 42
+
+reader:
+  read_threads: 32     # Use 32 concurrent writes for data generation
+  transfer_size: 262144
+
+train:
+  epochs: 1
+  batch_size: 1
+  computation_time: 0.0  # No compute for data generation

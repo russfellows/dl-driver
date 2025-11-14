@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.91.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.7-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.8-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
@@ -22,7 +22,13 @@
 
 ## 🎯 Current Status
 
-**🎉 v0.8.7 RELEASED**: Distributed live stats and progress bars
+**🎉 v0.8.8 RELEASED**: Distributed multi-rank with file sharding and bug fixes (Bugs #8, #10, #11, #12)
+**🎯 DISTRIBUTED MULTI-RANK**: Complete Phase 1 & 2 implementation with interleaved/contiguous sharding
+**📊 ACCURATE PERCENTILES**: Bucket-level histogram aggregation for distributed workloads (<1% error)
+**⚡ ACCELERATOR UTILIZATION**: Fixed AU calculation (now compute_time / batch_time, not inverted)
+**📝 UNIFIED OUTPUT**: Consistent dual-perspective format (Storage + AI/ML) across all modes
+**🔧 FIRST-BATCH EXCLUSION**: Steady-state metrics exclude cold-start batch for accuracy
+**⚠️ STORAGE LATENCY**: Temporarily reports 0µs (instrumentation planned for v0.8.9 - see docs)
 **📊 LIVE STATS STREAMING**: Real-time progress updates via gRPC streaming (1s intervals)
 **📈 PROGRESS BARS**: Multi-line display with percentage, epoch counter, and detailed statistics
 **🤝 STARTUP HANDSHAKE**: READY/ERROR validation before workload execution
@@ -39,10 +45,16 @@
 **✅ 133/133 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
-- **📊 Live Stats Streaming**: Real-time progress updates via gRPC streaming with 1-second intervals (v0.8.7)
-- **📈 Progress Bars**: Multi-line display showing percentage, epoch counter, and detailed I/O statistics (v0.8.7)
-- **🤝 Startup Handshake**: READY/ERROR validation ensures all agents are healthy before workload starts (v0.8.7)
-- **⏱️ Microsecond Precision**: All distributed mode latencies now displayed in microseconds (µs) for accuracy (v0.8.7)
+- **🎯 Distributed Multi-Rank**: Complete Phase 1 & 2 implementation with file sharding (interleaved/contiguous strategies)
+- **📊 Accurate Percentiles**: Bucket-level HDR histogram aggregation for distributed workloads (<1% error)
+- **⚡ Accelerator Utilization**: Fixed AU metric calculation (compute_time / batch_time ratio)
+- **📝 Unified Output Format**: Consistent dual-perspective reporting (Storage I/O + AI/ML Training)
+- **🔧 Steady-State Metrics**: First-batch exclusion prevents cold-start skew in statistics
+- **⚠️ Storage Latency**: Currently reports 0µs (full instrumentation planned for v0.8.9 - see `docs/STORAGE_LATENCY_LIMITATION.md`)
+- **📊 Live Stats Streaming**: Real-time progress updates via gRPC streaming with 1-second intervals
+- **📈 Progress Bars**: Multi-line display showing percentage, epoch counter, and detailed I/O statistics
+- **🤝 Startup Handshake**: READY/ERROR validation ensures all agents are healthy before workload starts
+- **⏱️ Microsecond Precision**: All distributed mode latencies now displayed in microseconds (µs) for accuracy
 - **📊 Distributed Histogram Aggregation**: Bucket-level HDR histogram merging for accurate percentiles across agents
 - **📁 Enhanced Results Capture**: console.log includes all completion messages, latencies, and throughput statistics
 - **⚡ Multi-Endpoint Load Balancing**: Distribute requests across multiple storage endpoints (round-robin or least-connections)
@@ -54,7 +66,7 @@
 - **📊 Aggregate Metrics**: Automatic collection and aggregation from all agents with histogram-based percentiles
 - **📁 Structured Results**: Complete results directory with per-agent TSV files and consolidated bucket-level histograms
 - **🗂️ Path Isolation**: Agent-specific path prefixes for local storage isolation
-- **☁️ Shared Storage**: Automatic detection and handling of GCS/S3/Azure shared backends
+- **☁️ Shared Storage**: Automatic detection and handling of GCS/S3/Azure shared backends (--shared-storage flag)
 - **✅ E2E Validated**: 2-node and 4-node configurations tested (local + cloud storage)
 - **📈 Performance**: Multi-GiB/s aggregate throughput with accurate percentile tracking
 

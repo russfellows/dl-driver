@@ -1,0 +1,35 @@
+# Phase 2 Latency Verification - Phase B: With Prefetch
+# Purpose: Verify prefetch pipeline hides I/O latency
+# Expected: <1ms (data already loaded by background workers)
+
+model:
+  name: verify_latency_test
+
+framework: pytorch
+
+workflow:
+  generate_data: false
+  train: true
+  checkpoint: false
+
+dataset:
+  data_folder: "direct:///mnt/test/dl-driver-verify/"
+  format: npz
+  num_files_train: 1000
+  num_samples_per_file: 10    # 10 samples per file
+  record_length_bytes: 2097152 # 2 MB per sample (10 samples × 2MB = 20MB per file)
+  record_length_stdev: 0
+  record_length_resize: 0
+
+reader:
+  read_threads: 4         # Multiple workers for background loading
+  transfer_size: 262144
+
+train:
+  epochs: 1
+  batch_size: 10          # 10 files per batch
+  prefetch_size: 4        # Prefetch 4 batches ahead
+  computation_time: 0.0   # No compute to isolate I/O measurement
+  
+  # Process only first 100 files (1 epoch with 10 batches)
+  total_training_steps: 10

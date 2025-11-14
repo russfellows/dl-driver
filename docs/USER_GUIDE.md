@@ -255,6 +255,86 @@ This script:
 - Validates bucket-level histogram format
 - Confirms percentiles are correctly aggregated
 
+#### Distributed Multi-Rank (v0.8.8)
+
+**Use Case**: Emulate multi-GPU distributed training with file sharding across agents
+
+**File Sharding Strategies:**
+
+1. **Interleaved Sharding** (default) - Round-robin file distribution
+   ```bash
+   ./target/release/dl-driver distributed run \
+     --config tests/dlio_configs/distributed_2node_local.yaml \
+     --agents http://host1:50051,http://host2:50051 \
+     --shard-strategy interleaved \
+     --shared-storage
+   ```
+   - Files distributed: agent-0 gets files [0,2,4,6,...], agent-1 gets files [1,3,5,7,...]
+   - Example: 1140 files → 570 files per agent (alternating)
+   - Best for: Balanced load when file sizes are variable
+
+2. **Contiguous Sharding** - Sequential file distribution
+   ```bash
+   ./target/release/dl-driver distributed run \
+     --config tests/dlio_configs/distributed_2node_local.yaml \
+     --agents http://host1:50051,http://host2:50051 \
+     --shard-strategy contiguous \
+     --shared-storage
+   ```
+   - Files distributed: agent-0 gets files [0..569], agent-1 gets files [570..1139]
+   - Example: 1140 files → first 570 to agent-0, remaining 570 to agent-1
+   - Best for: Sequential access patterns, easier to reason about data locality
+
+**Shared Storage Flag:**
+- `--shared-storage`: Required for NFS/Lustre/cloud backends where all agents access same files
+- Without flag: Each agent expects files in `agent-{id}/` subdirectory (local storage)
+- Auto-detected for cloud URIs (s3://, az://, gs://)
+
+**Distributed Rank Awareness:**
+Each agent automatically receives:
+- `agent_id`: Unique identifier (e.g., "agent-0", "agent-1")
+- `rank`: 0-indexed position in agent list
+- `world_size`: Total number of agents
+
+**Example Output with Multi-Rank:**
+```
+📊 Storage Performance (I/O Perspective):
+   Total Throughput: 7.1 ops/s, 142.0 MiB/s
+   Total Operations: 1140 (570 files × 2 agents)
+   GET Latency: mean=0µs, p50=0µs, p90=0µs, p95=0µs, p99=0µs (⚠️  NOT YET INSTRUMENTED - see docs)
+   PUT Latency: mean=0µs (⚠️  NOT YET INSTRUMENTED - see docs)
+   Errors: 0
+
+🤖 AI/ML Training Performance (Training Perspective):
+   Training Velocity: 7.1 samples/s, 4.7 batches/s
+   Total Samples: 1140, Total Batches: 758
+   Average Batch Time: 196.13ms
+   Epochs Completed: 2
+   Accelerator Utilization (AU): 4.4%
+   Pipeline Efficiency: 4.4%
+```
+
+**Testing Multi-Rank:**
+```bash
+# Start 2 agents
+./target/release/dl_driver_agent --port 50051 > /tmp/agent1.log 2>&1 &
+./target/release/dl_driver_agent --port 50052 > /tmp/agent2.log 2>&1 &
+
+# Run with interleaved sharding
+./target/release/dl-driver distributed run \
+  --config tests/verify_latency_with_compute.yaml \
+  --agents http://localhost:50051,http://localhost:50052 \
+  --shard-strategy interleaved \
+  --shared-storage
+
+# Verify agents processed different file sets
+grep "Processing file" /tmp/agent1.log | wc -l  # Should be ~half total
+grep "Processing file" /tmp/agent2.log | wc -l  # Should be ~half total
+```
+
+**Storage Latency Note (v0.8.8):**
+Storage latency metrics currently report `0µs` with warning because AsyncPoolDataLoader prefetch hides actual `store.get()` times. Throughput metrics (ops/s, MiB/s) remain accurate. See `docs/STORAGE_LATENCY_LIMITATION.md` for technical details. Full instrumentation planned for v0.8.9.
+
 ---
 
 ## Configuration
