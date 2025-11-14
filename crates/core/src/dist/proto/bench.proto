@@ -139,14 +139,18 @@ message LiveStats {
   uint64 get_bytes = 4;
   double get_mean_us = 5;
   double get_p50_us = 6;
+  double get_p90_us = 20;        // v0.8.8: Added p90
   double get_p95_us = 7;
+  double get_p99_us = 21;        // v0.8.8: Added p99
   
   // PUT operations (write to storage - data prep phase)
   uint64 put_ops = 8;
   uint64 put_bytes = 9;
   double put_mean_us = 10;
   double put_p50_us = 11;
+  double put_p90_us = 22;        // v0.8.8: Added p90
   double put_p95_us = 12;
+  double put_p99_us = 23;        // v0.8.8: Added p99
   
   // AI/ML training metrics (active during training phase)
   double samples_per_second = 13;

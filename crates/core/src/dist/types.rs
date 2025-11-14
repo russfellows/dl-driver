@@ -171,6 +171,8 @@ pub struct AggregateResults {
     // Storage aggregate metrics
     pub total_ops_per_s: f64,
     pub total_mib_per_s: f64,
+    pub avg_get_mean_us: f64,  // Average GET latency in µs
+    pub avg_put_mean_us: f64,  // Average PUT latency in µs
     pub avg_p50_us: f64,  // v0.8.7: changed from ms to µs for consistency
     pub avg_p90_us: f64,
     pub avg_p95_us: f64,
@@ -236,6 +238,8 @@ impl AggregateResults {
             // Storage metrics
             total_ops_per_s,
             total_mib_per_s,
+            avg_get_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
+            avg_put_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
             avg_p50_us,
             avg_p90_us,
             avg_p95_us,
@@ -381,6 +385,8 @@ impl AggregateResults {
             // Storage metrics with correctly merged percentiles
             total_ops_per_s,
             total_mib_per_s,
+            avg_get_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
+            avg_put_mean_us: 0.0,  // Not available from WorkloadResult (uses LiveStats)
             avg_p50_us,
             avg_p90_us,
             avg_p95_us,

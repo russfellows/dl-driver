@@ -683,8 +683,9 @@ impl WorkloadRunner {
 
                         // v0.8.7: Update distributed live stats tracker if present
                         // Use record_get_batch to count file operations (not batch operations)
+                        // Pass batch_total_time (I/O + compute) for meaningful latency metrics
                         if let Some(ref tracker) = self.live_stats_tracker {
-                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, io_time);
+                            tracker.record_get_batch(batch_size_actual as u64, batch_bytes, batch_total_time);
                             tracker.record_samples(batch_size_actual as u64);
                         }
 

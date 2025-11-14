@@ -28,14 +28,18 @@ struct AggregateStats {
     total_get_bytes: u64,
     get_mean_us: f64,
     get_p50_us: f64,
+    get_p90_us: f64,
     get_p95_us: f64,
+    get_p99_us: f64,
     
     // PUT operations
     total_put_ops: u64,
     total_put_bytes: u64,
     put_mean_us: f64,
     put_p50_us: f64,
+    put_p90_us: f64,
     put_p95_us: f64,
+    put_p99_us: f64,
     
     // AI/ML metrics
     samples_per_second: f64,
@@ -61,32 +65,42 @@ impl AggregateStats {
         if get_ratio > 0.90 {
             // Training phase - emphasize samples/s
             format!(
-                "Training: {} samples/s │ GET: {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
+                "Training: {} samples/s │ GET: {} ops, {} (mean={:.0}µs, p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs)",
                 format_count(self.samples_per_second as u64),
                 format_count(self.total_get_ops),
                 format_bandwidth(self.total_get_bytes, self.elapsed_s),
                 self.get_mean_us,
-                self.get_p95_us
+                self.get_p50_us,
+                self.get_p90_us,
+                self.get_p95_us,
+                self.get_p99_us
             )
         } else if put_ratio > 0.90 {
             // Data prep phase - show PUT only
             format!(
-                "Data Prep: PUT {} ops, {} ({:.0}µs mean, {:.0}µs p95)",
+                "Data Prep: PUT {} ops, {} (mean={:.0}µs, p50={:.0}µs, p90={:.0}µs, p95={:.0}µs, p99={:.0}µs)",
                 format_count(self.total_put_ops),
                 format_bandwidth(self.total_put_bytes, self.elapsed_s),
                 self.put_mean_us,
-                self.put_p95_us
+                self.put_p50_us,
+                self.put_p90_us,
+                self.put_p95_us,
+                self.put_p99_us
             )
         } else {
             // Mixed phase - show both (multi-line via newline)
             format!(
-                "GET: {} ops, {} ({:.0}µs mean) │ PUT: {} ops, {} ({:.0}µs mean)",
+                "GET: {} ops, {} (mean={:.0}µs, p90={:.0}µs, p99={:.0}µs) │ PUT: {} ops, {} (mean={:.0}µs, p90={:.0}µs, p99={:.0}µs)",
                 format_count(self.total_get_ops),
                 format_bandwidth(self.total_get_bytes, self.elapsed_s),
                 self.get_mean_us,
+                self.get_p90_us,
+                self.get_p99_us,
                 format_count(self.total_put_ops),
                 format_bandwidth(self.total_put_bytes, self.elapsed_s),
-                self.put_mean_us
+                self.put_mean_us,
+                self.put_p90_us,
+                self.put_p99_us
             )
         }
     }
@@ -163,12 +177,16 @@ impl LiveStatsAggregator {
             total_get_bytes: 0,
             get_mean_us: 0.0,
             get_p50_us: 0.0,
+            get_p90_us: 0.0,
             get_p95_us: 0.0,
+            get_p99_us: 0.0,
             total_put_ops: 0,
             total_put_bytes: 0,
             put_mean_us: 0.0,
             put_p50_us: 0.0,
+            put_p90_us: 0.0,
             put_p95_us: 0.0,
+            put_p99_us: 0.0,
             samples_per_second: 0.0,
             total_samples: 0,
         };
@@ -186,14 +204,18 @@ impl LiveStatsAggregator {
             agg.total_get_bytes += stats.get_bytes;
             agg.get_mean_us += stats.get_mean_us * stats.get_ops as f64;
             agg.get_p50_us += stats.get_p50_us * stats.get_ops as f64;
+            agg.get_p90_us += stats.get_p90_us * stats.get_ops as f64;
             agg.get_p95_us += stats.get_p95_us * stats.get_ops as f64;
+            agg.get_p99_us += stats.get_p99_us * stats.get_ops as f64;
             
             // PUT operations
             agg.total_put_ops += stats.put_ops;
             agg.total_put_bytes += stats.put_bytes;
             agg.put_mean_us += stats.put_mean_us * stats.put_ops as f64;
             agg.put_p50_us += stats.put_p50_us * stats.put_ops as f64;
+            agg.put_p90_us += stats.put_p90_us * stats.put_ops as f64;
             agg.put_p95_us += stats.put_p95_us * stats.put_ops as f64;
+            agg.put_p99_us += stats.put_p99_us * stats.put_ops as f64;
             
             // AI/ML metrics
             agg.samples_per_second += stats.samples_per_second;
@@ -204,12 +226,16 @@ impl LiveStatsAggregator {
         if agg.total_get_ops > 0 {
             agg.get_mean_us /= agg.total_get_ops as f64;
             agg.get_p50_us /= agg.total_get_ops as f64;
+            agg.get_p90_us /= agg.total_get_ops as f64;
             agg.get_p95_us /= agg.total_get_ops as f64;
+            agg.get_p99_us /= agg.total_get_ops as f64;
         }
         if agg.total_put_ops > 0 {
             agg.put_mean_us /= agg.total_put_ops as f64;
             agg.put_p50_us /= agg.total_put_ops as f64;
+            agg.put_p90_us /= agg.total_put_ops as f64;
             agg.put_p95_us /= agg.total_put_ops as f64;
+            agg.put_p99_us /= agg.total_put_ops as f64;
         }
         
         agg
@@ -907,10 +933,12 @@ impl Controller {
             total_ops_per_s: total_ops as f64 / final_stats.elapsed_s,
             total_mib_per_s: (final_stats.total_get_bytes + final_stats.total_put_bytes) as f64 
                              / 1_048_576.0 / final_stats.elapsed_s,
+            avg_get_mean_us: final_stats.get_mean_us,
+            avg_put_mean_us: final_stats.put_mean_us,
             avg_p50_us: (final_stats.get_p50_us + final_stats.put_p50_us) / 2.0,  // Avg of GET/PUT in µs
-            avg_p90_us: 0.0,  // Not available from live stats
+            avg_p90_us: (final_stats.get_p90_us + final_stats.put_p90_us) / 2.0,  // Avg of GET/PUT in µs
             avg_p95_us: (final_stats.get_p95_us + final_stats.put_p95_us) / 2.0,  // Avg of GET/PUT in µs
-            avg_p99_us: 0.0,  // Not available from live stats
+            avg_p99_us: (final_stats.get_p99_us + final_stats.put_p99_us) / 2.0,  // Avg of GET/PUT in µs
             total_errors: 0,
             total_samples_per_second: final_stats.samples_per_second,
             total_batches_per_second: 0.0,
