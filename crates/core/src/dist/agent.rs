@@ -3,7 +3,7 @@
 /// This module implements the agent server that receives workload requests,
 /// applies path prefixes, coordinates start times, and executes DLIO workloads.
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
@@ -114,8 +114,12 @@ impl AgentService {
         config: DlioConfig,
         agent_id: &str,
         live_stats_tracker: Option<Arc<crate::live_stats::LiveStatsTracker>>,
+        global_rank: usize,
+        global_world_size: usize,
+        shard_strategy: &str,
     ) -> Result<WorkloadSummary, Status> {
-        info!("Agent {} starting workload execution", agent_id);
+        info!("Agent {} starting workload execution (rank {} of {}, strategy: {})", 
+              agent_id, global_rank, global_world_size, shard_strategy);
 
         // Extract config values for AI/ML metrics calculation
         let samples_per_file = config.dataset.num_samples_per_file.unwrap_or(1) as u64;
@@ -124,7 +128,42 @@ impl AgentService {
         // Create and run the workload
         let start_time = SystemTime::now();
         
-        let mut runner = WorkloadRunner::new(config);
+        let mut runner = WorkloadRunner::new(config.clone());
+        
+        // Apply data sharding if in multi-rank mode (v0.8.8 Priority 0, Phase 1)
+        if global_world_size > 1 {
+            info!("Discovering files for sharding from: {}", config.dataset.data_folder);
+            
+            // Discover files from data_folder using s3dlio
+            let file_list = Self::discover_files(&config.dataset.data_folder).await
+                .map_err(|e| {
+                    error!("Failed to discover files: {}", e);
+                    Status::internal(format!("File discovery failed: {}", e))
+                })?;
+            
+            info!("Discovered {} total files before sharding", file_list.len());
+            
+            // Apply sharding strategy to get this rank's subset
+            let sharded_files = Self::apply_sharding_strategy(
+                &file_list,
+                global_world_size,
+                global_rank,
+                shard_strategy,
+            ).map_err(|e| {
+                error!("Failed to apply sharding strategy: {}", e);
+                Status::internal(format!("Sharding failed: {}", e))
+            })?;
+            
+            info!("After sharding: rank {} gets {}/{} files", 
+                  global_rank, sharded_files.len(), file_list.len());
+            
+            // Configure runner with rank-specific file list
+            runner = runner.with_rank_config(
+                global_rank as u32,
+                global_world_size as u32,
+                Some(sharded_files),
+            );
+        }
         
         // Wire live stats tracker for distributed operation recording (v0.8.7+)
         if let Some(tracker) = live_stats_tracker {
@@ -399,8 +438,20 @@ impl DistAgent for AgentService {
         // Wait for coordinated start time
         Self::wait_for_start(req.start_unix_ms).await?;
 
+        // Extract rank information (v0.8.8 Priority 0, Phase 1)
+        let global_rank = req.global_rank as usize;
+        let global_world_size = req.global_world_size as usize;
+        let shard_strategy = req.shard_strategy.as_str();
+
         // Execute the workload and return metrics (no live stats for blocking RPC)
-        let summary = self.execute_workload(config, &req.agent_id, None).await?;
+        let summary = self.execute_workload(
+            config,
+            &req.agent_id,
+            None,
+            global_rank,
+            global_world_size,
+            shard_strategy,
+        ).await?;
 
         Ok(Response::new(summary))
     }
@@ -465,6 +516,11 @@ impl DistAgent for AgentService {
         let agent_id_stream = req.agent_id.clone();
         let config_stream = config.clone();
         let self_stream = self.clone();
+        
+        // Clone rank information for stream (v0.8.8 Priority 0, Phase 1)
+        let global_rank_stream = req.global_rank as usize;
+        let global_world_size_stream = req.global_world_size as usize;
+        let shard_strategy_stream = req.shard_strategy.clone();
 
         // Create stream with startup handshake (v0.8.7)
         let stream = async_stream::stream! {
@@ -542,8 +598,21 @@ impl DistAgent for AgentService {
             let config_exec = config_stream.clone();
             let agent_id_exec = agent_id_stream.clone();
             let self_exec = self_stream.clone();
+            
+            // Clone rank info for spawned task (v0.8.8 Priority 0, Phase 1)
+            let global_rank_exec = global_rank_stream;
+            let global_world_size_exec = global_world_size_stream;
+            let shard_strategy_exec = shard_strategy_stream.clone();
+            
             tokio::spawn(async move {
-                match self_exec.execute_workload(config_exec, &agent_id_exec, Some(tracker_exec)).await {
+                match self_exec.execute_workload(
+                    config_exec,
+                    &agent_id_exec,
+                    Some(tracker_exec),
+                    global_rank_exec,
+                    global_world_size_exec,
+                    &shard_strategy_exec,
+                ).await {
                     Ok(summary) => {
                         info!("Workload completed successfully for agent {}", agent_id_exec);
                         let _ = tx_done.send(Ok(summary)).await;
@@ -633,6 +702,90 @@ impl DistAgent for AgentService {
         };
 
         Ok(Response::new(Box::pin(stream)))
+    }
+}
+
+impl AgentService {
+    /// Discover files from data_folder using s3dlio (v0.8.8 Priority 0, Phase 1)
+    async fn discover_files(data_folder: &str) -> anyhow::Result<Vec<String>> {
+        use s3dlio::object_store::store_for_uri;
+        
+        let store = store_for_uri(data_folder)
+            .context(format!("Failed to create store for {}", data_folder))?;
+        
+        // List all objects in the data_folder (recursive)
+        let files = store.list(data_folder, true).await
+            .context(format!("Failed to list files in {}", data_folder))?;
+        
+        Ok(files)
+    }
+    
+    /// Apply sharding strategy to distribute files across ranks (v0.8.8 Priority 0, Phase 1)
+    /// 
+    /// Strategies:
+    /// - "interleaved": Round-robin (rank 0 gets files 0,N,2N,...)
+    /// - "contiguous": Equal chunks (rank 0 gets files 0..N/world_size)
+    /// - "hash": Hash-based pseudo-random distribution
+    fn apply_sharding_strategy(
+        files: &[String],
+        world_size: usize,
+        rank: usize,
+        strategy: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let total_files = files.len();
+        if total_files == 0 {
+            return Ok(Vec::new());
+        }
+
+        let sharded = match strategy {
+            "interleaved" => {
+                // Round-robin distribution: rank 0 gets files 0,N,2N,..., rank 1 gets files 1,N+1,2N+1,...
+                files
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| i % world_size == rank)
+                    .map(|(_, f)| f.clone())
+                    .collect()
+            }
+            "contiguous" => {
+                // Contiguous blocks: divide files into equal chunks
+                let chunk_size = total_files / world_size;
+                let remainder = total_files % world_size;
+                
+                let start = rank * chunk_size + std::cmp::min(rank, remainder);
+                let end = start + chunk_size + if rank < remainder { 1 } else { 0 };
+                
+                files[start..end].to_vec()
+            }
+            "hash" => {
+                // Hash-based distribution: consistent but pseudo-random
+                files
+                    .iter()
+                    .filter(|f| {
+                        let mut hasher = DefaultHasher::new();
+                        f.hash(&mut hasher);
+                        (hasher.finish() % world_size as u64) as usize == rank
+                    })
+                    .cloned()
+                    .collect()
+            }
+            _ => {
+                anyhow::bail!(
+                    "Unknown sharding strategy: '{}'. Valid options: interleaved, contiguous, hash",
+                    strategy
+                );
+            }
+        };
+
+        info!(
+            "Sharding strategy '{}': rank {} gets {}/{} files",
+            strategy, rank, sharded.len(), total_files
+        );
+
+        Ok(sharded)
     }
 }
 
