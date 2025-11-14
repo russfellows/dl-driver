@@ -14,6 +14,10 @@ pub struct WorkloadRequest {
     pub agent_id: String,
     pub path_prefix: String,
     pub start_unix_ms: i64,
+    // v0.8.8: Distributed rank information (Priority 0, Phase 1)
+    pub global_rank: u32,
+    pub global_world_size: u32,
+    pub shard_strategy: String,
 }
 
 impl From<WorkloadRequest> for proto::RunWorkloadRequest {
@@ -27,6 +31,10 @@ impl From<WorkloadRequest> for proto::RunWorkloadRequest {
             agent_config: None,
             // v0.8.1 enhancement - shared storage flag (currently false)
             shared_storage: false,
+            // v0.8.8: Distributed rank information
+            global_rank: req.global_rank,
+            global_world_size: req.global_world_size,
+            shard_strategy: req.shard_strategy,
         }
     }
 }
@@ -38,6 +46,10 @@ impl From<proto::RunWorkloadRequest> for WorkloadRequest {
             agent_id: req.agent_id,
             path_prefix: req.path_prefix,
             start_unix_ms: req.start_unix_ms,
+            // v0.8.8: Distributed rank information
+            global_rank: req.global_rank,
+            global_world_size: req.global_world_size,
+            shard_strategy: req.shard_strategy,
         }
     }
 }

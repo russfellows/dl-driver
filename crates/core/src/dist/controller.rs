@@ -450,6 +450,14 @@ impl Controller {
         let mut stream_tasks = Vec::new();
         let agents: Vec<_> = self.distributed.agents.iter().enumerate().collect();
         
+        // v0.8.8: Compute global world size for Phase 1 (1 rank per agent)
+        let global_world_size = agents.len() as u32;
+        let shard_strategy = "interleaved";  // Default strategy for Phase 1
+        
+        info!("   Distributed rank configuration:");
+        info!("      World size: {} (1 rank per agent)", global_world_size);
+        info!("      Shard strategy: {}", shard_strategy);
+        
         for (idx, agent_endpoint) in agents.iter() {
             let agent_id = format!("agent-{}", idx);
             let agent_id_task = agent_id.clone();  // Clone for task
@@ -458,6 +466,14 @@ impl Controller {
             let path_template = self.distributed.path_template.clone();
             let timeout_ms = self.distributed.request_timeout_ms;
             let tx = tx_stats.clone();
+            
+            // v0.8.8: Assign global rank (Phase 1: agent index = rank)
+            let global_rank = *idx as u32;
+            
+            info!("   Agent {} assigned global rank {} of {}", 
+                  agent_id, global_rank, global_world_size);
+            
+            let shard_strategy_owned = shard_strategy.to_string();
             
             let task = tokio::spawn(async move {
                 Self::stream_workload_from_agent(
@@ -468,6 +484,9 @@ impl Controller {
                     start_unix_ms,
                     timeout_ms,
                     is_shared,
+                    global_rank,
+                    global_world_size,
+                    &shard_strategy_owned,
                     tx,
                 )
                 .await
@@ -936,6 +955,10 @@ impl Controller {
         start_unix_ms: i64,
         timeout_ms: u64,
         is_shared: bool,
+        // v0.8.8: Distributed rank information (Priority 0, Phase 1)
+        global_rank: u32,
+        global_world_size: u32,
+        shard_strategy: &str,
         tx: tokio::sync::mpsc::Sender<LiveStats>,
     ) -> Result<()> {
         use futures::stream::StreamExt;
@@ -979,6 +1002,10 @@ impl Controller {
             start_unix_ms,
             agent_config: None,
             shared_storage: false,
+            // v0.8.8: Distributed rank information (Priority 0, Phase 1)
+            global_rank,
+            global_world_size,
+            shard_strategy: shard_strategy.to_string(),
         });
         
         let mut stream = client

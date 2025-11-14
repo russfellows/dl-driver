@@ -37,6 +37,12 @@ message RunWorkloadRequest {
   
   // Flag indicating if storage is shared across agents (S3/GCS/Azure)
   bool shared_storage = 6;
+  
+  // v0.8.8: Distributed rank information (Priority 0, Phase 1)
+  // Enables global data sharding across all agents
+  uint32 global_rank = 7;           // This agent's rank in global cluster (0-based)
+  uint32 global_world_size = 8;     // Total ranks across all agents
+  string shard_strategy = 9;        // "interleaved" | "contiguous" | "hash"
 }
 
 // Summary metrics returned after workload completion
