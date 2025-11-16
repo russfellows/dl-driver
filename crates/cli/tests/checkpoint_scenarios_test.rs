@@ -44,21 +44,19 @@ fn create_test_config(
             evaluation: Some(false),
         }),
         dataset: DatasetConfig {
-            data_folder: if data_folder.starts_with("file://") {
-                data_folder.to_string()
-            } else {
-                format!("file://{}", data_folder)
-            },
+            data_folder: data_folder.clone(),
             format: Some("npz".to_string()),
             num_files_train: Some(10),
             num_files_eval: None,
             record_length_bytes: Some(1024),
-            num_samples_per_file: Some(100),
+            num_samples_per_file: Some(5),
             compression: None,
             num_subfolders_train: None,
             directory_tree: None,
             endpoint_uris: None,
             load_balance_strategy: "round_robin".to_string(),
+            tfrecord_index_enabled: None,
+            tfrecord_index_folder: None,
         },
         reader: ReaderConfig {
             data_loader: None,
