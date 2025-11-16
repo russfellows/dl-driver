@@ -3,14 +3,14 @@
 
 // crates/formats/src/npz.rs
 //
-// NPZ format implementation using s3dlio's zero-copy NPY serialization.
-// s3dlio provides array_to_npy_bytes() for efficient Bytes-based NPY generation.
+// NPZ format implementation using s3dlio's zero-copy multi-array NPZ builder.
+// s3dlio provides build_multi_npz() for efficient creation of NPZ archives
+// with multiple named arrays, fully compatible with NumPy/PyTorch.
 
 use anyhow::{Context, Result};
 use ndarray::{ArrayD, IxDyn};
-use std::io::{Cursor, Write};
+use std::io::Cursor;
 use std::path::Path;
-use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
 use crate::Format;
 
@@ -89,40 +89,37 @@ impl NpzFormat {
 
 impl Format for NpzFormat {
     fn generate(&self, path: &Path) -> Result<()> {
-        // Create a proper NPZ file (ZIP archive containing multiple .npy files)
-        let file = std::fs::File::create(path)
-            .with_context(|| format!("Failed to create NPZ file at {:?}", path))?;
-
-        let mut zip = ZipWriter::new(file);
-        let options = FileOptions::<()>::default()
-            .compression_method(CompressionMethod::Deflated)
-            .unix_permissions(0o755);
-
         // Generate diverse synthetic data arrays using s3dlio utilities
+        let mut arrays_vec = Vec::with_capacity(self.num_arrays);
+        
         for i in 0..self.num_arrays {
-            let array_name = match i {
-                0 => "data.npy",
-                1 => "labels.npy",
-                2 => "metadata.npy",
-                _ => &format!("array_{}.npy", i),
-            };
-
-            // Create diverse synthetic data using s3dlio + patterns
             let synthetic_array = self.create_synthetic_array(i)?;
-
-            // Serialize to .npy format using s3dlio's zero-copy implementation
-            let buffer = s3dlio::data_formats::npz::array_to_npy_bytes(&synthetic_array)?;
-
-            // Add to ZIP archive
-            zip.start_file(array_name, options)
-                .with_context(|| format!("Failed to start ZIP file entry for {}", array_name))?;
-            zip.write_all(&buffer)
-                .with_context(|| format!("Failed to write array {} to ZIP", array_name))?;
+            arrays_vec.push(synthetic_array);
         }
-
-        zip.finish()
-            .with_context(|| "Failed to finalize NPZ ZIP archive")?;
-
+        
+        // Create array name and reference pairs for s3dlio
+        let array_refs: Vec<(&str, &ArrayD<f32>)> = arrays_vec
+            .iter()
+            .enumerate()
+            .map(|(i, array)| {
+                let name = match i {
+                    0 => "data",
+                    1 => "labels",
+                    2 => "metadata",
+                    _ => "array",  // Will be indexed by s3dlio if needed
+                };
+                (name, array)
+            })
+            .collect();
+        
+        // Use s3dlio's build_multi_npz for zero-copy multi-array NPZ creation
+        let npz_bytes = s3dlio::data_formats::npz::build_multi_npz(array_refs)
+            .with_context(|| "Failed to build multi-array NPZ using s3dlio")?;
+        
+        // Write to file
+        std::fs::write(path, &npz_bytes)
+            .with_context(|| format!("Failed to write NPZ file to {:?}", path))?;
+        
         Ok(())
     }
 
@@ -192,40 +189,34 @@ impl Format for NpzStreamingFormat {
 
 impl StreamingFormat for NpzStreamingFormat {
     fn generate_bytes(&self, _filename: &str) -> Result<Vec<u8>> {
-        // Generate NPZ data in memory
-        let mut buffer = Vec::new();
-        {
-            let mut zip = ZipWriter::new(Cursor::new(&mut buffer));
-            let options =
-                FileOptions::<()>::default().compression_method(CompressionMethod::Deflated);
-
-            // Generate diverse synthetic data arrays using s3dlio utilities
-            for i in 0..self.num_arrays {
-                let array_name = match i {
-                    0 => "data.npy",
-                    1 => "labels.npy",
-                    2 => "metadata.npy",
-                    _ => &format!("array_{}.npy", i),
-                };
-
-                // Create diverse synthetic data using s3dlio + patterns
-                let synthetic_array = self.create_synthetic_array(i)?;
-
-                // Serialize to .npy format using s3dlio's zero-copy implementation
-                let npy_buffer = s3dlio::data_formats::npz::array_to_npy_bytes(&synthetic_array)?;
-
-                // Add to ZIP archive
-                zip.start_file(array_name, options).with_context(|| {
-                    format!("Failed to start ZIP file entry for {}", array_name)
-                })?;
-                zip.write_all(&npy_buffer)
-                    .with_context(|| format!("Failed to write array {} to ZIP", array_name))?;
-            }
-
-            zip.finish()
-                .with_context(|| "Failed to finalize NPZ ZIP archive")?;
+        // Generate diverse synthetic data arrays using s3dlio utilities
+        let mut arrays_vec = Vec::with_capacity(self.num_arrays);
+        
+        for i in 0..self.num_arrays {
+            let synthetic_array = self.create_synthetic_array(i)?;
+            arrays_vec.push(synthetic_array);
         }
-        Ok(buffer)
+        
+        // Create array name and reference pairs for s3dlio
+        let array_refs: Vec<(&str, &ArrayD<f32>)> = arrays_vec
+            .iter()
+            .enumerate()
+            .map(|(i, array)| {
+                let name = match i {
+                    0 => "data",
+                    1 => "labels",
+                    2 => "metadata",
+                    _ => "array",  // Will be indexed by s3dlio if needed
+                };
+                (name, array)
+            })
+            .collect();
+        
+        // Use s3dlio's build_multi_npz for zero-copy multi-array NPZ creation
+        let npz_bytes = s3dlio::data_formats::npz::build_multi_npz(array_refs)
+            .context("Failed to build multi-array NPZ using s3dlio")?;
+        
+        Ok(npz_bytes.to_vec())
     }
 
     fn read_from_bytes(&self, data: &[u8]) -> Result<()> {
