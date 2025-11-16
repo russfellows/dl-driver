@@ -25,7 +25,9 @@ hostname = "0.4"  # For agent ID generation
 dl-driver-core    = { path = "../core" }
 dl-driver-formats = { path = "../formats" }
 dl-driver-storage = { path = "../storage" }
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.16" }
+# Temporary: Using local s3dlio to test custom NPY implementation (not yet released)
+s3dlio = { path = "../../../s3dlio" }
+# s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.16" }
 
 [dev-dependencies]
 tempfile = "3.0"

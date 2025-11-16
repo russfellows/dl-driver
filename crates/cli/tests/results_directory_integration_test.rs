@@ -107,10 +107,10 @@ fn test_aggregate_results_with_histogram_data() {
         agent_id: "agent-0".to_string(),
         ops_per_s: 1000.0,
         mib_per_s: 500.0,
-        p50_ms: 10.0,
-        p90_ms: 20.0,
-        p95_ms: 25.0,
-        p99_ms: 30.0,
+        p50_us: 10.0,
+        p90_us: 20.0,
+        p95_us: 25.0,
+        p99_us: 30.0,
         errors: 0,
         total_ops: 10000,
         duration_s: 10.0,
@@ -125,16 +125,17 @@ fn test_aggregate_results_with_histogram_data() {
         data_loading_time_s: 6.0,
         compute_time_s: 3.5,
         pipeline_efficiency: 0.95,
+        accelerator_utilization: 0.85,
     };
 
     let agent2 = WorkloadResult {
         agent_id: "agent-1".to_string(),
         ops_per_s: 1200.0,
         mib_per_s: 600.0,
-        p50_ms: 12.0,
-        p90_ms: 22.0,
-        p95_ms: 27.0,
-        p99_ms: 32.0,
+        p50_us: 12.0,
+        p90_us: 22.0,
+        p95_us: 27.0,
+        p99_us: 32.0,
         errors: 1,
         total_ops: 12000,
         duration_s: 10.0,
@@ -149,6 +150,7 @@ fn test_aggregate_results_with_histogram_data() {
         data_loading_time_s: 5.5,
         compute_time_s: 4.0,
         pipeline_efficiency: 0.95,
+        accelerator_utilization: 0.85,
     };
 
     // Create histogram data for agents
@@ -166,10 +168,10 @@ fn test_aggregate_results_with_histogram_data() {
         agent_id: "agent-0".to_string(),
         ops_per_s: 1000.0,
         mib_per_s: 500.0,
-        p50_ms: 10.0,
-        p90_ms: 20.0,
-        p95_ms: 25.0,
-        p99_ms: 30.0,
+        p50_us: 10.0,
+        p90_us: 20.0,
+        p95_us: 25.0,
+        p99_us: 30.0,
         errors: 0,
         total_ops: 10000,
         duration_s: 10.0,
@@ -184,24 +186,25 @@ fn test_aggregate_results_with_histogram_data() {
         data_loading_time_s: 6.0,
         compute_time_s: 3.5,
         pipeline_efficiency: 0.95,
+        accelerator_utilization: 0.85,
         console_log: String::new(),
         metadata_json: String::new(),
         storage_tsv_content: String::new(),
         aiml_tsv_content: String::new(),
         results_path: String::new(),
-        histogram_read_latency: agent1_hist_bytes.clone(),
-        histogram_write_latency: vec![],
-        histogram_batch_time: vec![],
+        histogram_read: agent1_hist_bytes.clone(),
+        histogram_write: vec![],
+        histogram_batch: vec![],
     };
 
     let summary2 = WorkloadSummary {
         agent_id: "agent-1".to_string(),
         ops_per_s: 1200.0,
         mib_per_s: 600.0,
-        p50_ms: 12.0,
-        p90_ms: 22.0,
-        p95_ms: 27.0,
-        p99_ms: 32.0,
+        p50_us: 12.0,
+        p90_us: 22.0,
+        p95_us: 27.0,
+        p99_us: 32.0,
         errors: 1,
         total_ops: 12000,
         duration_s: 10.0,
@@ -216,14 +219,15 @@ fn test_aggregate_results_with_histogram_data() {
         data_loading_time_s: 5.5,
         compute_time_s: 4.0,
         pipeline_efficiency: 0.95,
+        accelerator_utilization: 0.85,
         console_log: String::new(),
         metadata_json: String::new(),
         storage_tsv_content: String::new(),
         aiml_tsv_content: String::new(),
         results_path: String::new(),
-        histogram_read_latency: agent2_hist_bytes.clone(),
-        histogram_write_latency: vec![],
-        histogram_batch_time: vec![],
+        histogram_read: agent2_hist_bytes.clone(),
+        histogram_write: vec![],
+        histogram_batch: vec![],
     };
 
     // Test aggregation with histograms
@@ -244,7 +248,7 @@ fn test_aggregate_results_with_histogram_data() {
     // Correct p50 should be around 110-120μs (in the weighted middle)
     
     // Convert to milliseconds for comparison (histogram is in microseconds)
-    let p50_us = aggregate.avg_p50_ms * 1000.0;
+    let p50_us = aggregate.avg_p50_us * 1000.0;
     
     // With correct histogram merging, p50 should be between 100-120μs
     // (leaning toward 120 since agent2 has more samples)
@@ -255,8 +259,8 @@ fn test_aggregate_results_with_histogram_data() {
     );
 
     println!("Histogram-based p50: {:.2}μs", p50_us);
-    println!("Histogram-based p90: {:.2}μs", aggregate.avg_p90_ms * 1000.0);
-    println!("Histogram-based p99: {:.2}μs", aggregate.avg_p99_ms * 1000.0);
+    println!("Histogram-based p90: {:.2}μs", aggregate.avg_p90_us * 1000.0);
+    println!("Histogram-based p99: {:.2}μs", aggregate.avg_p99_us * 1000.0);
 }
 
 #[test]
@@ -266,10 +270,10 @@ fn test_consolidated_tsv_format() {
         agent_id: "agent-0".to_string(),
         ops_per_s: 1000.0,
         mib_per_s: 500.0,
-        p50_ms: 10.0,
-        p90_ms: 20.0,
-        p95_ms: 25.0,
-        p99_ms: 30.0,
+        p50_us: 10.0,
+        p90_us: 20.0,
+        p95_us: 25.0,
+        p99_us: 30.0,
         errors: 0,
         total_ops: 10000,
         duration_s: 10.0,
@@ -284,6 +288,7 @@ fn test_consolidated_tsv_format() {
         data_loading_time_s: 6.0,
         compute_time_s: 3.5,
         pipeline_efficiency: 0.95,
+        accelerator_utilization: 0.85,
     };
 
     let aggregate = AggregateResults::from_results(vec![agent1]).unwrap();
@@ -366,10 +371,10 @@ fn test_complete_workflow_simulation() {
         agent_id: "agent-0".to_string(),
         ops_per_s: 1000.0,
         mib_per_s: 500.0,
-        p50_ms: 10.0,
-        p90_ms: 20.0,
-        p95_ms: 25.0,
-        p99_ms: 30.0,
+        p50_us: 10.0,
+        p90_us: 20.0,
+        p95_us: 25.0,
+        p99_us: 30.0,
         errors: 0,
         total_ops: 10000,
         duration_s: 10.0,
@@ -384,6 +389,7 @@ fn test_complete_workflow_simulation() {
         data_loading_time_s: 6.0,
         compute_time_s: 3.5,
         pipeline_efficiency: 0.95,
+        accelerator_utilization: 0.85,
     };
 
     let agent2 = agent1.clone();
