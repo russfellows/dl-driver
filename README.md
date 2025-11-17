@@ -21,32 +21,29 @@
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
 ## 🎯 Current Status
-
-**🎉 v0.8.10 RELEASED**: Realistic checkpoint sizes (100MB+) with s3dlio integration and architecture fixes
-**🎉 v0.8.9 RELEASED**: Multi-array NPZ + TFRecord index generation
-**🎯 NPZ ENHANCEMENT**: Multi-array support via s3dlio's build_multi_npz() (data + labels + metadata)
-**📊 TFRECORD INDICES**: Automatic index file generation for TensorFlow Data Service compatibility
-**🎉 v0.8.8**: Distributed multi-rank with file sharding and bug fixes (Bugs #8, #10, #11, #12)
-**🎯 DISTRIBUTED MULTI-RANK**: Complete Phase 1 & 2 implementation with interleaved/contiguous sharding
-**📊 ACCURATE PERCENTILES**: Bucket-level histogram aggregation for distributed workloads (<1% error)
-**⚡ ACCELERATOR UTILIZATION**: Fixed AU calculation (now compute_time / batch_time, not inverted)
-**📝 UNIFIED OUTPUT**: Consistent dual-perspective format (Storage + AI/ML) across all modes
-**🔧 FIRST-BATCH EXCLUSION**: Steady-state metrics exclude cold-start batch for accuracy
-**⚠️ STORAGE LATENCY**: Temporarily reports 0µs (instrumentation planned for future release - see docs)
-**📊 LIVE STATS STREAMING**: Real-time progress updates via gRPC streaming (1s intervals)
-**📈 PROGRESS BARS**: Multi-line display with percentage, epoch counter, and detailed statistics
-**🤝 STARTUP HANDSHAKE**: READY/ERROR validation before workload execution
-**⏱️ MICROSECOND PRECISION**: All latency displays now in microseconds (µs) for distributed mode
-**🎯 ZERO WARNINGS**: Production-quality code with zero compiler warnings
-**⚡ MULTI-ENDPOINT**: Load balance across multiple S3/storage endpoints with round-robin or least-connections
-**♻️ CHECKPOINT RELOAD**: Resume training from saved checkpoints with --resume-from-checkpoint flag
-**💾 CHECKPOINT SUPPORT**: Step-based and epoch-based checkpointing across all storage backends
-**🔧 CLI SIMPLIFIED**: Removed legacy commands, unified interface with validate/--dry-run
-**🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
-**🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
-**📊 HISTOGRAM AGGREGATION**: Accurate percentile calculation with <1% error for distributed workloads
-**📁 RESULTS DIRECTORY**: Complete, reproducible results with per-agent and consolidated metrics
-**✅ 133/133 TESTS PASSING**: Full validation across all features and backends
+- **🎉 v0.8.10 RELEASED**: Realistic checkpoint sizes (100MB+) with s3dlio integration and architecture fixes
+- **🎉 v0.8.9 RELEASED**: Multi-array NPZ + TFRecord index generation
+- **🎯 NPZ ENHANCEMENT**: Multi-array support via s3dlio's build_multi_npz() (data + labels + metadata)
+- **📊 TFRECORD INDICES**: Automatic index file generation for TensorFlow Data Service compatibility
+- **🎉 v0.8.8**: Distributed multi-rank with file sharding and bug fixes 
+- **🎯 DISTRIBUTED MULTI-RANK**: Complete Phase 1 & 2 implementation with interleaved/contiguous sharding
+- **📊 ACCURATE PERCENTILES**: Bucket-level histogram aggregation for distributed workloads (<1% error)
+- **⚡ ACCELERATOR UTILIZATION**: Fixed AU calculation (now compute_time / batch_time, not inverted)
+- **📝 UNIFIED OUTPUT**: Consistent dual-perspective format (Storage + AI/ML) across all modes
+- **🔧 FIRST-BATCH EXCLUSION**: Steady-state metrics exclude cold-start batch for accuracy
+- **📊 LIVE STATS STREAMING**: Real-time progress updates via gRPC streaming (1s intervals)
+- **📈 PROGRESS BARS**: Multi-line display with percentage, epoch counter, and detailed statistics
+- **🤝 STARTUP HANDSHAKE**: READY/ERROR validation before workload execution
+- **🎯 ZERO WARNINGS**: Production-quality code with zero compiler warnings
+- **⚡ MULTI-ENDPOINT**: Load balance across multiple S3/storage endpoints with round-robin or least-connections
+- **♻️ CHECKPOINT RELOAD**: Resume training from saved checkpoints with --resume-from-checkpoint flag
+- **💾 CHECKPOINT SUPPORT**: Step-based and epoch-based checkpointing across all storage backends
+- **🔧 CLI SIMPLIFIED**: Removed legacy commands, unified interface with validate/--dry-run
+- **🎉 DISTRIBUTED CONTROLLER**: Multi-agent orchestration for true distributed workloads
+- **🌐 MULTI-NODE EXECUTION**: Coordinate workloads across multiple hosts with shared/local storage
+- **📊 HISTOGRAM AGGREGATION**: Accurate percentile calculation with <1% error for distributed workloads
+- **📁 RESULTS DIRECTORY**: Complete, reproducible results with per-agent and consolidated metrics
+- **✅ 133/133 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
 - **🎯 Multi-Array NPZ**: Create NPZ archives with multiple named arrays (data, labels, metadata) using s3dlio's zero-copy API
