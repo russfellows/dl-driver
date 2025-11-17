@@ -43,10 +43,10 @@ fn test_histogram_serialization_in_proto() -> Result<()> {
         agent_id: "agent-0".to_string(),
         ops_per_s: 100.0,
         mib_per_s: 10.0,
-        p50_ms: 0.2, // 200μs = 0.2ms
-        p90_ms: 0.3,
-        p95_ms: 0.3,
-        p99_ms: 0.3,
+        p50_us: 0.2, // 200μs = 0.2ms
+        p90_us: 0.3,
+        p95_us: 0.3,
+        p99_us: 0.3,
         errors: 0,
         total_ops: 5,
         duration_s: 0.05,
@@ -61,24 +61,25 @@ fn test_histogram_serialization_in_proto() -> Result<()> {
         data_loading_time_s: 0.02,
         compute_time_s: 0.03,
         pipeline_efficiency: 0.6,
+        accelerator_utilization: 0.6,
         console_log: String::new(),
         metadata_json: String::new(),
         storage_tsv_content: String::new(),
         aiml_tsv_content: String::new(),
         results_path: String::new(),
-        histogram_read_latency: hist1_bytes.clone(),
-        histogram_write_latency: vec![],
-        histogram_batch_time: vec![],
+        histogram_read: hist1_bytes.clone(),
+        histogram_write: vec![],
+        histogram_batch: vec![],
     };
     
     let summary2 = WorkloadSummary {
         agent_id: "agent-1".to_string(),
         ops_per_s: 50.0,
         mib_per_s: 5.0,
-        p50_ms: 2.0, // 2000μs = 2ms
-        p90_ms: 3.0,
-        p95_ms: 3.0,
-        p99_ms: 3.0,
+        p50_us: 2.0, // 2000μs = 2ms
+        p90_us: 3.0,
+        p95_us: 3.0,
+        p99_us: 3.0,
         errors: 0,
         total_ops: 5,
         duration_s: 0.1,
@@ -93,19 +94,20 @@ fn test_histogram_serialization_in_proto() -> Result<()> {
         data_loading_time_s: 0.04,
         compute_time_s: 0.06,
         pipeline_efficiency: 0.6,
+        accelerator_utilization: 0.6,
         console_log: String::new(),
         metadata_json: String::new(),
         storage_tsv_content: String::new(),
         aiml_tsv_content: String::new(),
         results_path: String::new(),
-        histogram_read_latency: hist2_bytes.clone(),
-        histogram_write_latency: vec![],
-        histogram_batch_time: vec![],
+        histogram_read: hist2_bytes.clone(),
+        histogram_write: vec![],
+        histogram_batch: vec![],
     };
     
     // Controller: Deserialize histograms
-    let hist1_restored = deserialize_histogram(&summary1.histogram_read_latency)?;
-    let hist2_restored = deserialize_histogram(&summary2.histogram_read_latency)?;
+    let hist1_restored = deserialize_histogram(&summary1.histogram_read)?;
+    let hist2_restored = deserialize_histogram(&summary2.histogram_read)?;
     
     // Verify deserialization worked
     assert_eq!(hist1.len(), hist1_restored.len(), "Agent 1 histogram sample count should match");
@@ -173,10 +175,10 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
         agent_id: "agent-0".to_string(),
         ops_per_s: 2000.0,
         mib_per_s: 200.0,
-        p50_ms: p50_a / 1000.0,
-        p90_ms: p90_a / 1000.0,
-        p95_ms: p95_a / 1000.0,
-        p99_ms: p99_a / 1000.0,
+        p50_us: p50_a / 1000.0,
+        p90_us: p90_a / 1000.0,
+        p95_us: p95_a / 1000.0,
+        p99_us: p99_a / 1000.0,
         errors: 0,
         total_ops: 100,
         duration_s: 0.05,
@@ -191,16 +193,17 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
         data_loading_time_s: 0.02,
         compute_time_s: 0.03,
         pipeline_efficiency: 0.6,
+        accelerator_utilization: 0.6,
     };
     
     let result_b = WorkloadResult {
         agent_id: "agent-1".to_string(),
         ops_per_s: 100.0,
         mib_per_s: 10.0,
-        p50_ms: p50_b / 1000.0,
-        p90_ms: p90_b / 1000.0,
-        p95_ms: p95_b / 1000.0,
-        p99_ms: p99_b / 1000.0,
+        p50_us: p50_b / 1000.0,
+        p90_us: p90_b / 1000.0,
+        p95_us: p95_b / 1000.0,
+        p99_us: p99_b / 1000.0,
         errors: 0,
         total_ops: 10,
         duration_s: 0.1,
@@ -215,6 +218,7 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
         data_loading_time_s: 0.04,
         compute_time_s: 0.06,
         pipeline_efficiency: 0.6,
+        accelerator_utilization: 0.6,
     };
     
     // Create proto summaries with histogram data
@@ -222,10 +226,10 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
         agent_id: result_a.agent_id.clone(),
         ops_per_s: result_a.ops_per_s,
         mib_per_s: result_a.mib_per_s,
-        p50_ms: result_a.p50_ms,
-        p90_ms: result_a.p90_ms,
-        p95_ms: result_a.p95_ms,
-        p99_ms: result_a.p99_ms,
+        p50_us: result_a.p50_us,
+        p90_us: result_a.p90_us,
+        p95_us: result_a.p95_us,
+        p99_us: result_a.p99_us,
         errors: result_a.errors,
         total_ops: result_a.total_ops,
         duration_s: result_a.duration_s,
@@ -240,24 +244,25 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
         data_loading_time_s: result_a.data_loading_time_s,
         compute_time_s: result_a.compute_time_s,
         pipeline_efficiency: result_a.pipeline_efficiency,
+        accelerator_utilization: result_a.accelerator_utilization,
         console_log: String::new(),
         metadata_json: String::new(),
         storage_tsv_content: String::new(),
         aiml_tsv_content: String::new(),
         results_path: String::new(),
-        histogram_read_latency: hist_a_bytes,
-        histogram_write_latency: vec![],
-        histogram_batch_time: vec![],
+        histogram_read: hist_a_bytes,
+        histogram_write: vec![],
+        histogram_batch: vec![],
     };
     
     let summary_b = WorkloadSummary {
         agent_id: result_b.agent_id.clone(),
         ops_per_s: result_b.ops_per_s,
         mib_per_s: result_b.mib_per_s,
-        p50_ms: result_b.p50_ms,
-        p90_ms: result_b.p90_ms,
-        p95_ms: result_b.p95_ms,
-        p99_ms: result_b.p99_ms,
+        p50_us: result_b.p50_us,
+        p90_us: result_b.p90_us,
+        p95_us: result_b.p95_us,
+        p99_us: result_b.p99_us,
         errors: result_b.errors,
         total_ops: result_b.total_ops,
         duration_s: result_b.duration_s,
@@ -272,14 +277,15 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
         data_loading_time_s: result_b.data_loading_time_s,
         compute_time_s: result_b.compute_time_s,
         pipeline_efficiency: result_b.pipeline_efficiency,
+        accelerator_utilization: result_b.accelerator_utilization,
         console_log: String::new(),
         metadata_json: String::new(),
         storage_tsv_content: String::new(),
         aiml_tsv_content: String::new(),
         results_path: String::new(),
-        histogram_read_latency: hist_b_bytes,
-        histogram_write_latency: vec![],
-        histogram_batch_time: vec![],
+        histogram_read: hist_b_bytes,
+        histogram_write: vec![],
+        histogram_batch: vec![],
     };
     
     // Test naive aggregation (should be inaccurate)
@@ -292,14 +298,14 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
     )?;
     
     println!("\nNaive aggregation (averaging percentiles):");
-    println!("  p50: {:.3}ms", naive_agg.avg_p50_ms);
-    println!("  p90: {:.3}ms", naive_agg.avg_p90_ms);
-    println!("  p99: {:.3}ms", naive_agg.avg_p99_ms);
+    println!("  p50: {:.3}ms", naive_agg.avg_p50_us);
+    println!("  p90: {:.3}ms", naive_agg.avg_p90_us);
+    println!("  p99: {:.3}ms", naive_agg.avg_p99_us);
     
     println!("\nHistogram-based aggregation (merged histograms):");
-    println!("  p50: {:.3}ms", histogram_agg.avg_p50_ms);
-    println!("  p90: {:.3}ms", histogram_agg.avg_p90_ms);
-    println!("  p99: {:.3}ms", histogram_agg.avg_p99_ms);
+    println!("  p50: {:.3}ms", histogram_agg.avg_p50_us);
+    println!("  p90: {:.3}ms", histogram_agg.avg_p90_us);
+    println!("  p99: {:.3}ms", histogram_agg.avg_p99_us);
     
     // With 110 total samples (100 fast + 10 slow):
     // - p50 (55th sample) should be in the fast range (~150μs = 0.15ms)
@@ -307,18 +313,18 @@ fn test_aggregate_results_with_histograms() -> Result<()> {
     // - p99 (109th sample) should be in the slow range (~1800μs = 1.8ms)
     
     // Histogram-based should be more accurate (weighted by sample count)
-    assert!(histogram_agg.avg_p50_ms < 0.2, 
+    assert!(histogram_agg.avg_p50_us < 0.2, 
         "Histogram p50 should be < 0.2ms (mostly fast samples), got {:.3}ms", 
-        histogram_agg.avg_p50_ms);
+        histogram_agg.avg_p50_us);
     
-    assert!(histogram_agg.avg_p90_ms < 0.25, 
+    assert!(histogram_agg.avg_p90_us < 0.25, 
         "Histogram p90 should be < 0.25ms (still in fast range), got {:.3}ms", 
-        histogram_agg.avg_p90_ms);
+        histogram_agg.avg_p90_us);
     
     // The naive average will be wrong - it averages ~0.15ms and ~1.5ms to get ~0.83ms
     // But the true p50 should be ~0.15ms (since 90% of samples are fast)
-    let error_percentage = ((naive_agg.avg_p50_ms - histogram_agg.avg_p50_ms).abs() 
-        / histogram_agg.avg_p50_ms) * 100.0;
+    let error_percentage = ((naive_agg.avg_p50_us - histogram_agg.avg_p50_us).abs() 
+        / histogram_agg.avg_p50_us) * 100.0;
     
     println!("\nError from naive averaging: {:.1}%", error_percentage);
     
@@ -338,10 +344,10 @@ fn test_empty_histogram_fallback() -> Result<()> {
         agent_id: "agent-0".to_string(),
         ops_per_s: 100.0,
         mib_per_s: 10.0,
-        p50_ms: 1.0,
-        p90_ms: 2.0,
-        p95_ms: 3.0,
-        p99_ms: 4.0,
+        p50_us: 1.0,
+        p90_us: 2.0,
+        p95_us: 3.0,
+        p99_us: 4.0,
         errors: 0,
         total_ops: 100,
         duration_s: 1.0,
@@ -356,16 +362,17 @@ fn test_empty_histogram_fallback() -> Result<()> {
         data_loading_time_s: 0.4,
         compute_time_s: 0.6,
         pipeline_efficiency: 0.6,
+        accelerator_utilization: 0.6,
     };
     
     let result_b = WorkloadResult {
         agent_id: "agent-1".to_string(),
         ops_per_s: 50.0,
         mib_per_s: 5.0,
-        p50_ms: 3.0,
-        p90_ms: 6.0,
-        p95_ms: 9.0,
-        p99_ms: 12.0,
+        p50_us: 3.0,
+        p90_us: 6.0,
+        p95_us: 9.0,
+        p99_us: 12.0,
         errors: 0,
         total_ops: 50,
         duration_s: 1.0,
@@ -380,6 +387,7 @@ fn test_empty_histogram_fallback() -> Result<()> {
         data_loading_time_s: 0.4,
         compute_time_s: 0.6,
         pipeline_efficiency: 0.6,
+        accelerator_utilization: 0.6,
     };
     
     // Create summaries with NO histogram data (empty bytes)
@@ -392,14 +400,14 @@ fn test_empty_histogram_fallback() -> Result<()> {
     )?;
     
     // Should average: (1.0 + 3.0) / 2 = 2.0
-    assert!((agg.avg_p50_ms - 2.0).abs() < 0.01, 
+    assert!((agg.avg_p50_us - 2.0).abs() < 0.01, 
         "Should fall back to naive average (2.0ms), got {:.2}ms", 
-        agg.avg_p50_ms);
+        agg.avg_p50_us);
     
     // Should average: (2.0 + 6.0) / 2 = 4.0
-    assert!((agg.avg_p90_ms - 4.0).abs() < 0.01, 
+    assert!((agg.avg_p90_us - 4.0).abs() < 0.01, 
         "Should fall back to naive average (4.0ms), got {:.2}ms", 
-        agg.avg_p90_ms);
+        agg.avg_p90_us);
     
     Ok(())
 }

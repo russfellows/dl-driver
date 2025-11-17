@@ -1,0 +1,31 @@
+# Test Configuration: TFRecord Format with Index Generation
+# Tests the new TFRecord index generation feature compatible with TensorFlow Data Service
+
+model:
+  name: "bert"
+
+framework: "tensorflow"
+
+workflow:
+  generate_data: true  # Generate data with indices
+  train: false
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///tmp/test_tfrecord_index"
+  format: "tfrecord"
+  num_files_train: 10
+  record_length_bytes: 1024  # 1 KB per record
+  num_samples_per_file: 100  # 100 records per file
+  tfrecord_index_enabled: true  # Enable index generation
+  # tfrecord_index_folder: "/tmp/test_tfrecord_index_indices"  # Optional: alternate index folder
+
+reader:
+  data_loader: "tensorflow"
+  batch_size: 32
+  prefetch: 4
+  shuffle: false
+  read_threads: 4
+  compute_threads: 2
+  seed: 42

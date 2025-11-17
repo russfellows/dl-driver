@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.91.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.8-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.9-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
@@ -22,13 +22,16 @@
 
 ## 🎯 Current Status
 
-**🎉 v0.8.8 RELEASED**: Distributed multi-rank with file sharding and bug fixes (Bugs #8, #10, #11, #12)
+**🎉 v0.8.9 RELEASED**: Multi-array NPZ + TFRecord index generation
+**🎯 NPZ ENHANCEMENT**: Multi-array support via s3dlio's build_multi_npz() (data + labels + metadata)
+**📊 TFRECORD INDICES**: Automatic index file generation for TensorFlow Data Service compatibility
+**🎉 v0.8.8**: Distributed multi-rank with file sharding and bug fixes (Bugs #8, #10, #11, #12)
 **🎯 DISTRIBUTED MULTI-RANK**: Complete Phase 1 & 2 implementation with interleaved/contiguous sharding
 **📊 ACCURATE PERCENTILES**: Bucket-level histogram aggregation for distributed workloads (<1% error)
 **⚡ ACCELERATOR UTILIZATION**: Fixed AU calculation (now compute_time / batch_time, not inverted)
 **📝 UNIFIED OUTPUT**: Consistent dual-perspective format (Storage + AI/ML) across all modes
 **🔧 FIRST-BATCH EXCLUSION**: Steady-state metrics exclude cold-start batch for accuracy
-**⚠️ STORAGE LATENCY**: Temporarily reports 0µs (instrumentation planned for v0.8.9 - see docs)
+**⚠️ STORAGE LATENCY**: Temporarily reports 0µs (instrumentation planned for future release - see docs)
 **📊 LIVE STATS STREAMING**: Real-time progress updates via gRPC streaming (1s intervals)
 **📈 PROGRESS BARS**: Multi-line display with percentage, epoch counter, and detailed statistics
 **🤝 STARTUP HANDSHAKE**: READY/ERROR validation before workload execution
@@ -45,12 +48,14 @@
 **✅ 133/133 TESTS PASSING**: Full validation across all features and backends
 
 ### Core Capabilities
+- **🎯 Multi-Array NPZ**: Create NPZ archives with multiple named arrays (data, labels, metadata) using s3dlio's zero-copy API
+- **📊 TFRecord Indices**: Automatic index generation for TensorFlow Data Service (16 bytes/record, optional separate folder)
 - **🎯 Distributed Multi-Rank**: Complete Phase 1 & 2 implementation with file sharding (interleaved/contiguous strategies)
 - **📊 Accurate Percentiles**: Bucket-level HDR histogram aggregation for distributed workloads (<1% error)
 - **⚡ Accelerator Utilization**: Fixed AU metric calculation (compute_time / batch_time ratio)
 - **📝 Unified Output Format**: Consistent dual-perspective reporting (Storage I/O + AI/ML Training)
 - **🔧 Steady-State Metrics**: First-batch exclusion prevents cold-start skew in statistics
-- **⚠️ Storage Latency**: Currently reports 0µs (full instrumentation planned for v0.8.9 - see `docs/STORAGE_LATENCY_LIMITATION.md`)
+- **⚠️ Storage Latency**: Currently reports 0µs (full instrumentation planned - see `docs/STORAGE_LATENCY_LIMITATION.md`)
 - **📊 Live Stats Streaming**: Real-time progress updates via gRPC streaming with 1-second intervals
 - **📈 Progress Bars**: Multi-line display showing percentage, epoch counter, and detailed I/O statistics
 - **🤝 Startup Handshake**: READY/ERROR validation ensures all agents are healthy before workload starts

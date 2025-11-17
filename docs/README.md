@@ -1,6 +1,6 @@
 # dl-driver Documentation
 
-**Version:** 0.8.0  
+**Version:** 0.8.9  
 **Last Updated:** October 12, 2025
 
 ## User Documentation

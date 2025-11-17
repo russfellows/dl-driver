@@ -516,10 +516,10 @@ mod tests {
                 // Storage metrics
                 ops_per_s: 1000.0,
                 mib_per_s: 500.0,
-                p50_ms: 10.0,
-                p90_ms: 20.0,
-                p95_ms: 25.0,
-                p99_ms: 30.0,
+                p50_us: 10.0,
+                p90_us: 20.0,
+                p95_us: 25.0,
+                p99_us: 30.0,
                 errors: 0,
                 total_ops: 10000,
                 duration_s: 10.0,
@@ -535,16 +535,17 @@ mod tests {
                 data_loading_time_s: 6.0,
                 compute_time_s: 3.5,
                 pipeline_efficiency: 0.95,
+                accelerator_utilization: 0.85,
             },
             WorkloadResult {
                 agent_id: "agent2".to_string(),
                 // Storage metrics
                 ops_per_s: 1200.0,
                 mib_per_s: 600.0,
-                p50_ms: 12.0,
-                p90_ms: 22.0,
-                p95_ms: 27.0,
-                p99_ms: 32.0,
+                p50_us: 12.0,
+                p90_us: 22.0,
+                p95_us: 27.0,
+                p99_us: 32.0,
                 errors: 1,
                 total_ops: 12000,
                 duration_s: 10.0,
@@ -560,6 +561,7 @@ mod tests {
                 data_loading_time_s: 5.5,
                 compute_time_s: 4.0,
                 pipeline_efficiency: 0.95,
+                accelerator_utilization: 0.85,
             },
         ];
 
@@ -568,7 +570,7 @@ mod tests {
         // Storage aggregates
         assert_eq!(agg.total_ops_per_s, 2200.0);
         assert_eq!(agg.total_mib_per_s, 1100.0);
-        assert_eq!(agg.avg_p50_ms, 11.0);
+        assert_eq!(agg.avg_p50_us, 11.0);
         assert_eq!(agg.total_errors, 1);
         assert_eq!(agg.total_ops, 22000);
         
@@ -586,10 +588,10 @@ mod tests {
                 // Storage metrics
                 ops_per_s: 1000.0,
                 mib_per_s: 500.0,
-                p50_ms: 10.0,
-                p90_ms: 20.0,
-                p95_ms: 25.0,
-                p99_ms: 30.0,
+                p50_us: 10.0,
+                p90_us: 20.0,
+                p95_us: 25.0,
+                p99_us: 30.0,
                 errors: 0,
                 total_ops: 10000,
                 duration_s: 10.0,
@@ -605,6 +607,7 @@ mod tests {
                 data_loading_time_s: 6.0,
                 compute_time_s: 3.5,
                 pipeline_efficiency: 0.95,
+                accelerator_utilization: 0.85,
             },
         ];
 

@@ -1,7 +1,7 @@
 # dl-driver User Guide
 
-**Version:** 0.8.7  
-**Last Updated:** November 13, 2025
+**Version:** 0.8.9  
+**Last Updated:** November 16, 2025
 
 ## Table of Contents
 
@@ -709,6 +709,72 @@ print(data['records'].shape)  # (n_samples,)
 
 **Use Case**: General-purpose, excellent Python compatibility
 
+#### Multi-Array NPZ Files (v0.8.9+)
+
+**NEW**: NPZ archives now contain multiple named arrays (data, labels, metadata) following PyTorch/JAX dataset patterns.
+
+**Generated Structure:**
+Each NPZ file contains:
+- `data`: Primary training data array
+- `labels`: Ground truth labels or targets  
+- `metadata`: Additional dataset information
+
+**Python Loading:**
+```python
+import numpy as np
+
+# Load multi-array NPZ
+data = np.load('train_file_000000.npz')
+
+print(data.files)  # ['data', 'labels', 'metadata']
+
+# Access individual arrays
+images = data['data']      # Shape: (batch_size, height, width, channels)
+labels = data['labels']    # Shape: (batch_size,)
+metadata = data['metadata'] # Shape: varies
+
+print(f"Images: {images.shape}")
+print(f"Labels: {labels.shape}")
+print(f"Metadata: {metadata.shape}")
+```
+
+**PyTorch Integration:**
+```python
+import numpy as np
+from torch.utils.data import Dataset
+
+class NPZDataset(Dataset):
+    def __init__(self, npz_files):
+        self.files = npz_files
+    
+    def __len__(self):
+        return len(self.files)
+    
+    def __getitem__(self, idx):
+        data = np.load(self.files[idx])
+        return {
+            'data': data['data'],
+            'labels': data['labels'],
+            'metadata': data['metadata']
+        }
+
+# Use with DataLoader
+from torch.utils.data import DataLoader
+dataset = NPZDataset(glob.glob('*.npz'))
+loader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+for batch in loader:
+    images = batch['data']    # Training data
+    labels = batch['labels']  # Ground truth
+    # Train your model
+```
+
+**Benefits:**
+- **Zero-copy performance**: Leverages s3dlio's efficient implementation
+- **Standard format**: 100% compatible with NumPy `np.load()`
+- **Rich datasets**: Include supplementary data beyond just training samples
+- **Framework agnostic**: Works with PyTorch, JAX, TensorFlow, or pure NumPy
+
 ### HDF5
 
 ```yaml
@@ -744,6 +810,78 @@ for record in dataset.take(1):
 ```
 
 **Use Case**: TensorFlow pipelines, streaming
+
+#### TFRecord Index Generation (v0.8.9+)
+
+**NEW**: Automatically generate index files for TensorFlow Data Service compatibility.
+
+**Basic Configuration:**
+```yaml
+dataset:
+  format: tfrecord
+  num_files_train: 100
+  num_samples_per_file: 1000
+  tfrecord_index_enabled: true  # Enable index generation
+```
+
+This creates both `.tfrecord` and `.tfrecord.index` files side-by-side:
+```
+train_file_00000000.tfrecord
+train_file_00000000.tfrecord.index
+train_file_00000001.tfrecord
+train_file_00000001.tfrecord.index
+...
+```
+
+**Separate Index Folder (TensorFlow Data Service Pattern):**
+```yaml
+dataset:
+  format: tfrecord
+  tfrecord_index_enabled: true
+  tfrecord_index_folder: "file:///data/indices"  # Store indices separately
+```
+
+Directory structure:
+```
+/data/tfrecords/train_file_00000000.tfrecord
+/data/tfrecords/train_file_00000001.tfrecord
+/data/indices/train_file_00000000.tfrecord.index
+/data/indices/train_file_00000001.tfrecord.index
+```
+
+**Index Format:**
+- **16 bytes per record**: 8-byte offset + 8-byte length (little-endian)
+- **TensorFlow compatible**: Standard format expected by TensorFlow Data Service
+- **Zero overhead**: Index generated during TFRecord creation (single pass)
+
+**Use Cases:**
+- **Distributed training**: TensorFlow Data Service uses indices for efficient sharding
+- **Random access**: Indices enable seeking to specific records without scanning
+- **Large datasets**: Separate index folder keeps data and metadata organized
+
+**Example with Cloud Storage:**
+```yaml
+dataset:
+  data_folder: "s3://my-bucket/tfrecords"
+  format: tfrecord
+  tfrecord_index_enabled: true
+  tfrecord_index_folder: "s3://my-bucket/indices"  # S3, GCS, Azure supported
+```
+
+**Python Validation:**
+```python
+import struct
+
+# Read index file
+with open('train_file_00000000.tfrecord.index', 'rb') as f:
+    index_data = f.read()
+
+# Parse index (16 bytes per record)
+num_records = len(index_data) // 16
+for i in range(num_records):
+    offset, length = struct.unpack('<QQ', index_data[i*16:(i+1)*16])
+    print(f"Record {i}: offset={offset}, length={length}")
+```
 
 ---
 

@@ -3,24 +3,21 @@
 
 // crates/formats/src/npz.rs
 //
-// REFACTORING NOTE (November 2025):
-// The in-memory .npy serialization code in this file (NpzFormat::array_to_npy_bytes)
-// should eventually be moved to s3dlio library as part of its data_formats module.
-// s3dlio already supports HDF5, TFRecord, and NPZ reading - this complements that.
-// See: s3dlio/.github/ISSUE_TEMPLATE_npy_serialization.md for implementation plan.
-// When available in s3dlio, replace local implementation with s3dlio::data_formats call.
+// NPZ format implementation using s3dlio's zero-copy multi-array NPZ builder.
+// s3dlio provides build_multi_npz() for efficient creation of NPZ archives
+// with multiple named arrays, fully compatible with NumPy/PyTorch.
 
 use anyhow::{Context, Result};
 use ndarray::{ArrayD, IxDyn};
-use std::io::{Cursor, Write};
+use std::io::Cursor;
 use std::path::Path;
-use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
 use crate::Format;
 
 /// NPZ format generator + reader
 /// Creates proper ZIP archives containing multiple .npy files
 /// Leverages s3dlio's generate_controlled_data for synthetic data
+/// and s3dlio's array_to_npy_bytes for zero-copy NPY serialization
 pub struct NpzFormat {
     shape: Vec<usize>,
     num_arrays: usize,
@@ -32,66 +29,6 @@ impl NpzFormat {
             shape,
             num_arrays: num_arrays.max(1), // Ensure at least 1 array
         }
-    }
-
-    /// Serialize ndarray to .npy format in memory with zero-copy semantics
-    /// Implements NPY 1.0 format: magic (6 bytes) + header_len (2 bytes) + header (dict) + data
-    /// 
-    /// TODO(REFACTOR): This functionality should be moved to s3dlio library
-    /// - s3dlio already has format support (HDF5, TFRecord, NPZ reading)
-    /// - This is a temporary implementation until s3dlio adds array_to_npy_bytes()
-    /// - See: s3dlio/.github/ISSUE_TEMPLATE_npy_serialization.md
-    /// - When available in s3dlio, replace this with: s3dlio::data_formats::array_to_npy_bytes()
-    fn array_to_npy_bytes(array: &ArrayD<f32>) -> Result<Vec<u8>> {
-        // NPY 1.0 magic number
-        const MAGIC: &[u8] = b"\x93NUMPY";
-        const VERSION: &[u8] = &[1, 0]; // NPY version 1.0
-        
-        // Build header dict describing the array
-        let shape_str = format!("({}{})", 
-            array.shape().iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", "),
-            if array.ndim() == 1 { "," } else { "" }
-        );
-        let header = format!(
-            "{{'descr': '<f4', 'fortran_order': False, 'shape': {}, }}",
-            shape_str
-        );
-        
-        // Header must be padded to 64-byte alignment (including magic + version + len)
-        let header_len = header.len();
-        let total_prefix = 6 + 2 + 2; // magic + version + header_len field
-        let padding_needed = (64 - ((total_prefix + header_len) % 64)) % 64;
-        let padded_header = format!("{}{}\n", header, " ".repeat(padding_needed));
-        
-        // Allocate buffer with exact size (no reallocs)
-        let data_bytes = array.len() * std::mem::size_of::<f32>();
-        let total_size = 10 + padded_header.len() + data_bytes;
-        let mut buffer = Vec::with_capacity(total_size);
-        
-        // Write header
-        buffer.extend_from_slice(MAGIC);
-        buffer.extend_from_slice(VERSION);
-        buffer.extend_from_slice(&(padded_header.len() as u16).to_le_bytes());
-        buffer.extend_from_slice(padded_header.as_bytes());
-        
-        // Write data with minimal copying - use as_slice_memory_order for contiguous access
-        if let Some(slice) = array.as_slice_memory_order() {
-            // Zero-copy path: data is contiguous
-            unsafe {
-                let byte_slice = std::slice::from_raw_parts(
-                    slice.as_ptr() as *const u8,
-                    slice.len() * std::mem::size_of::<f32>()
-                );
-                buffer.extend_from_slice(byte_slice);
-            }
-        } else {
-            // Fallback: iterate elements (one copy)
-            for &val in array.iter() {
-                buffer.extend_from_slice(&val.to_le_bytes());
-            }
-        }
-        
-        Ok(buffer)
     }
 
     /// Create synthetic array data using s3dlio utilities with diverse patterns
@@ -152,40 +89,37 @@ impl NpzFormat {
 
 impl Format for NpzFormat {
     fn generate(&self, path: &Path) -> Result<()> {
-        // Create a proper NPZ file (ZIP archive containing multiple .npy files)
-        let file = std::fs::File::create(path)
-            .with_context(|| format!("Failed to create NPZ file at {:?}", path))?;
-
-        let mut zip = ZipWriter::new(file);
-        let options = FileOptions::<()>::default()
-            .compression_method(CompressionMethod::Deflated)
-            .unix_permissions(0o755);
-
         // Generate diverse synthetic data arrays using s3dlio utilities
+        let mut arrays_vec = Vec::with_capacity(self.num_arrays);
+        
         for i in 0..self.num_arrays {
-            let array_name = match i {
-                0 => "data.npy",
-                1 => "labels.npy",
-                2 => "metadata.npy",
-                _ => &format!("array_{}.npy", i),
-            };
-
-            // Create diverse synthetic data using s3dlio + patterns
             let synthetic_array = self.create_synthetic_array(i)?;
-
-            // Serialize to .npy format in memory
-            let buffer = Self::array_to_npy_bytes(&synthetic_array)?;
-
-            // Add to ZIP archive
-            zip.start_file(array_name, options)
-                .with_context(|| format!("Failed to start ZIP file entry for {}", array_name))?;
-            zip.write_all(&buffer)
-                .with_context(|| format!("Failed to write array {} to ZIP", array_name))?;
+            arrays_vec.push(synthetic_array);
         }
-
-        zip.finish()
-            .with_context(|| "Failed to finalize NPZ ZIP archive")?;
-
+        
+        // Create array name and reference pairs for s3dlio
+        let array_refs: Vec<(&str, &ArrayD<f32>)> = arrays_vec
+            .iter()
+            .enumerate()
+            .map(|(i, array)| {
+                let name = match i {
+                    0 => "data",
+                    1 => "labels",
+                    2 => "metadata",
+                    _ => "array",  // Will be indexed by s3dlio if needed
+                };
+                (name, array)
+            })
+            .collect();
+        
+        // Use s3dlio's build_multi_npz for zero-copy multi-array NPZ creation
+        let npz_bytes = s3dlio::data_formats::npz::build_multi_npz(array_refs)
+            .with_context(|| "Failed to build multi-array NPZ using s3dlio")?;
+        
+        // Write to file
+        std::fs::write(path, &npz_bytes)
+            .with_context(|| format!("Failed to write NPZ file to {:?}", path))?;
+        
         Ok(())
     }
 
@@ -232,11 +166,10 @@ impl NpzStreamingFormat {
         }
     }
 
-    /// Serialize ndarray to .npy format in memory with zero-copy semantics
-    /// Implements NPY 1.0 format: magic (6 bytes) + header_len (2 bytes) + header (dict) + data
-    fn array_to_npy_bytes(array: &ArrayD<f32>) -> Result<Vec<u8>> {
-        // Delegate to NpzFormat implementation to avoid code duplication
-        NpzFormat::array_to_npy_bytes(array)
+    /// Delegate to NpzFormat for synthetic array generation
+    fn create_synthetic_array(&self, array_index: usize) -> Result<ArrayD<f32>> {
+        let format = NpzFormat::new(self.shape.clone(), self.num_arrays);
+        format.create_synthetic_array(array_index)
     }
 }
 
@@ -256,40 +189,34 @@ impl Format for NpzStreamingFormat {
 
 impl StreamingFormat for NpzStreamingFormat {
     fn generate_bytes(&self, _filename: &str) -> Result<Vec<u8>> {
-        // Generate NPZ data in memory
-        let mut buffer = Vec::new();
-        {
-            let mut zip = ZipWriter::new(Cursor::new(&mut buffer));
-            let options =
-                FileOptions::<()>::default().compression_method(CompressionMethod::Deflated);
-
-            // Generate diverse synthetic data arrays using s3dlio utilities
-            for i in 0..self.num_arrays {
-                let array_name = match i {
-                    0 => "data.npy",
-                    1 => "labels.npy",
-                    2 => "metadata.npy",
-                    _ => &format!("array_{}.npy", i),
-                };
-
-                // Create diverse synthetic data using s3dlio + patterns
-                let synthetic_array = self.create_synthetic_array(i)?;
-
-                // Serialize to .npy format in memory
-                let npy_buffer = Self::array_to_npy_bytes(&synthetic_array)?;
-
-                // Add to ZIP archive
-                zip.start_file(array_name, options).with_context(|| {
-                    format!("Failed to start ZIP file entry for {}", array_name)
-                })?;
-                zip.write_all(&npy_buffer)
-                    .with_context(|| format!("Failed to write array {} to ZIP", array_name))?;
-            }
-
-            zip.finish()
-                .with_context(|| "Failed to finalize NPZ ZIP archive")?;
+        // Generate diverse synthetic data arrays using s3dlio utilities
+        let mut arrays_vec = Vec::with_capacity(self.num_arrays);
+        
+        for i in 0..self.num_arrays {
+            let synthetic_array = self.create_synthetic_array(i)?;
+            arrays_vec.push(synthetic_array);
         }
-        Ok(buffer)
+        
+        // Create array name and reference pairs for s3dlio
+        let array_refs: Vec<(&str, &ArrayD<f32>)> = arrays_vec
+            .iter()
+            .enumerate()
+            .map(|(i, array)| {
+                let name = match i {
+                    0 => "data",
+                    1 => "labels",
+                    2 => "metadata",
+                    _ => "array",  // Will be indexed by s3dlio if needed
+                };
+                (name, array)
+            })
+            .collect();
+        
+        // Use s3dlio's build_multi_npz for zero-copy multi-array NPZ creation
+        let npz_bytes = s3dlio::data_formats::npz::build_multi_npz(array_refs)
+            .context("Failed to build multi-array NPZ using s3dlio")?;
+        
+        Ok(npz_bytes.to_vec())
     }
 
     fn read_from_bytes(&self, data: &[u8]) -> Result<()> {
@@ -335,15 +262,6 @@ impl StreamingFormat for NpzStreamingFormat {
     }
 }
 
-impl NpzStreamingFormat {
-    /// Create synthetic array data using s3dlio utilities with diverse patterns
-    fn create_synthetic_array(&self, array_index: usize) -> Result<ArrayD<f32>> {
-        // Reuse the same logic as NpzFormat
-        let format = NpzFormat::new(self.shape.clone(), self.num_arrays);
-        format.create_synthetic_array(array_index)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,7 +279,7 @@ mod tests {
         let test_array = format.create_synthetic_array(0).expect("Failed to create array");
         
         // Serialize with our custom implementation
-        let our_bytes = NpzFormat::array_to_npy_bytes(&test_array).expect("Failed to serialize");
+        let our_bytes = s3dlio::data_formats::npz::array_to_npy_bytes(&test_array).expect("Failed to serialize");
         
         // Verify magic number
         assert_eq!(&our_bytes[0..6], b"\x93NUMPY", "Invalid magic number");
@@ -400,7 +318,7 @@ mod tests {
         let shape = vec![3, 4];
         let format = NpzFormat::new(shape, 1);
         let test_array = format.create_synthetic_array(0).expect("Failed to create array");
-        let bytes = NpzFormat::array_to_npy_bytes(&test_array).expect("Failed to serialize");
+        let bytes = s3dlio::data_formats::npz::array_to_npy_bytes(&test_array).expect("Failed to serialize");
         
         // Check magic number
         assert_eq!(&bytes[0..6], b"\x93NUMPY", "Invalid NPY magic number");
@@ -473,7 +391,7 @@ mod tests {
         let array = Array2::<f32>::zeros((100, 50)).into_dyn();
         
         // This should use the zero-copy path (as_slice_memory_order)
-        let bytes = NpzFormat::array_to_npy_bytes(&array).expect("Failed to serialize");
+        let bytes = s3dlio::data_formats::npz::array_to_npy_bytes(&array).expect("Failed to serialize");
         
         // Verify format is correct
         assert_eq!(&bytes[0..6], b"\x93NUMPY", "Invalid magic number");
