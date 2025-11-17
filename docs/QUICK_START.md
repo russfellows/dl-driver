@@ -12,7 +12,7 @@
 - ✅ Use checkpointing features
 - ✅ Explore execution modes
 
-**Current Version**: v0.8.4 (November 2025)  
+**Current Version**: v0.8.9 (November 2025)  
 **Prerequisites**: Rust 1.89.0+, Git, 15GB disk space
 
 ---

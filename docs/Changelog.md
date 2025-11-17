@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.8.9
-- Multi-array NPZ support with s3dlio's build_multi_npz() (completed, ready for release)
-- TFRecord index generation for TensorFlow Data Service compatibility (completed, ready for release)
+### Planned for Future Releases
 - Storage latency instrumentation (upstream s3dlio enhancement - see `docs/STORAGE_LATENCY_LIMITATION.md`)
 - Per-epoch deterministic shuffle (Gap 1 from multi-node training analysis)
 - Sample-level sharding mode (Gap 2 from multi-node training analysis)
