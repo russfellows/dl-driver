@@ -133,6 +133,16 @@ pub struct TrainConfig {
     pub computation_time_stdev: Option<f64>,
     /// Total training steps (alternative to epochs-based termination)
     pub total_training_steps: Option<i64>,
+    
+    // v0.9.0: Warmup epochs excluded from aggregate metrics
+    /// Number of initial epochs to exclude from aggregate statistics (default: 1)
+    /// First epoch(s) often have cold cache, subsequent epochs show steady-state performance
+    #[serde(default = "default_warmup_epochs")]
+    pub warmup_epochs: usize,
+}
+
+fn default_warmup_epochs() -> usize {
+    1
 }
 
 /// Metric configuration for pass/fail determination
@@ -241,6 +251,14 @@ pub struct CheckpointingConfig {
     pub epochs_between_checkpoints: Option<usize>,
     pub steps_between_checkpoints: Option<usize>,
     
+    /// Size of checkpoint data in MB (default: 100)
+    /// Generates random binary data via s3dlio to simulate realistic checkpoint I/O load.
+    /// Random data is non-compressible and non-deduplicatable, accurately representing
+    /// real AI/ML model weights and optimizer state.
+    /// Typical values: 100 (quick tests), 500 (BERT-base), 2000 (GPT-2), 50000+ (LLaMA 70B)
+    #[serde(default = "default_checkpoint_size_mb")]
+    pub checkpoint_size_mb: usize,
+    
     // Multi-endpoint support (s3dlio v0.9.14+)
     /// List of endpoint URIs for multi-endpoint checkpoint writes
     /// Example: ["s3://192.168.1.10:9000/checkpoints", "s3://192.168.1.11:9000/checkpoints"]
@@ -251,6 +269,10 @@ pub struct CheckpointingConfig {
     /// Load balancing strategy: "round_robin" or "least_connections" (default: "round_robin")
     #[serde(default = "default_load_balance_strategy")]
     pub load_balance_strategy: String,
+}
+
+fn default_checkpoint_size_mb() -> usize {
+    100 // Default 100MB per checkpoint (reasonable for testing)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

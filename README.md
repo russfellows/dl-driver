@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.91.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.8-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.9-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
@@ -22,7 +22,9 @@
 
 ## 🎯 Current Status
 
-**🎉 v0.8.8 RELEASED**: Distributed multi-rank with file sharding and bug fixes (Bugs #8, #10, #11, #12)
+**🎉 v0.8.9 RELEASED**: Realistic checkpoint sizes (100MB+) with s3dlio integration and architecture fixes
+
+**Previous Release**: v0.8.8 - Distributed multi-rank with file sharding and bug fixes (Bugs #8, #10, #11, #12)
 **🎯 DISTRIBUTED MULTI-RANK**: Complete Phase 1 & 2 implementation with interleaved/contiguous sharding
 **📊 ACCURATE PERCENTILES**: Bucket-level histogram aggregation for distributed workloads (<1% error)
 **⚡ ACCELERATOR UTILIZATION**: Fixed AU calculation (now compute_time / batch_time, not inverted)

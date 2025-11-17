@@ -1,0 +1,31 @@
+# Test configuration for v0.9.0 enhanced metrics
+# Tests: stall detection, batch variance, bandwidth utilization
+
+model:
+  name: test_enhanced_metrics
+
+workflow:
+  generate_data: true
+  train: true
+
+dataset:
+  data_folder: file:///tmp/dl-driver-test-v09
+  format: npz
+  num_files_train: 20
+  num_samples_per_file: 5
+  record_length_bytes: 2097152  # 2 MB files
+
+reader:
+  data_loader: pytorch
+  batch_size: 4
+  prefetch: 2  # Small prefetch to test stall detection
+  read_threads: 2
+  compute_threads: 1
+
+train:
+  epochs: 5  # Test with 5 epochs to see warmup effect
+  computation_time: 0.05  # 50ms = 0.05 seconds
+  warmup_epochs: 2  # Test with 2 warmup epochs
+
+storage:
+  cache_type: memory
