@@ -13,9 +13,8 @@ serde_yaml = "0.9"
 rand = "0.9"
 rand_chacha = "0.3"
 
-# Temporary: Using local s3dlio to test custom NPY implementation (not yet released)
-s3dlio = { path = "../../../s3dlio" }
-# s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.16" }
+# Using s3dlio v0.9.17 with custom NPY implementation
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.17" }
 
 dl-driver-core = { path = "../core" }
 dl-driver-formats = { path = "../formats" }
