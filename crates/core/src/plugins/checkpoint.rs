@@ -552,6 +552,7 @@ mod tests {
                 computation_time: Some(0.1),
                 computation_time_stdev: None,
                 total_training_steps: None,
+                warmup_epochs: 0,
             }),
             metric: None,
             checkpointing: Some(CheckpointingConfig {
@@ -559,6 +560,7 @@ mod tests {
                 checkpoint_after_epoch: None,
                 epochs_between_checkpoints: None,
                 steps_between_checkpoints: Some(steps_between),
+                checkpoint_size_mb: 1,  // Use 1MB for tests
                 endpoint_uris: None,
                 load_balance_strategy: "round_robin".to_string(),
             }),
@@ -669,9 +671,29 @@ mod tests {
         // Manually modify checkpoint to have different version (construct path with run_id)
         let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 100));
         let checkpoint_data = fs::read(&checkpoint_path).unwrap();
-        let mut checkpoint_json: serde_json::Value = serde_json::from_slice(&checkpoint_data).unwrap();
+        
+        // Parse binary format: [4-byte length][JSON metadata][binary data]
+        let json_len = u32::from_le_bytes([
+            checkpoint_data[0],
+            checkpoint_data[1],
+            checkpoint_data[2],
+            checkpoint_data[3],
+        ]) as usize;
+        let json_bytes = &checkpoint_data[4..4 + json_len];
+        let mut checkpoint_json: serde_json::Value = serde_json::from_slice(json_bytes).unwrap();
+        
+        // Modify version
         checkpoint_json["checkpoint_version"] = serde_json::Value::String("99.99.99".to_string());
-        fs::write(&checkpoint_path, serde_json::to_vec(&checkpoint_json).unwrap()).unwrap();
+        
+        // Reconstruct binary format with modified JSON
+        let modified_json_bytes = serde_json::to_vec(&checkpoint_json).unwrap();
+        let modified_json_len = modified_json_bytes.len() as u32;
+        let mut modified_checkpoint = Vec::new();
+        modified_checkpoint.extend_from_slice(&modified_json_len.to_le_bytes());
+        modified_checkpoint.extend_from_slice(&modified_json_bytes);
+        modified_checkpoint.extend_from_slice(&checkpoint_data[4 + json_len..]); // Keep original binary data
+        
+        fs::write(&checkpoint_path, modified_checkpoint).unwrap();
         
         // Load should succeed but log warning
         let checkpoint_uri = format!("file://{}", checkpoint_path.display());
