@@ -1,0 +1,31 @@
+# Test Configuration: TFRecord Format with Index in Alternate Folder
+# Tests storing index files in a separate directory from data files
+
+model:
+  name: "bert"
+
+framework: "tensorflow"
+
+workflow:
+  generate_data: true  # Generate data with indices
+  train: false
+  checkpoint: false
+  evaluation: false
+
+dataset:
+  data_folder: "file:///tmp/test_tfrecord_index2"
+  format: "tfrecord"
+  num_files_train: 5
+  record_length_bytes: 512  # 512 bytes per record
+  num_samples_per_file: 50  # 50 records per file
+  tfrecord_index_enabled: true  # Enable index generation
+  tfrecord_index_folder: "file:///tmp/test_tfrecord_indices"  # Separate index folder
+
+reader:
+  data_loader: "tensorflow"
+  batch_size: 16
+  prefetch: 2
+  shuffle: false
+  read_threads: 2
+  compute_threads: 1
+  seed: 42

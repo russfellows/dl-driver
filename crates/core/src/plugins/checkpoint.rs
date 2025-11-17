@@ -535,6 +535,8 @@ mod tests {
                 directory_tree: None,
                 endpoint_uris: None,
                 load_balance_strategy: "round_robin".to_string(),
+                tfrecord_index_enabled: None,
+                tfrecord_index_folder: None,
             },
             reader: ReaderConfig {
                 data_loader: None,

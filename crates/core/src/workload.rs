@@ -443,6 +443,7 @@ impl WorkloadRunner {
                 let format = format.to_string();
                 let dir_mode = dir_mode.clone();
                 let pb = pb.clone();
+                let config = self.config.clone(); // Clone config for TFRecord index settings
                 let metrics = self.metrics.clone();
                 let live_ops = self.live_ops.clone();
                 let live_bytes = self.live_bytes.clone();
@@ -459,13 +460,49 @@ impl WorkloadRunner {
 
                     // Generate data inline (can't easily share self across tasks)
                     let total_size = samples_per_file * record_size;
-                    let data = s3dlio::generate_controlled_data(total_size, 1, 1);
-
+                    
+                    // TFRecord with index support
                     let write_start = Instant::now();
-                    store
-                        .put(&full_path, &data)
-                        .await
-                        .with_context(|| format!("Failed to write file {}", full_path))?;
+                    if format == "tfrecord" 
+                        && config.dataset.tfrecord_index_enabled.unwrap_or(false) {
+                        // Generate TFRecord with index
+                        let raw_data = s3dlio::generate_controlled_data(total_size, 1, 1);
+                        let tfrecord_with_index = s3dlio::data_formats::build_tfrecord_with_index(
+                            samples_per_file,
+                            record_size,
+                            &raw_data,
+                        ).with_context(|| format!("Failed to build TFRecord with index for {}", full_path))?;
+                        
+                        // Write TFRecord data file
+                        store
+                            .put(&full_path, &tfrecord_with_index.data)
+                            .await
+                            .with_context(|| format!("Failed to write TFRecord file {}", full_path))?;
+                        
+                        // Calculate index path (same location or alternate folder)
+                        let index_path = if let Some(ref index_folder) = config.dataset.tfrecord_index_folder {
+                            // Extract filename from full_path
+                            let filename = full_path.rsplit('/').next()
+                                .ok_or_else(|| anyhow::anyhow!("Invalid file path: {}", full_path))?;
+                            format!("{}/{}.index", index_folder, filename)
+                        } else {
+                            // Default: append .index extension
+                            format!("{}.index", full_path)
+                        };
+                        
+                        // Write index file
+                        store
+                            .put(&index_path, &tfrecord_with_index.index)
+                            .await
+                            .with_context(|| format!("Failed to write TFRecord index file {}", index_path))?;
+                    } else {
+                        // Standard data generation (all formats including tfrecord without index)
+                        let data = s3dlio::generate_controlled_data(total_size, 1, 1);
+                        store
+                            .put(&full_path, &data)
+                            .await
+                            .with_context(|| format!("Failed to write file {}", full_path))?;
+                    }
                     let write_time = write_start.elapsed();
 
                     // Record metrics

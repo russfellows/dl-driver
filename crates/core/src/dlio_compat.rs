@@ -225,6 +225,21 @@ pub struct DatasetConfig {
     /// Load balancing strategy: "round_robin" or "least_connections" (default: "round_robin")
     #[serde(default = "default_load_balance_strategy")]
     pub load_balance_strategy: String,
+    
+    // TFRecord index file generation (s3dlio v0.9.17+)
+    /// Enable generation of TFRecord .index files (TensorFlow Data Service compatibility)
+    /// When true, creates .index files alongside .tfrecord files with 16-byte per-record format
+    /// (8-byte offset + 8-byte length, little-endian)
+    #[serde(default)]
+    pub tfrecord_index_enabled: Option<bool>,
+    
+    /// Alternate storage location for TFRecord index files (optional)
+    /// If specified, index files are written to this URI instead of alongside data files
+    /// Useful for placing indices in faster storage or different buckets
+    /// Example: "s3://my-index-bucket/indices/" or "file:///fast-ssd/indices/"
+    /// If not specified, index files are written next to .tfrecord files with .index extension
+    #[serde(default)]
+    pub tfrecord_index_folder: Option<String>,
 }
 
 fn default_load_balance_strategy() -> String {
