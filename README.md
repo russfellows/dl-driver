@@ -22,6 +22,7 @@
 
 ## 🎯 Current Status
 
+**🎉 v0.8.10 RELEASED**: Realistic checkpoint sizes (100MB+) with s3dlio integration and architecture fixes
 **🎉 v0.8.9 RELEASED**: Multi-array NPZ + TFRecord index generation
 **🎯 NPZ ENHANCEMENT**: Multi-array support via s3dlio's build_multi_npz() (data + labels + metadata)
 **📊 TFRECORD INDICES**: Automatic index file generation for TensorFlow Data Service compatibility

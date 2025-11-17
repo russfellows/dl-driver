@@ -217,6 +217,12 @@ impl WorkloadRunner {
         // Bug #11 fix: Use unified summary that matches distributed mode output
         self.metrics.print_unified_summary(training_time.as_secs_f64(), total_samples, au_percentage);
         
+        // v0.9.0: Print per-epoch performance comparison
+        let warmup_epochs = self.config.train.as_ref()
+            .and_then(|t| Some(t.warmup_epochs))
+            .unwrap_or(1);
+        self.print_epoch_comparison(warmup_epochs);
+        
         // v0.8.5: Print per-endpoint statistics if using multi-endpoint store
         if let Some(ref store) = self.multi_endpoint_store {
             let endpoint_stats = store.get_all_stats();
@@ -564,8 +570,8 @@ impl WorkloadRunner {
                 generation_time.as_secs_f64(),
                 throughput_mibs
             );
-            let latency_line = format!("   Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
-                mean_us, p50_us, p90_us, p95_us, p99_us);
+            let latency_line = format!("   Latency: mean={:.2}ms, p50={:.2}ms, p90={:.2}ms, p95={:.2}ms, p99={:.2}ms",
+                mean_us / 1000.0, p50_us / 1000.0, p90_us / 1000.0, p95_us / 1000.0, p99_us / 1000.0);
             
             self.println_and_log(&status_line);
             self.println_and_log(&latency_line);
@@ -738,9 +744,16 @@ impl WorkloadRunner {
 
             // === MAIN COMPUTE THREAD ===
             // This should get batches INSTANTLY from prefetch queue
+            debug!("Main thread: Starting batch receive loop, waiting for first batch...");
             while let Some(batch_result) = batch_rx.recv().await {
+                debug!("Main thread: Received batch result");
+                // v0.9.0: Check if we had to wait (stall detection happens after successful recv)
+                // We can't measure recv time without breaking the control flow, so we'll detect stalls
+                // indirectly through batch timing variance
+                
                 match batch_result {
                     Ok(batch) => {
+                        debug!("Main thread: Processing batch {} with {} items", batch_count, batch.len());
                         let batch_start = Instant::now();
                         
                         // === I/O TIME MEASUREMENT ===
@@ -760,6 +773,7 @@ impl WorkloadRunner {
                         let compute_start = Instant::now();
                         self.process_batch(&batch).await?;
                         let compute_time = compute_start.elapsed();
+                        debug!("Main thread: Batch {} compute completed in {:?}", batch_count, compute_time);
                         
                         let batch_total_time = batch_start.elapsed();
 
@@ -841,6 +855,8 @@ impl WorkloadRunner {
                 }
             }
 
+            debug!("Main thread: Batch receive loop completed, processed {} batches", batch_count);
+
             // Wait for background task
             if let Err(e) = background_io.await {
                 warn!("Background I/O task error: {:?}", e);
@@ -892,8 +908,8 @@ impl WorkloadRunner {
                     epoch + 1, epochs, batch_count, total_samples, 
                     total_bytes as f64 / 1_048_576.0, epoch_total_time.as_secs_f64(), throughput_mibs
                 );
-                let latency_line = format!("   Batch Latency: mean={:.2}μs, p50={:.2}μs, p90={:.2}μs, p95={:.2}μs, p99={:.2}μs",
-                    mean_us, p50_us, p90_us, p95_us, p99_us);
+                let latency_line = format!("   Batch Latency: mean={:.2}ms, p50={:.2}ms, p90={:.2}ms, p95={:.2}ms, p99={:.2}ms",
+                    mean_us / 1000.0, p50_us / 1000.0, p90_us / 1000.0, p95_us / 1000.0, p99_us / 1000.0);
                 
                 self.println_and_log(&status_line);
                 self.println_and_log(&latency_line);
@@ -906,6 +922,11 @@ impl WorkloadRunner {
                 );
                 self.println_and_log(&status_line);
             }
+            
+            // v0.9.0: Record per-epoch performance
+            let epoch_throughput_mib_s = (total_bytes as f64 / 1_048_576.0) / epoch_total_time.as_secs_f64();
+            let epoch_samples_per_sec = total_samples as f64 / epoch_total_time.as_secs_f64();
+            self.metrics.record_epoch_performance(epoch_throughput_mib_s, epoch_samples_per_sec);
             
             info!(
                 "Epoch {} COMPLETE | {} batches, {} samples, {:.1}MiB in {:?}",
@@ -920,6 +941,25 @@ impl WorkloadRunner {
                     "📊 TIMING | Avg I/O: {:.2}ms, Avg Compute: {:.1}ms, AU: {:.1}%", 
                     avg_io_ms, avg_compute_ms, au_percentage
                 );
+
+                // v0.9.0: Report stall statistics
+                let (stall_count, total_stall_time, max_stall) = self.metrics.get_stall_stats();
+                if stall_count > 0 {
+                    let stall_percent = (total_stall_time.as_secs_f64() / epoch_total_time.as_secs_f64()) * 100.0;
+                    warn!(
+                        "⚠️  STALLS: {} events, {:.2}ms total ({:.2}% of epoch), max={:.2}ms",
+                        stall_count,
+                        total_stall_time.as_secs_f64() * 1000.0,
+                        stall_percent,
+                        max_stall.as_secs_f64() * 1000.0
+                    );
+                    
+                    if stall_percent > 1.0 {
+                        warn!("   → Storage cannot keep up with GPU! Consider: faster storage, more prefetch workers, or smaller batch size");
+                    }
+                } else {
+                    info!("✅ PREFETCH: No stalls detected, storage keeping up with GPU demand");
+                }
 
                 // Validate parallel effectiveness
                 if avg_io_ms < 10.0 && au_percentage < 80.0 {
@@ -1006,6 +1046,67 @@ impl WorkloadRunner {
 
     pub fn get_metrics(&self) -> &Metrics {
         &self.metrics
+    }
+    
+    /// v0.9.0: Print per-epoch performance comparison with warmup analysis
+    fn print_epoch_comparison(&self, warmup_epochs: usize) {
+        let (throughputs, samples_per_sec) = self.metrics.get_epoch_metrics();
+        
+        if throughputs.len() < 2 {
+            return;  // Need at least 2 epochs to compare
+        }
+        
+        println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
+        println!("║                    PER-EPOCH PERFORMANCE ANALYSIS                     ║");
+        println!("╚═══════════════════════════════════════════════════════════════════════╝");
+        println!();
+        
+        // Print per-epoch results
+        println!("Epoch  Throughput    Samples/s    Type");
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        
+        for (i, (throughput, samples)) in throughputs.iter().zip(samples_per_sec.iter()).enumerate() {
+            let epoch_type = if i < warmup_epochs { "(warmup)" } else { "" };
+            println!("{:5}  {:8.2} MiB/s  {:10.1}  {}", 
+                     i + 1, throughput, samples, epoch_type);
+        }
+        
+        // Calculate steady-state stats (excluding warmup epochs)
+        if throughputs.len() > warmup_epochs {
+            let steady_state_throughputs = &throughputs[warmup_epochs..];
+            let steady_state_samples = &samples_per_sec[warmup_epochs..];
+            
+            let avg_throughput: f64 = steady_state_throughputs.iter().sum::<f64>() / steady_state_throughputs.len() as f64;
+            let avg_samples: f64 = steady_state_samples.iter().sum::<f64>() / steady_state_samples.len() as f64;
+            
+            let min_throughput = steady_state_throughputs.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max_throughput = steady_state_throughputs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("\nSteady-State Performance (epochs {}-{}):", warmup_epochs + 1, throughputs.len());
+            println!("  Average:    {:.2} MiB/s, {:.1} samples/s", avg_throughput, avg_samples);
+            println!("  Min/Max:    {:.2} / {:.2} MiB/s", min_throughput, max_throughput);
+            println!("  Variance:   {:.1}%", ((max_throughput - min_throughput) / avg_throughput * 100.0));
+            
+            // Compare warmup vs steady-state
+            if warmup_epochs > 0 {
+                let warmup_avg: f64 = throughputs[..warmup_epochs].iter().sum::<f64>() / warmup_epochs as f64;
+                let speedup = (avg_throughput / warmup_avg - 1.0) * 100.0;
+                
+                println!("\nWarmup vs Steady-State:");
+                println!("  Warmup Avg:     {:.2} MiB/s (epochs 1-{})", warmup_avg, warmup_epochs);
+                println!("  Steady-State:   {:.2} MiB/s (epochs {}-{})", avg_throughput, warmup_epochs + 1, throughputs.len());
+                println!("  Improvement:    {:.1}% (caching effect)", speedup);
+                
+                if speedup > 50.0 {
+                    println!("  → Significant cache benefit! Consider increasing warmup epochs for benchmarking.");
+                } else if speedup < 5.0 {
+                    println!("  → Minimal cache effect, storage likely the bottleneck.");
+                }
+            }
+        }
+        
+        println!();
     }
 
     /// Apply realistic framework-specific workload profile (Workstream A)

@@ -971,66 +971,117 @@ Optimize for specific ML frameworks:
 
 ### Checkpointing
 
-dl-driver supports **saving** and **reloading** checkpoints across all storage backends (file://, direct://, s3://, az://, gs://).
+dl-driver supports **saving** and **reloading** checkpoints across all storage backends (file://, direct://, s3://, az://, gs://) with realistic checkpoint sizes for storage I/O testing.
 
-#### Saving Checkpoints
+#### Checkpoint Configuration
 
 Enable periodic checkpoints during training:
 
 ```yaml
-checkpoint:
-  checkpoint_folder: file:///checkpoints  # Any backend supported
-  checkpoint_after_epoch: 1               # Start checkpointing after epoch 1
-  epochs_between_checkpoints: 2           # Save every 2 epochs
-  steps_between_checkpoints: 100          # Save every 100 steps
+checkpointing:
+  checkpoint_folder: file:///checkpoints     # Any backend supported
+  checkpoint_after_epoch: 1                  # Start checkpointing after epoch 1
+  epochs_between_checkpoints: 2              # Save every 2 epochs
+  steps_between_checkpoints: 100             # Save every 100 steps (optional)
+  checkpoint_size_mb: 100                    # Checkpoint data size in MB (default: 100)
 ```
+
+**Checkpoint Size Parameter** (v0.8.9+):
+- `checkpoint_size_mb` controls the amount of binary data generated per checkpoint
+- Default: 100MB (suitable for quick tests and most validation scenarios)
+- Realistic values: 
+  - **100MB**: Quick tests, small models
+  - **500MB**: BERT-base scale (model ~440MB, optimizer ~1.3GB total)
+  - **2000MB** (2GB): GPT-2 Medium scale
+  - **50GB+**: Large language models (LLaMA 70B ~700GB total)
+- Data format: Uses s3dlio's optimized generation with 512-byte blocks
+  - Each block has 32-byte unique regions (defeats 4KB-level storage deduplication)
+  - Non-compressible and non-deduplicatable (dedup=1, compress=1)
+  - Provides realistic storage I/O load without actual model weights
 
 **Multi-Backend Examples:**
 ```yaml
-# Local filesystem
-checkpoint_folder: file:///mnt/checkpoints
+# Local filesystem with 1GB checkpoints
+checkpointing:
+  checkpoint_folder: file:///mnt/checkpoints
+  checkpoint_size_mb: 1000
 
-# Direct I/O
-checkpoint_folder: direct:///nvme/checkpoints
+# Direct I/O with 500MB checkpoints
+checkpointing:
+  checkpoint_folder: direct:///nvme/checkpoints
+  checkpoint_size_mb: 500
 
-# Amazon S3
-checkpoint_folder: s3://my-bucket/training-run-001/checkpoints
+# Amazon S3 with default 100MB
+checkpointing:
+  checkpoint_folder: s3://my-bucket/training-run-001/checkpoints
+  checkpoint_size_mb: 100
 
 # Google Cloud Storage
-checkpoint_folder: gs://my-bucket/ml-checkpoints
+checkpointing:
+  checkpoint_folder: gs://my-bucket/ml-checkpoints
+  checkpoint_size_mb: 250
 
 # Azure Blob Storage
-checkpoint_folder: az://myaccount/container/checkpoints
+checkpointing:
+  checkpoint_folder: az://myaccount/container/checkpoints
+  checkpoint_size_mb: 2000  # 2GB for large model testing
 ```
 
-#### Reloading Checkpoints (v0.8.4+)
+#### Checkpoint File Format (v0.8.9+)
 
-Resume training from a saved checkpoint:
+Checkpoints use an efficient binary format:
+- Structure: `[4-byte length][JSON metadata][binary checkpoint data]`
+- Metadata includes: run_id, step, epoch, timestamp, config snapshot, statistics
+- Binary data: Configurable size (1MB-10GB+) for realistic storage I/O testing
+- Example: 100MB checkpoint = ~2KB JSON + 100MB binary = 101MB total file size
 
+#### Reloading Checkpoints
+
+Resume training from a saved checkpoint using the `resume` section in your config:
+
+```yaml
+# Resume from checkpoint
+resume:
+  checkpoint_path: "file:///checkpoints/epoch_0002.ckpt"
+  validate_config: false  # Optional: skip config validation
+```
+
+**Command Line:**
 ```bash
-# Resume from local checkpoint
-dl-driver run --config config.yaml --resume-from-checkpoint file:///checkpoints/checkpoint_epoch_5_step_500.bin
+# Run with resume config
+dl-driver run --config config_with_resume.yaml
 
-# Resume from S3
-dl-driver run --config config.yaml --resume-from-checkpoint s3://bucket/checkpoints/checkpoint_epoch_3.bin
-
-# Resume from GCS  
-dl-driver run --config config.yaml --resume-from-checkpoint gs://bucket/ckpt/checkpoint_epoch_10.bin
-
-# Resume from Azure
-dl-driver run --config config.yaml --resume-from-checkpoint az://account/container/checkpoint_epoch_2.bin
+# Or override checkpoint path
+dl-driver run --config config.yaml --resume-from-checkpoint file:///checkpoints/epoch_0005.ckpt
 ```
 
 **Resume Behavior:**
 - Training resumes at the **start of the next epoch** after the checkpoint
-- Example: Checkpoint saved at epoch 5, step 500 → resumes at epoch 6, step 0
-- Avoids mid-epoch complexities and ensures clean batch boundaries
-- All checkpoint metadata is validated on load
+- Example: Checkpoint saved at epoch 2 (epoch_0002.ckpt) → resumes at epoch 3
+- All checkpoint metadata is validated on load (run_id, timestamp, config)
+- Binary checkpoint data is loaded and validated (4-byte length prefix parsed correctly)
 
 **Testing Examples:**
-- See `crates/cli/tests/checkpoint_multibackend_test.rs` for 5-backend integration tests
-- See `crates/cli/tests/checkpoint_scenarios_test.rs` for 4 comprehensive reload scenarios
-- See `tests/manual_checkpoint_test.sh` for real-world validation script
+- See `tests/dlio_configs/test_v09_checkpoint.yaml` - 5 epochs with 100MB checkpoints
+- See `tests/dlio_configs/test_v09_checkpoint_resume.yaml` - Resume from epoch 2
+- Validation: Check checkpoint files are ~101MB (100MB data + ~2KB metadata)
+- Data verification: Use `hexdump -C checkpoint.ckpt | head -200` to inspect format
+
+**Checkpoint Testing Quick Start:**
+```bash
+# 1. Generate data and save checkpoints (epochs 1-5)
+./target/release/dl-driver run --config tests/dlio_configs/test_v09_checkpoint.yaml
+
+# 2. Verify checkpoint files exist and have correct size
+ls -lh /tmp/dl_driver_v09_checkpoint_test/checkpoints/*/epoch_*.ckpt
+# Should show: epoch_0001.ckpt, epoch_0002.ckpt, etc., each ~101MB
+
+# 3. Test checkpoint resume (loads epoch_0002.ckpt, resumes at epoch 3)
+./target/release/dl-driver run --config tests/dlio_configs/test_v09_checkpoint_resume.yaml
+
+# 4. Verify data format (512-byte blocks with unique 32-byte regions)
+hexdump -C /tmp/dl_driver_v09_checkpoint_test/checkpoints/*/epoch_0001.ckpt | head -200
+```
 
 ---
 

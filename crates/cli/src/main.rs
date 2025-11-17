@@ -1093,14 +1093,7 @@ async fn run_data_generation(config: &DlioConfig) -> Result<()> {
 #[allow(dead_code)]
 fn generate_synthetic_data(samples: usize, record_size: usize) -> Vec<u8> {
     let total_size = samples * record_size;
-    let mut data = vec![0u8; total_size];
-    
-    // Fill with some pattern for testing
-    for i in 0..total_size {
-        data[i] = (i % 256) as u8;
-    }
-    
-    data
+    s3dlio::generate_controlled_data(total_size, 1, 1)
 }
 
 async fn validate_dlio_config(config_path: &std::path::Path, to_json: bool) -> Result<()> {

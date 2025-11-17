@@ -1,0 +1,38 @@
+model:
+  name: "v09_checkpoint_test"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: true
+  train: true
+  checkpoint: true
+
+dataset:
+  data_folder: "file:///tmp/dl_driver_v09_checkpoint_test"
+  format: "npz"
+  num_files_train: 20
+  num_samples_per_file: 4
+  record_length_bytes: 10485760  # 10 MiB per sample
+
+reader:
+  batch_size: 4
+  prefetch: 4
+  shuffle: true
+  read_threads: 4
+  seed: 42
+
+train:
+  epochs: 5
+  computation_time: 0.05  # 50ms per batch (simulates GPU processing)
+  warmup_epochs: 2  # First 2 epochs are warmup
+
+checkpointing:
+  checkpoint_folder: "file:///tmp/dl_driver_v09_checkpoint_test/checkpoints"
+  checkpoint_after_epoch: 1  # Start checkpointing after epoch 1
+  epochs_between_checkpoints: 1  # Save after EVERY epoch
+  steps_between_checkpoints: 999999  # Large value = epoch-based only
+
+storage:
+  storage_root: "file:///tmp/dl_driver_v09_checkpoint_test"
+  storage_type: "local_fs"

@@ -157,9 +157,26 @@ impl CheckpointPlugin {
         }))
     }
 
+    /// Generate random checkpoint data to simulate model weights
+    /// 
+    /// Thin wrapper over s3dlio's generate_random_data() which creates non-compressible
+    /// random bytes to accurately simulate storage I/O load. Uses s3dlio's optimized
+    /// random data generation with minimal CPU overhead.
+    fn generate_checkpoint_data(&self, size_mb: usize) -> Vec<u8> {
+        let size_bytes = size_mb * 1024 * 1024;
+        
+        // Use s3dlio's optimized random data generation
+        // dedup=1, compress=1 means NO deduplication or compression (1:1 ratio)
+        s3dlio::generate_controlled_data(size_bytes, 1, 1)
+    }
+
     /// Write checkpoint for the given step
     async fn write_checkpoint(&self, step: u32) -> Result<()> {
         debug!("write_checkpoint() started for step {}", step);
+        
+        // Generate checkpoint data based on configured size
+        let checkpoint_size_mb = self.cfg.checkpoint_size_mb;
+        let checkpoint_binary_data = self.generate_checkpoint_data(checkpoint_size_mb);
         
         // First pass: Create checkpoint with placeholder metadata to calculate size
         let mut checkpoint_data = CheckpointData {
@@ -175,46 +192,32 @@ impl CheckpointPlugin {
                 elapsed_time_secs: 0.0,     // TODO: Get from metrics when available
                 compression_enabled: self.use_compression(),
                 compressed_size_bytes: None, // Will be updated in second pass if compression enabled
-                uncompressed_size_bytes: 0,  // Will be updated in second pass
+                uncompressed_size_bytes: checkpoint_binary_data.len(),
             },
         };
 
-        // Serialize checkpoint data to JSON (first pass)
-        let json_data_first_pass = serde_json::to_vec_pretty(&checkpoint_data)
-            .context("Failed to serialize checkpoint data (first pass)")?;
-
-        let uncompressed_size = json_data_first_pass.len();
+        // Serialize checkpoint metadata to JSON (small header)
+        let json_metadata = serde_json::to_vec_pretty(&checkpoint_data)
+            .context("Failed to serialize checkpoint metadata")?;
         
-        // Second pass: Update metadata with actual sizes and re-serialize
-        checkpoint_data.metadata.uncompressed_size_bytes = uncompressed_size;
+        // Calculate total size: metadata + binary checkpoint data
+        let total_uncompressed_size = json_metadata.len() + checkpoint_binary_data.len();
+        checkpoint_data.metadata.uncompressed_size_bytes = total_uncompressed_size;
         
-        // Apply compression if enabled and update compressed size
-        let (final_data, compressed_size) = if self.use_compression() {
-            // Compress the first-pass data to get compressed size
-            let compressed = zstd::encode_all(json_data_first_pass.as_slice(), self.compression_level())
-                .context("Failed to compress checkpoint data with zstd")?;
-            let compressed_size = compressed.len();
-            
-            // Update metadata with compressed size
-            checkpoint_data.metadata.compressed_size_bytes = Some(compressed_size);
-            
-            // Re-serialize with updated metadata
-            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
-                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
-            
-            // Compress the final version
-            let compressed_final = zstd::encode_all(json_data_final.as_slice(), self.compression_level())
-                .context("Failed to compress final checkpoint data with zstd")?;
-            let compressed_final_len = compressed_final.len();
-            
-            (Bytes::from(compressed_final), Some(compressed_final_len))
-        } else {
-            // No compression: re-serialize with updated uncompressed_size_bytes
-            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
-                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
-            
-            (Bytes::from(json_data_final), None)
-        };
+        // Create final checkpoint file: [metadata_len: u32][metadata: JSON][checkpoint_data: binary]
+        let mut final_data = Vec::with_capacity(4 + json_metadata.len() + checkpoint_binary_data.len());
+        
+        // Write metadata length prefix (4 bytes)
+        final_data.extend_from_slice(&(json_metadata.len() as u32).to_le_bytes());
+        
+        // Write metadata (JSON)
+        final_data.extend_from_slice(&json_metadata);
+        
+        // Write checkpoint binary data
+        final_data.extend_from_slice(&checkpoint_binary_data);
+        
+        let _compressed_size: Option<usize> = None; // Compression disabled (random data doesn't compress)
+        let final_data = Bytes::from(final_data);
 
         // Create checkpoint file path: {run_id}/step_{step:08}.ckpt
         let checkpoint_relative_path = format!("{}/step_{:08}.ckpt", self.run_id, step);
@@ -245,17 +248,15 @@ impl CheckpointPlugin {
         
         result.with_context(|| format!("Failed to write checkpoint to {}", checkpoint_relative_path))?;
 
-        let compression_info = if let Some(compressed) = compressed_size {
-            format!(" (compressed {} -> {} bytes, {:.1}% reduction)", 
-                uncompressed_size, compressed,
-                (1.0 - (compressed as f64 / uncompressed_size as f64)) * 100.0)
-        } else {
-            format!(" ({} bytes uncompressed)", uncompressed_size)
-        };
+        let size_info = format!(
+            " ({:.2} MB, {} bytes)",
+            final_data.len() as f64 / (1024.0 * 1024.0),
+            final_data.len()
+        );
 
         info!(
             "Checkpoint written: step={}, path={}{}", 
-            step, checkpoint_relative_path, compression_info
+            step, checkpoint_relative_path, size_info
         );
 
         Ok(())
@@ -264,6 +265,10 @@ impl CheckpointPlugin {
     /// Write checkpoint for the given epoch
     async fn write_epoch_checkpoint(&self, epoch: u32) -> Result<()> {
         debug!("write_epoch_checkpoint() started for epoch {}", epoch);
+        
+        // Generate checkpoint data based on configured size
+        let checkpoint_size_mb = self.cfg.checkpoint_size_mb;
+        let checkpoint_binary_data = self.generate_checkpoint_data(checkpoint_size_mb);
         
         // First pass: Create checkpoint with placeholder metadata to calculate size
         let mut checkpoint_data = CheckpointData {
@@ -279,46 +284,31 @@ impl CheckpointPlugin {
                 elapsed_time_secs: 0.0,     // TODO: Get from metrics when available
                 compression_enabled: self.use_compression(),
                 compressed_size_bytes: None, // Will be updated in second pass if compression enabled
-                uncompressed_size_bytes: 0,  // Will be updated in second pass
+                uncompressed_size_bytes: checkpoint_binary_data.len(),
             },
         };
 
-        // Serialize checkpoint data to JSON (first pass)
-        let json_data_first_pass = serde_json::to_vec_pretty(&checkpoint_data)
-            .context("Failed to serialize checkpoint data (first pass)")?;
-
-        let uncompressed_size = json_data_first_pass.len();
+        // Serialize checkpoint metadata to JSON (small header)
+        let json_metadata = serde_json::to_vec_pretty(&checkpoint_data)
+            .context("Failed to serialize checkpoint metadata")?;
         
-        // Second pass: Update metadata with actual sizes and re-serialize
-        checkpoint_data.metadata.uncompressed_size_bytes = uncompressed_size;
+        // Calculate total size: metadata + binary checkpoint data
+        let total_uncompressed_size = json_metadata.len() + checkpoint_binary_data.len();
+        checkpoint_data.metadata.uncompressed_size_bytes = total_uncompressed_size;
         
-        // Apply compression if enabled and update compressed size
-        let (final_data, compressed_size) = if self.use_compression() {
-            // Compress the first-pass data to get compressed size
-            let compressed = zstd::encode_all(json_data_first_pass.as_slice(), self.compression_level())
-                .context("Failed to compress checkpoint data with zstd")?;
-            let compressed_size = compressed.len();
-            
-            // Update metadata with compressed size
-            checkpoint_data.metadata.compressed_size_bytes = Some(compressed_size);
-            
-            // Re-serialize with updated metadata
-            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
-                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
-            
-            // Compress the final version
-            let compressed_final = zstd::encode_all(json_data_final.as_slice(), self.compression_level())
-                .context("Failed to compress final checkpoint data with zstd")?;
-            let compressed_final_len = compressed_final.len();
-            
-            (Bytes::from(compressed_final), Some(compressed_final_len))
-        } else {
-            // No compression: re-serialize with updated uncompressed_size_bytes
-            let json_data_final = serde_json::to_vec_pretty(&checkpoint_data)
-                .context("Failed to serialize checkpoint data (second pass with metadata)")?;
-            
-            (Bytes::from(json_data_final), None)
-        };
+        // Create final checkpoint file: [metadata_len: u32][metadata: JSON][checkpoint_data: binary]
+        let mut final_data = Vec::with_capacity(4 + json_metadata.len() + checkpoint_binary_data.len());
+        
+        // Write metadata length prefix (4 bytes)
+        final_data.extend_from_slice(&(json_metadata.len() as u32).to_le_bytes());
+        
+        // Write metadata (JSON)
+        final_data.extend_from_slice(&json_metadata);
+        
+        // Write checkpoint binary data
+        final_data.extend_from_slice(&checkpoint_binary_data);
+        
+        let final_data = Bytes::from(final_data);
 
         // Create checkpoint file path: {run_id}/epoch_{epoch:04}.ckpt
         let checkpoint_relative_path = format!("{}/epoch_{:04}.ckpt", self.run_id, epoch);
@@ -340,17 +330,15 @@ impl CheckpointPlugin {
             .await
             .with_context(|| format!("Failed to write epoch checkpoint to {}", checkpoint_relative_path))?;
 
-        let compression_info = if let Some(compressed) = compressed_size {
-            format!(" (compressed {} -> {} bytes, {:.1}% reduction)", 
-                uncompressed_size, compressed,
-                (1.0 - (compressed as f64 / uncompressed_size as f64)) * 100.0)
-        } else {
-            format!(" ({} bytes uncompressed)", uncompressed_size)
-        };
+        let size_info = format!(
+            " ({:.2} MB, {} bytes)",
+            final_data.len() as f64 / (1024.0 * 1024.0),
+            final_data.len()
+        );
 
         info!(
             "Epoch checkpoint written: epoch={}, path={}{}", 
-            epoch, checkpoint_relative_path, compression_info
+            epoch, checkpoint_relative_path, size_info
         );
 
         Ok(())
@@ -387,19 +375,26 @@ impl CheckpointPlugin {
             .await
             .with_context(|| format!("Failed to read checkpoint file from: {}", checkpoint_uri))?;
 
-        // Try to decompress if it's zstd compressed (check magic header)
-        let json_data = if data.len() > 4 && &data[0..4] == b"\x28\xb5\x2f\xfd" {
-            // zstd magic number detected
-            info!("Decompressing zstd-compressed checkpoint");
-            zstd::decode_all(data.as_ref())
-                .context("Failed to decompress zstd checkpoint data")?
-        } else {
-            // Uncompressed JSON
-            data.to_vec()
-        };
+        // Parse checkpoint format: [4-byte length][JSON metadata][binary data]
+        if data.len() < 4 {
+            anyhow::bail!("Checkpoint file too small: {} bytes", data.len());
+        }
+
+        // Read metadata length (first 4 bytes, little-endian)
+        let metadata_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        
+        if data.len() < 4 + metadata_len {
+            anyhow::bail!(
+                "Checkpoint file truncated: expected {} bytes of metadata, file has {} total bytes",
+                metadata_len, data.len()
+            );
+        }
+
+        // Extract JSON metadata (bytes 4 to 4+metadata_len)
+        let json_data = &data[4..4 + metadata_len];
 
         // Deserialize checkpoint data
-        let checkpoint_data: CheckpointData = serde_json::from_slice(&json_data)
+        let checkpoint_data: CheckpointData = serde_json::from_slice(json_data)
             .context("Failed to deserialize checkpoint JSON")?;
 
         // Parse config snapshot
@@ -559,6 +554,7 @@ mod tests {
                 computation_time: Some(0.1),
                 computation_time_stdev: None,
                 total_training_steps: None,
+                warmup_epochs: 0,
             }),
             metric: None,
             checkpointing: Some(CheckpointingConfig {
@@ -566,6 +562,7 @@ mod tests {
                 checkpoint_after_epoch: None,
                 epochs_between_checkpoints: None,
                 steps_between_checkpoints: Some(steps_between),
+                checkpoint_size_mb: 1,  // Use 1MB for tests
                 endpoint_uris: None,
                 load_balance_strategy: "round_robin".to_string(),
             }),
@@ -676,9 +673,29 @@ mod tests {
         // Manually modify checkpoint to have different version (construct path with run_id)
         let checkpoint_path = temp_dir.path().join(format!("{}/step_{:08}.ckpt", plugin.run_id, 100));
         let checkpoint_data = fs::read(&checkpoint_path).unwrap();
-        let mut checkpoint_json: serde_json::Value = serde_json::from_slice(&checkpoint_data).unwrap();
+        
+        // Parse binary format: [4-byte length][JSON metadata][binary data]
+        let json_len = u32::from_le_bytes([
+            checkpoint_data[0],
+            checkpoint_data[1],
+            checkpoint_data[2],
+            checkpoint_data[3],
+        ]) as usize;
+        let json_bytes = &checkpoint_data[4..4 + json_len];
+        let mut checkpoint_json: serde_json::Value = serde_json::from_slice(json_bytes).unwrap();
+        
+        // Modify version
         checkpoint_json["checkpoint_version"] = serde_json::Value::String("99.99.99".to_string());
-        fs::write(&checkpoint_path, serde_json::to_vec(&checkpoint_json).unwrap()).unwrap();
+        
+        // Reconstruct binary format with modified JSON
+        let modified_json_bytes = serde_json::to_vec(&checkpoint_json).unwrap();
+        let modified_json_len = modified_json_bytes.len() as u32;
+        let mut modified_checkpoint = Vec::new();
+        modified_checkpoint.extend_from_slice(&modified_json_len.to_le_bytes());
+        modified_checkpoint.extend_from_slice(&modified_json_bytes);
+        modified_checkpoint.extend_from_slice(&checkpoint_data[4 + json_len..]); // Keep original binary data
+        
+        fs::write(&checkpoint_path, modified_checkpoint).unwrap();
         
         // Load should succeed but log warning
         let checkpoint_uri = format!("file://{}", checkpoint_path.display());

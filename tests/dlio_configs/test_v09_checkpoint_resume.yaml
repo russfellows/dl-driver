@@ -1,0 +1,43 @@
+model:
+  name: "v09_checkpoint_resume_test"
+
+framework: "pytorch"
+
+workflow:
+  generate_data: false  # Data already exists
+  train: true
+  checkpoint: true
+
+dataset:
+  data_folder: "file:///tmp/dl_driver_v09_checkpoint_test"
+  format: "npz"
+  num_files_train: 20
+  num_samples_per_file: 4
+  record_length_bytes: 10485760  # 10 MiB per sample
+
+reader:
+  batch_size: 4
+  prefetch: 4
+  shuffle: true
+  read_threads: 4
+  seed: 42
+
+train:
+  epochs: 5  # Will continue from epoch 3 to epoch 5
+  computation_time: 0.05  # 50ms per batch
+  warmup_epochs: 2
+
+checkpointing:
+  checkpoint_folder: "file:///tmp/dl_driver_v09_checkpoint_test/checkpoints"
+  checkpoint_after_epoch: 1
+  epochs_between_checkpoints: 1
+  steps_between_checkpoints: 999999
+
+# Resume from checkpoint saved at end of epoch 2
+resume:
+  checkpoint_path: "file:///tmp/dl_driver_v09_checkpoint_test/checkpoints/f7a90657-6116-4ba4-a5cd-103b2dec6f0f/epoch_0002.ckpt"
+  validate_config: false  # Skip config validation for testing
+
+storage:
+  storage_root: "file:///tmp/dl_driver_v09_checkpoint_test"
+  storage_type: "local_fs"

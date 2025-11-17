@@ -142,8 +142,8 @@ impl WorkloadRunner {
             let start = Instant::now();
             let object_uri = format!("{}/train_file_{:06}.npz", data_folder, i);
             
-            // Generate synthetic data
-            let data = vec![0u8; record_size as usize];
+            // Generate synthetic data using s3dlio's optimized data generation
+            let data = s3dlio::generate_controlled_data(record_size as usize, 1, 1);
             
                         // Use s3dlio object_store to put the data
             match store.put(&object_uri, &data).await {
@@ -173,8 +173,8 @@ impl WorkloadRunner {
             let start = Instant::now();
             let file_path = format!("{}/train_file_{:06}.npz", data_folder, i);
             
-            // Generate synthetic NPZ data
-            let data = vec![0u8; record_size as usize]; // Simple synthetic data
+            // Generate synthetic NPZ data using s3dlio's optimized data generation
+            let data = s3dlio::generate_controlled_data(record_size as usize, 1, 1);
             fs::write(&file_path, data)?;
             
             info!("Generated file: {}", file_path);

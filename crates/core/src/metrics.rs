@@ -230,6 +230,16 @@ struct MetricsData {
     pub read_hists: StorageOpHists,
     pub write_hists: StorageOpHists,
     pub batch_hists: BatchTimeHist,
+    
+    // v0.9.0: Stall detection - when prefetch queue empties
+    pub stall_count: u64,
+    pub total_stall_time: Duration,
+    pub max_stall_duration: Duration,
+    pub stall_threshold_us: u64,  // Report as stall if recv() blocks longer than this
+    
+    // v0.9.0: Per-epoch performance tracking
+    pub epoch_throughputs_mib_s: Vec<f64>,  // MiB/s per epoch
+    pub epoch_samples_per_sec: Vec<f64>,    // Samples/s per epoch
 }
 
 impl Default for MetricsData {
@@ -250,6 +260,12 @@ impl Default for MetricsData {
             read_hists: StorageOpHists::new(),
             write_hists: StorageOpHists::new(),
             batch_hists: BatchTimeHist::new(),
+            stall_count: 0,
+            total_stall_time: Duration::from_secs(0),
+            max_stall_duration: Duration::from_secs(0),
+            stall_threshold_us: 100,  // Report stalls > 100µs (indicates prefetch queue empty)
+            epoch_throughputs_mib_s: Vec::new(),
+            epoch_samples_per_sec: Vec::new(),
         }
     }
 }
@@ -473,6 +489,39 @@ impl Metrics {
         data.batch_hists.clone()
     }
 
+    /// v0.9.0: Record a stall event when prefetch queue empties
+    pub fn record_stall(&self, wait_time: Duration) {
+        let mut data = self.data.lock().unwrap();
+        let wait_us = wait_time.as_micros() as u64;
+        
+        if wait_us > data.stall_threshold_us {
+            data.stall_count += 1;
+            data.total_stall_time += wait_time;
+            if wait_time > data.max_stall_duration {
+                data.max_stall_duration = wait_time;
+            }
+        }
+    }
+
+    /// v0.9.0: Get stall statistics
+    pub fn get_stall_stats(&self) -> (u64, Duration, Duration) {
+        let data = self.data.lock().unwrap();
+        (data.stall_count, data.total_stall_time, data.max_stall_duration)
+    }
+    
+    /// v0.9.0: Record per-epoch performance
+    pub fn record_epoch_performance(&self, throughput_mib_s: f64, samples_per_sec: f64) {
+        let mut data = self.data.lock().unwrap();
+        data.epoch_throughputs_mib_s.push(throughput_mib_s);
+        data.epoch_samples_per_sec.push(samples_per_sec);
+    }
+    
+    /// v0.9.0: Get per-epoch metrics (returns clones)
+    pub fn get_epoch_metrics(&self) -> (Vec<f64>, Vec<f64>) {
+        let data = self.data.lock().unwrap();
+        (data.epoch_throughputs_mib_s.clone(), data.epoch_samples_per_sec.clone())
+    }
+
     /// Record bytes written
     pub fn record_bytes_written(&self, bytes: u64) {
         let mut data = self.data.lock().unwrap();
@@ -565,19 +614,9 @@ impl Metrics {
     pub fn print_unified_summary(&self, elapsed_s: f64, total_samples: u64, au_percentage: f64) {
         println!("\n=== Final Aggregate Results ===");
         
-        // Get histogram data for latency statistics
-        let read_hists = self.get_read_histograms();
-        let write_hists = self.get_write_histograms();
-        
-        // Create combined histograms to get latency stats
-        let read_combined = read_hists.combined_histogram();
-        let write_combined = write_hists.combined_histogram();
-        
         // Bug #11 fix: Use files_read() and files_written() for proper separation
         let total_get_ops = self.files_read();
         let total_put_ops = self.files_written();
-        let total_get_bytes = self.bytes_read();
-        let total_put_bytes = self.bytes_written();
         
         // Format counts with commas
         let format_count = |n: u64| -> String {
@@ -591,37 +630,9 @@ impl Metrics {
                 .join(",")
         };
         
-        // Format bandwidth
-        let format_bandwidth = |bytes: u64, seconds: f64| -> String {
-            let mbps = (bytes as f64) / (1024.0 * 1024.0) / seconds;
-            if mbps >= 1024.0 {
-                format!("{:.2} GiB/s", mbps / 1024.0)
-            } else {
-                format!("{:.2} MiB/s", mbps)
-            }
-        };
-        
         println!("Total operations: {} READ, {} WRITE", 
                  format_count(total_get_ops), 
                  format_count(total_put_ops));
-        
-        if total_get_ops > 0 && read_combined.len() > 0 {
-            println!("READ: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
-                     total_get_ops as f64 / elapsed_s,
-                     format_bandwidth(total_get_bytes, elapsed_s),
-                     read_combined.mean(),
-                     read_combined.value_at_quantile(0.50) as f64,
-                     read_combined.value_at_quantile(0.95) as f64);
-        }
-        
-        if total_put_ops > 0 && write_combined.len() > 0 {
-            println!("WRITE: {:.0} ops/s, {} (mean: {:.0}µs, p50: {:.0}µs, p95: {:.0}µs)",
-                     total_put_ops as f64 / elapsed_s,
-                     format_bandwidth(total_put_bytes, elapsed_s),
-                     write_combined.mean(),
-                     write_combined.value_at_quantile(0.50) as f64,
-                     write_combined.value_at_quantile(0.95) as f64);
-        }
         
         if total_samples > 0 {
             println!("AI/ML: {} samples, {:.0} samples/s",
@@ -629,9 +640,48 @@ impl Metrics {
                      total_samples as f64 / elapsed_s);
         }
         
+        // v0.9.0: Show batch time variance (indicates training consistency)
+        let batch_hists = self.get_batch_histograms();
+        let batch_hist_locked = batch_hists.hist.lock().unwrap();
+        if batch_hist_locked.len() > 0 {
+            println!("Batch Time: mean={:.2}ms, p50={:.2}ms, p95={:.2}ms, p99={:.2}ms, max={:.2}ms",
+                     batch_hist_locked.mean() / 1000.0,
+                     batch_hist_locked.value_at_quantile(0.50) as f64 / 1000.0,
+                     batch_hist_locked.value_at_quantile(0.95) as f64 / 1000.0,
+                     batch_hist_locked.value_at_quantile(0.99) as f64 / 1000.0,
+                     batch_hist_locked.max() as f64 / 1000.0);
+        }
+        drop(batch_hist_locked);  // Release lock before next operations
+        
         // Show AU percentage (important metric for MLPerf compliance)
         if au_percentage >= 0.0 {
             println!("AU: {:.1}%", au_percentage);
+        }
+        
+        // v0.9.0: Show aggregate bandwidth (just the facts!)
+        let total_bytes = self.bytes_read() + self.bytes_written();
+        if total_bytes > 0 {
+            let gib_s = (total_bytes as f64 / (1024.0 * 1024.0 * 1024.0)) / elapsed_s;
+            let mib_s = (total_bytes as f64 / (1024.0 * 1024.0)) / elapsed_s;
+            
+            if gib_s >= 1.0 {
+                println!("Bandwidth: {:.2} GiB/s", gib_s);
+            } else {
+                println!("Bandwidth: {:.2} MiB/s", mib_s);
+            }
+        }
+        
+        // v0.9.0: Show stall statistics
+        let (stall_count, total_stall_time, max_stall) = self.get_stall_stats();
+        if stall_count > 0 {
+            let stall_percent = (total_stall_time.as_secs_f64() / elapsed_s) * 100.0;
+            println!("⚠️  STALLS: {} events, {:.2}ms total ({:.2}% of time), max={:.2}ms",
+                     stall_count,
+                     total_stall_time.as_secs_f64() * 1000.0,
+                     stall_percent,
+                     max_stall.as_secs_f64() * 1000.0);
+        } else {
+            println!("✅ PREFETCH: No stalls detected");
         }
         
         println!("Elapsed: {:.2}s", elapsed_s);

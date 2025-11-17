@@ -221,9 +221,10 @@ impl MlperfRunner {
                 Ok(data)
             }
             _ => {
-                // Generate random data for other formats
+                // Generate random data for other formats using s3dlio's optimized generation
                 let total_size = samples * record_size;
-                let data = (0..total_size).map(|i| (i % 256) as u8).collect();
+                // Generate sample data
+                let data = s3dlio::generate_controlled_data(total_size, 1, 1);
                 Ok(data)
             }
         }

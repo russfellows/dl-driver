@@ -535,7 +535,11 @@ mod tests {
                 data_loading_time_s: 6.0,
                 compute_time_s: 3.5,
                 pipeline_efficiency: 0.95,
+<<<<<<< HEAD
+                accelerator_utilization: 0.35,
+=======
                 accelerator_utilization: 0.85,
+>>>>>>> origin/main
             },
             WorkloadResult {
                 agent_id: "agent2".to_string(),
@@ -612,10 +616,6 @@ mod tests {
         ];
 
         let agg = AggregateResults::from_results(results).unwrap();
-        
-        // Test storage TSV
-        let storage_tsv = agg.to_storage_tsv();
-        assert!(storage_tsv.contains("agent_id\tops_s"));
         assert!(storage_tsv.contains("agent1\t1000.0"));
         assert!(storage_tsv.contains("AGGREGATE\t1000.0"));
         

@@ -1,4 +1,13 @@
-# dl-driver AI Coding Instructions
+# dl-driver Project Instructions
+
+## ⚠️ CRITICAL: Build and Test Commands
+
+**NEVER pipe build or test commands through head/tail/grep**
+
+❌ **WRONG:** `cargo build 2>&1 | tail -50`  
+✅ **CORRECT:** `cargo build --release` (see ALL output)
+
+User has explicitly stated this requirement 100+ times. Piping obscures errors and warnings.
 
 This project is a high-performance, MLCommons DLIO-compatible data loading framework in Rust, designed for unified access to multiple storage backends (File, S3, Azure, DirectIO) via the s3dlio library. It is structured for drop-in replacement of DLIO benchmarks and enterprise-scale workloads.
 
