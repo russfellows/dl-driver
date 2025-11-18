@@ -3,7 +3,7 @@
 **A tool for performing realistic testing of storage performance when running AI/ML workloads**
 
 [![Rust](https://img.shields.io/badge/rust-1.91.0+-blue.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.8.10-green.svg)](./docs/Changelog.md)
+[![Version](https://img.shields.io/badge/version-0.8.11-green.svg)](./docs/Changelog.md)
 [![Build](https://img.shields.io/badge/build-passing-success.svg)](#compilation-status)
 [![Formats](https://img.shields.io/badge/formats-3%20validated-brightgreen.svg)](#format-compatibility)
 [![Validation](https://img.shields.io/badge/tests-133%20passing-success.svg)](#testing--validation)
@@ -21,6 +21,7 @@
 **Key Achievement**: Validation of object/file formats with numpy, h5py, and TensorFlow provides integration with existing ML pipelines.
 
 ## 🎯 Current Status
+- **🎉 v0.8.11 RELEASED**: Updated to s3dlio v0.9.18 with dependency synchronization
 - **🎉 v0.8.10 RELEASED**: Realistic checkpoint sizes (100MB+) with s3dlio integration and architecture fixes
 - **🎉 v0.8.9 RELEASED**: Multi-array NPZ + TFRecord index generation
 - **🎯 NPZ ENHANCEMENT**: Multi-array support via s3dlio's build_multi_npz() (data + labels + metadata)
