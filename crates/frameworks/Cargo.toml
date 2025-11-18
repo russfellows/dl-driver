@@ -11,10 +11,10 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 rand = "0.9"
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 
 # Using s3dlio v0.9.17 with custom NPY implementation
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.17" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.18" }
 
 dl-driver-core = { path = "../core" }
 dl-driver-formats = { path = "../formats" }

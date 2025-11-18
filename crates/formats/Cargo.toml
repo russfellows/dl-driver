@@ -16,7 +16,7 @@ tempfile = "3.0"
 crc32fast = "1.3"
 crc32c = "0.6"
 # Using s3dlio v0.9.17 with custom NPY implementation
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.17" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.18" }
 
 [dev-dependencies]
 tempfile = "3.20.0"

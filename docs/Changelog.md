@@ -8,10 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned for Future Releases
+- **NPZ Compression Support** - Add optional ZIP deflate compression to NPZ files (matching numpy.savez_compressed())
+  - Enhancement request: Add `compressed: bool` parameter to s3dlio's build_multi_npz()
+  - Enhancement request: Add `compressed` field to dl-driver dataset config
+  - Default: uncompressed (matching numpy.savez() and ML training best practices)
+  - Optional: compressed mode for archival/distribution (10-15% size reduction)
 - Storage latency instrumentation (upstream s3dlio enhancement - see `docs/STORAGE_LATENCY_LIMITATION.md`)
 - Per-epoch deterministic shuffle (Gap 1 from multi-node training analysis)
 - Sample-level sharding mode (Gap 2 from multi-node training analysis)
 - Node/local-rank abstraction with --gpus-per-node parameter (Gap 3 from multi-node training analysis)
+
+---
+
+## [0.8.11] - 2025-11-18 - **s3dlio v0.9.18 Update & Dependency Sync** 🔄
+
+### **⬆️ Updated - Core Dependencies**
+- **s3dlio v0.9.17 → v0.9.18** - Updated across all crates (cli, core, formats, frameworks)
+  - Benefits from 5-24% data generation performance improvements
+  - Xoshiro256++ RNG optimization (rand_xoshiro 0.7)
+  - Enhanced op-log sorting capabilities
+  - See [s3dlio v0.9.18 release](https://github.com/russfellows/s3dlio/releases/tag/v0.9.18)
+
+### **🔄 Synchronized - Dependency Versions**
+- **rand_chacha 0.3 → 0.9** - Synchronized with s3dlio's RNG ecosystem
+  - Updated in: `crates/core`, `crates/frameworks`
+  - Maintains compatibility with s3dlio's Xoshiro256++ implementation
+- **ndarray 0.15 → 0.17** - Updated to latest stable version
+  - Updated in: `crates/core` (formats already on 0.17)
+  - Ensures API compatibility with s3dlio's array operations
+
+### **✅ Verification**
+- **Build validation** - `cargo check` passed (59.68s)
+- **Dependency resolution** - Clean Cargo.lock with no conflicts
+- **Zero compiler warnings** - Production-quality code maintained
+
+### **📝 Notes**
+- All dependency versions now aligned with s3dlio v0.9.18 requirements
+- This ensures dl-driver benefits from upstream performance optimizations
+- Maintains production-quality standards (zero warnings policy)
 
 ---
 

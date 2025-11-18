@@ -249,14 +249,14 @@ impl Format for TfRecordFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
+    use tempfile::TempDir;
 
     #[test]
     fn tfrecord_generate_and_read() {
         // 10 records of 128 bytes each
         let fmt = TfRecordFormat::new(10, 128);
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().with_extension("tfrecord");
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.tfrecord");
 
         fmt.generate(&path).unwrap();
         fmt.read(&path).unwrap();
@@ -265,8 +265,8 @@ mod tests {
     #[test]
     fn tfrecord_single_record() {
         let fmt = TfRecordFormat::new(1, 64);
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().with_extension("tfrecord");
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test_single.tfrecord");
 
         fmt.generate(&path).unwrap();
         fmt.read(&path).unwrap();
@@ -275,8 +275,8 @@ mod tests {
     #[test]
     fn tfrecord_large_records() {
         let fmt = TfRecordFormat::new(5, 1024);
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().with_extension("tfrecord");
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test_large.tfrecord");
 
         fmt.generate(&path).unwrap();
         fmt.read(&path).unwrap();

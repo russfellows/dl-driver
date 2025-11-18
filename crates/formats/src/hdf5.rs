@@ -244,7 +244,7 @@ pub type Hdf5StreamingFormat = Hdf5Format;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
+    use tempfile::TempDir;
 
     #[test]
     fn hdf5_generate_and_read() {
@@ -255,8 +255,8 @@ mod tests {
 
         // a small 4×5 example
         let fmt = Hdf5Format::new(vec![4, 5], None);
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().with_extension("h5");
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.h5");
 
         fmt.generate(&path).unwrap();
         fmt.read(&path).unwrap();
@@ -269,8 +269,8 @@ mod tests {
         }
 
         let fmt = Hdf5Format::new(vec![2, 3], Some("my_data".to_string()));
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().with_extension("h5");
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test_custom.h5");
 
         fmt.generate(&path).unwrap();
         fmt.read(&path).unwrap();
