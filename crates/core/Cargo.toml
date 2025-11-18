@@ -48,16 +48,16 @@ hostname = "0.4"
 memmap2 = "0.9"
 shared_memory = "0.12"
 rand = { version = "0.9", features = ["std", "alloc"] }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 rayon = "1.10"
 num_cpus = "1.16"
-ndarray = "0.15"
+ndarray = "0.17"
 # ndarray-npy removed - using s3dlio's custom NPY implementation for better performance
 tempfile = "3.0"
 
 # Using s3dlio v0.9.17 with custom NPY implementation
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.17" }
-s3dlio-oplog = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.17" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.18" }
+s3dlio-oplog = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.18" }
 
 # Local formats crate
 dl-driver-formats = { path = "../formats" }

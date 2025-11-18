@@ -27,7 +27,7 @@ dl-driver-formats = { path = "../formats" }
 dl-driver-storage = { path = "../storage" }
 
 # Using s3dlio v0.9.17 with custom NPY implementation
-s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.17" }
+s3dlio = { git = "https://github.com/russfellows/s3dlio.git", tag = "v0.9.18" }
 
 [dev-dependencies]
 tempfile = "3.0"
